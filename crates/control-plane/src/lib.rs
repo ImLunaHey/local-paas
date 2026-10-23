@@ -192,6 +192,11 @@ pub struct Service {
 pub struct CreateService {
     pub operation_id: Uuid,
     pub spec: ServiceSpec,
+    #[serde(default = "default_build_on_create")]
+    pub build_on_create: bool,
+}
+fn default_build_on_create() -> bool {
+    true
 }
 
 async fn health(State(pool): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -305,6 +310,21 @@ async fn create_service(
         .bind(request.operation_id).bind(DbJson(&request.spec)).fetch_one(&mut *tx).await?;
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind) VALUES ($1, $2, $3, 'service.registered')")
         .bind(Uuid::new_v4()).bind(service.id).bind(request.operation_id).execute(&mut *tx).await?;
+    if request.build_on_create && service.spec.kind() != "celld-service" {
+        let build_id = Uuid::new_v4();
+        let build_request = builds::CreateBuild {
+            operation_id: request.operation_id,
+            no_cache: false,
+            commit: None,
+            branch: None,
+            tag: None,
+        };
+        sqlx::query("INSERT INTO builds(id,service_id,operation_id,spec,no_cache,resolved_commit,request_json) VALUES($1,$2,$3,$4,false,$5,$6)")
+            .bind(build_id).bind(service.id).bind(request.operation_id).bind(&service.spec)
+            .bind(&service.spec.source.commit).bind(DbJson(&build_request)).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind,build_id) VALUES($1,$2,$3,'build.queued',$4)")
+            .bind(Uuid::new_v4()).bind(service.id).bind(request.operation_id).bind(build_id).execute(&mut *tx).await?;
+    }
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(service)))
 }

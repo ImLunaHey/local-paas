@@ -190,14 +190,16 @@ they must not be handed to future worker nodes.
 Start the Rust worker after the VM is ready:
 
 ```sh
-source .local/builder.env
-make build-worker
+bash infra/builder/worker.sh
 ```
 
 On Lake, this worker is currently running as the transient user unit
 `local-paas-build-worker`. Inspect it with `systemctl --user status
 local-paas-build-worker`; stop it before browser queue tests with `systemctl
---user stop local-paas-build-worker`. In non-login shells on Lake, prefix these
+--user stop local-paas-build-worker`. Recreate it afterward with `bash
+infra/builder/worker.sh` (a collected transient unit cannot be restarted with
+`systemctl start`). Do not stop the shared worker while someone has queued builds;
+use a separate test database and worker for queue tests. In non-login shells on Lake, prefix these
 commands with `XDG_RUNTIME_DIR=/run/user/1000`. The VM itself is a separate system
 unit, operated with `sudo systemctl` as shown below.
 

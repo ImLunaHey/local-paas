@@ -33,7 +33,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     let (_, s) = call(
         pool,
         "/api/services",
-        json!({"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
         None,
     )
     .await;

@@ -50,7 +50,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Uuid) {
         pool,
         "POST",
         "/api/services",
-        json!({"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
     )
     .await;
     assert_eq!(status, 201);

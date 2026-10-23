@@ -38,7 +38,7 @@ async fn service(pool: &PgPool, celld: bool) -> String {
         pool,
         "POST",
         "/api/services",
-        json!({"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);

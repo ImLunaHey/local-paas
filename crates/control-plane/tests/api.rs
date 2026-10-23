@@ -9,7 +9,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 fn request_body() -> Value {
-    json!({"operation_id":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/oci-service.json")).unwrap()})
+    json!({"build_on_create":false,"operation_id":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/oci-service.json")).unwrap()})
 }
 
 async fn call(pool: &PgPool, method: &str, path: &str, body: Value) -> (StatusCode, Value) {
@@ -122,7 +122,7 @@ async fn validation_prevents_all_writes(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 #[ignore = "requires disposable PostgreSQL"]
 async fn celld_stays_a_distinct_workload(pool: PgPool) {
-    let request = json!({"operation_id":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/celld-service.json")).unwrap()});
+    let request = json!({"build_on_create":false,"operation_id":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/celld-service.json")).unwrap()});
     let (status, service) = call(&pool, "POST", "/api/services", request).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(service["spec"]["workload"]["kind"], "celld-service");
@@ -435,4 +435,50 @@ async fn environments_are_explicit_filtered_and_service_identity_cannot_move(poo
         .0,
         StatusCode::CONFLICT
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn registration_queues_first_build_atomically_and_retries_do_not_duplicate(pool: PgPool) {
+    let mut body = request_body();
+    body.as_object_mut().unwrap().remove("build_on_create");
+    let (first, second) = tokio::join!(
+        call(&pool, "POST", "/api/services", body.clone()),
+        call(&pool, "POST", "/api/services", body.clone())
+    );
+    assert_eq!(first.1["id"], second.1["id"]);
+    assert!([first.0, second.0].contains(&StatusCode::CREATED));
+    let service: Uuid = first.1["id"].as_str().unwrap().parse().unwrap();
+    let builds: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM builds WHERE service_id=$1 AND status='queued'")
+            .bind(service)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(builds, 1);
+    let events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM events WHERE service_id=$1 AND kind='build.queued'",
+    )
+    .bind(service)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(events, 1);
+    sqlx::query("ALTER TABLE builds ADD CONSTRAINT reject_initial_build CHECK (false) NOT VALID")
+        .execute(&pool)
+        .await
+        .unwrap();
+    body["operation_id"] = json!(Uuid::new_v4());
+    body["spec"]["name"] = json!("failed-registration");
+    assert_eq!(
+        call(&pool, "POST", "/api/services", body).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM services WHERE name='failed-registration')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!exists);
 }
