@@ -2,11 +2,14 @@ import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Box, Hammer, LoaderCircle, RefreshCw, Terminal, X } from 'lucide-react'
-import { api } from './api'
-import type { Build, Revision, Service } from './api'
+import { api, sourceLabel, sourceReference } from './api'
+import type { Build, Revision, Service, SourceKind } from './api'
 
 const active = (build?: Build) => build?.status === 'queued' || build?.status === 'running'
 const errors: Record<string, string> = {
+  source_ref_not_found: 'The requested branch or tag does not exist in the repository.',
+  source_resolution_failed:
+    'Could not resolve the source reference. Check repository access and retry.',
   build_failed: 'BuildKit reported a failure. Review the build output below.',
   build_client_failed: 'The build client could not start or read output. Check the builder setup.',
   build_timeout: 'The build exceeded its configured time limit.',
@@ -21,7 +24,9 @@ const errors: Record<string, string> = {
 export function BuildPanel({ service }: { service: Service }) {
   const client = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [commit, setCommit] = useState(service.spec.source.commit)
+  const initialRef = sourceReference(service.spec.source)
+  const [sourceKind, setSourceKind] = useState<SourceKind>(initialRef.kind)
+  const [commit, setCommit] = useState(initialRef.value)
   const [noCache, setNoCache] = useState(false)
   const operation = useRef<{ input: string; id: string } | null>(null)
   const enabled = service.spec.workload.kind === 'oci-service'
@@ -47,13 +52,13 @@ export function BuildPanel({ service }: { service: Service }) {
   const busy = history.data?.some(active) ?? false
   const create = useMutation({
     mutationFn: () => {
-      const input = JSON.stringify({ commit: commit.trim(), no_cache: noCache })
+      const input = JSON.stringify({ [sourceKind]: commit.trim(), no_cache: noCache })
       if (operation.current?.input !== input) operation.current = { input, id: crypto.randomUUID() }
       return api<Build>(`/services/${service.id}/builds`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          commit: commit.trim(),
+          [sourceKind]: commit.trim(),
           no_cache: noCache,
           operation_id: operation.current.id,
         }),
@@ -104,18 +109,38 @@ export function BuildPanel({ service }: { service: Service }) {
         </span>
       </div>
       <p className="text-xs text-muted">
-        Build an immutable image from a commit. Building does not deploy or change traffic.
+        Build an immutable image from a branch, tag, or commit. Building does not deploy or change
+        traffic.
       </p>
       <div className="build-workspace">
         <div className="build-controls space-y-4">
           <form onSubmit={submit} className="space-y-3">
             <label className="field">
-              <span>Build commit SHA</span>
+              <span>Build source type</span>
+              <select
+                className="build-select"
+                value={sourceKind}
+                onChange={(event) => setSourceKind(event.target.value as SourceKind)}
+                disabled={create.isPending}
+              >
+                <option value="branch">Branch</option>
+                <option value="tag">Tag</option>
+                <option value="commit">Commit</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>
+                {sourceKind === 'commit'
+                  ? 'Build commit SHA'
+                  : sourceKind === 'branch'
+                    ? 'Build branch'
+                    : 'Build tag'}
+              </span>
               <input
                 className="font-mono"
                 value={commit}
                 onChange={(event) => setCommit(event.target.value)}
-                pattern="([a-f0-9]{40}|[a-f0-9]{64})"
+                pattern={sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined}
                 required
                 disabled={create.isPending}
               />
@@ -175,7 +200,7 @@ export function BuildPanel({ service }: { service: Service }) {
                   {history.data.map((build) => (
                     <option key={build.id} value={build.id}>
                       {new Date(build.created_at).toLocaleString()} ·{' '}
-                      {build.spec.source.commit.slice(0, 8)} · {build.status}
+                      {sourceLabel(build.spec.source)} · {build.status}
                     </option>
                   ))}
                 </select>
@@ -208,6 +233,11 @@ export function BuildPanel({ service }: { service: Service }) {
                       </button>
                     )}
                   </div>
+                  {selected.resolved_commit && (
+                    <p className="text-xs text-muted break-all">
+                      Resolved commit <code>{selected.resolved_commit}</code>
+                    </p>
+                  )}
                   {selected.error_code && (
                     <p className="error-notice">
                       {errors[selected.error_code] ?? selected.error_code}

@@ -13,10 +13,13 @@ use tokio::{
     sync::mpsc,
 };
 use uuid::Uuid;
+mod refs;
+pub use refs::resolve_commit;
 
 #[derive(Clone)]
 pub struct Config {
     pub binary: PathBuf,
+    pub git_binary: Option<PathBuf>,
     pub address: String,
     pub ca: PathBuf,
     pub cert: PathBuf,
@@ -47,6 +50,12 @@ pub enum Error {
     Timeout,
     #[error("BuildKit did not return valid image digest metadata")]
     Metadata,
+    #[error("branch or tag could not be resolved from the repository")]
+    ReferenceLookup,
+    #[error("the requested branch or tag does not exist")]
+    ReferenceMissing,
+    #[error("build lost its claim before source resolution was recorded")]
+    Lease,
 }
 
 impl Error {
@@ -59,6 +68,9 @@ impl Error {
             Self::BuildFailed => "build_failed",
             Self::Timeout => "build_timeout",
             Self::Metadata => "invalid_image_metadata",
+            Self::ReferenceLookup => "source_resolution_failed",
+            Self::ReferenceMissing => "source_ref_not_found",
+            Self::Lease => "worker_lease_lost",
         }
     }
 }
@@ -73,6 +85,10 @@ impl Config {
         }
         let config = Self {
             binary: required("BUILDCTL_PATH")?.into(),
+            git_binary: env::var("BUILD_GIT_PATH")
+                .ok()
+                .filter(|p| !p.is_empty())
+                .map(Into::into),
             address: required("BUILDKIT_ADDR")?,
             ca: required("BUILDKIT_TLS_CA")?.into(),
             cert: required("BUILDKIT_TLS_CERT")?.into(),
@@ -156,13 +172,11 @@ impl Config {
         format!("{}/{}", self.registry_prefix, service_id)
     }
 
-    fn arguments(&self, request: &Request, metadata: &Path) -> Result<Vec<String>, Error> {
-        request
-            .spec
-            .validate()
+    pub(crate) fn repository(&self, spec: &ServiceSpec) -> Result<url::Url, Error> {
+        spec.validate()
             .map_err(|_| Error::Config("invalid service specification"))?;
         let mut repository =
-            url::Url::parse(&request.spec.source.repository).map_err(|_| Error::Repository)?;
+            url::Url::parse(&spec.source.repository).map_err(|_| Error::Repository)?;
         if !repository
             .host_str()
             .is_some_and(|host| self.repository_hosts.iter().any(|allowed| allowed == host))
@@ -170,12 +184,23 @@ impl Config {
         {
             return Err(Error::Repository);
         }
-        // Git checkout happens at the daemon, pinned to the complete commit.
         let path = repository.path().trim_end_matches('/');
         if !path.ends_with(".git") {
             repository.set_path(&format!("{path}.git"));
         }
-        repository.set_fragment(Some(&request.spec.source.commit));
+        Ok(repository)
+    }
+
+    fn arguments(&self, request: &Request, metadata: &Path) -> Result<Vec<String>, Error> {
+        let mut repository = self.repository(&request.spec)?;
+        // Git checkout happens at the daemon, pinned to the complete commit.
+        let commit = request
+            .spec
+            .source
+            .commit
+            .as_deref()
+            .ok_or(Error::Config("source must be resolved before building"))?;
+        repository.set_fragment(Some(commit));
         let Workload::OciService {
             dockerfile,
             context,
@@ -368,6 +393,7 @@ mod tests {
     fn config() -> Config {
         Config {
             binary: "/bin/buildctl".into(),
+            git_binary: None,
             address: "tcp://builder:1234".into(),
             ca: "/tmp/ca".into(),
             cert: "/tmp/cert".into(),
@@ -396,7 +422,7 @@ mod tests {
             .unwrap();
         assert!(args.contains(&format!(
             "context=https://github.com/example/web-canary.git#{}",
-            request.spec.source.commit
+            request.spec.source.commit.as_deref().unwrap()
         )));
         assert!(args.contains(&"--no-cache".into()));
         assert!(args.iter().any(|a| a.contains("push=true")));

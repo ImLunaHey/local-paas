@@ -1,5 +1,5 @@
-import { createContext, StrictMode, useContext, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import { cloneElement, useId, createContext, StrictMode, useContext, useRef, useState } from 'react'
+import type { FormEvent, ReactElement, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   QueryClient,
@@ -28,7 +28,6 @@ import {
   ChevronRight,
   Circle,
   Code2,
-  GitCommitHorizontal,
   Layers3,
   LoaderCircle,
   Plus,
@@ -38,8 +37,8 @@ import {
   Terminal,
   Workflow,
 } from 'lucide-react'
-import { api, serviceQuery } from './api'
-import type { AuditEvent, Service, ServiceSpec, Workload } from './api'
+import { api, serviceQuery, sourceLabel, sourceReference } from './api'
+import type { AuditEvent, Service, ServiceSpec, SourceKind, Workload } from './api'
 import './styles.css'
 import { BuildPanel } from './builds'
 
@@ -354,7 +353,7 @@ function ServiceRow({ service }: { service: Service }) {
           <p className="truncate">
             {spec.project} / {spec.environment}
             <span className="mx-2">·</span>
-            {spec.source.commit.slice(0, 8)}
+            {sourceLabel(spec.source)}
           </p>
         </div>
       </div>
@@ -374,39 +373,94 @@ function ServiceRow({ service }: { service: Service }) {
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: ReactElement<{ id?: string; 'aria-describedby'?: string }>
+}) {
+  const id = useId()
   return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-      {hint && <small>{hint}</small>}
-    </label>
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      {cloneElement(children, { id, 'aria-describedby': hint ? id + '-hint' : undefined })}
+      {hint && <small id={id + '-hint'}>{hint}</small>}
+    </div>
   )
 }
 
 function NewService() {
+  return <ServiceForm />
+}
+
+function ServiceForm({ service }: { service?: Service }) {
+  const [baseline, setBaseline] = useState(service)
+  const spec = baseline?.spec
+  const oci = spec?.workload.kind === 'oci-service' ? spec.workload : undefined
+  const celld = spec?.workload.kind === 'celld-service' ? spec.workload : undefined
+  const initialRef = spec ? sourceReference(spec.source) : { kind: 'commit' as const, value: '' }
+  const [sourceKind, setSourceKind] = useState<SourceKind>(initialRef.kind)
+  const [sourceValue, setSourceValue] = useState(initialRef.value)
+  const [dirty, setDirty] = useState(false)
+  const [formVersion, setFormVersion] = useState(0)
+  const [reloading, setReloading] = useState(false)
+  const [reloadError, setReloadError] = useState<Error | null>(null)
   const navigate = useNavigate()
   const client = useQueryClient()
-  const [kind, setKind] = useState<Workload['kind']>('oci-service')
+  const [kind, setKind] = useState<Workload['kind']>(spec?.workload.kind ?? 'oci-service')
   // Preserve the operation ID across retries of an identical submission, even
   // if a response was lost. A changed spec is a different operation.
   const pending = useRef<{ serialized: string; id: string } | null>(null)
   const mutation = useMutation({
     mutationFn: async (spec: ServiceSpec) => {
-      const serialized = JSON.stringify(spec)
+      const serialized = JSON.stringify({ spec, version: baseline?.version })
       if (pending.current?.serialized !== serialized)
         pending.current = { serialized, id: crypto.randomUUID() }
-      return api<Service>('/services', {
-        method: 'POST',
+      return api<Service>(baseline ? `/services/${baseline.id}` : '/services', {
+        method: baseline ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation_id: pending.current.id, spec }),
+        body: JSON.stringify({
+          operation_id: pending.current.id,
+          expected_version: baseline?.version,
+          spec,
+        }),
       })
     },
     onSuccess: async (service) => {
+      pending.current = null
       await client.invalidateQueries({ queryKey: ['services'] })
+      if (baseline) {
+        setBaseline(service)
+        setDirty(false)
+        await client.invalidateQueries({ queryKey: ['events', service.id] })
+        return
+      }
       await navigate({ to: '/services/$serviceId', params: { serviceId: service.id } })
     },
   })
+  async function reloadSaved() {
+    if (!baseline) return
+    setReloading(true)
+    setReloadError(null)
+    try {
+      const saved = await api<Service>(`/services/${baseline.id}`)
+      setBaseline(saved)
+      const ref = sourceReference(saved.spec.source)
+      setSourceKind(ref.kind)
+      setSourceValue(ref.value)
+      setFormVersion((value) => value + 1)
+      setDirty(false)
+      pending.current = null
+      mutation.reset()
+    } catch (error) {
+      setReloadError(error as Error)
+    } finally {
+      setReloading(false)
+    }
+  }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (mutation.isPending) return
@@ -442,7 +496,7 @@ function NewService() {
       project: text('project'),
       environment: text('environment'),
       name: text('name'),
-      source: { repository: text('repository'), commit: text('commit') },
+      source: { repository: text('repository'), [sourceKind]: sourceValue.trim() },
       resources: { cpu_millis: number('cpu'), memory_mib: number('memory') },
       distinct_nodes: data.has('distinct'),
       domains: list('domains'),
@@ -452,19 +506,32 @@ function NewService() {
   }
   return (
     <>
-      <Link to="/" className="back-link">
-        <ArrowLeft size={14} /> All services
-      </Link>
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">NEW SERVICE</div>
-          <h1>Give your application a home.</h1>
-          <p>Start with its source and the resources it will need.</p>
-        </div>
-      </div>
+      {!baseline && (
+        <>
+          <Link to="/" className="back-link">
+            <ArrowLeft size={14} /> All services
+          </Link>
+          <div className="page-heading">
+            <div>
+              <div className="eyebrow">NEW SERVICE</div>
+              <h1>Give your application a home.</h1>
+              <p>Start with its source and the resources it will need.</p>
+            </div>
+          </div>
+        </>
+      )}
       <div className="form-layout">
-        <form onSubmit={submit} className="space-y-5">
-          <fieldset disabled={mutation.isPending} className="space-y-5">
+        <form
+          key={formVersion}
+          onSubmit={submit}
+          onChange={() => {
+            setDirty(true)
+            mutation.reset()
+          }}
+          className="space-y-5"
+          aria-label={baseline ? 'Service configuration' : 'Register service'}
+        >
+          <fieldset disabled={mutation.isPending || reloading} className="space-y-5">
             <section className="panel form-section">
               <h2>
                 <span className="step">01</span> Application
@@ -473,6 +540,7 @@ function NewService() {
                 {(['oci-service', 'celld-service'] as const).map((type) => (
                   <button
                     type="button"
+                    disabled={!!baseline}
                     aria-pressed={kind === type}
                     className={`kind-option ${kind === type ? 'selected' : ''}`}
                     key={type}
@@ -498,6 +566,7 @@ function NewService() {
                 <Field label="Project">
                   <input
                     name="project"
+                    defaultValue={spec?.project}
                     placeholder="personal"
                     required
                     pattern="[a-z0-9]+(-[a-z0-9]+)*"
@@ -507,7 +576,7 @@ function NewService() {
                 <Field label="Environment">
                   <input
                     name="environment"
-                    defaultValue="development"
+                    defaultValue={spec?.environment ?? 'development'}
                     required
                     pattern="[a-z0-9]+(-[a-z0-9]+)*"
                     maxLength={63}
@@ -517,6 +586,7 @@ function NewService() {
                   <Field label="Service name">
                     <input
                       name="name"
+                      defaultValue={spec?.name}
                       placeholder={kind === 'oci-service' ? 'my-web-app' : 'my-durable-app'}
                       required
                       pattern="[a-z0-9]+(-[a-z0-9]+)*"
@@ -537,37 +607,64 @@ function NewService() {
                 >
                   <input
                     name="repository"
+                    defaultValue={spec?.source.repository}
                     type="url"
                     placeholder="https://github.com/you/your-app.git"
                     required
                     maxLength={2048}
                   />
                 </Field>
+                <Field label="Source type">
+                  <select
+                    className="build-select"
+                    value={sourceKind}
+                    onChange={(event) => setSourceKind(event.target.value as SourceKind)}
+                  >
+                    <option value="branch">Branch</option>
+                    <option value="tag">Tag</option>
+                    <option value="commit">Commit</option>
+                  </select>
+                </Field>
                 <Field
-                  label="Commit SHA"
-                  hint="A full 40- or 64-character commit hash. Branch names are not accepted."
+                  label={
+                    sourceKind === 'commit'
+                      ? 'Commit SHA'
+                      : sourceKind === 'branch'
+                        ? 'Branch'
+                        : 'Tag'
+                  }
+                  hint="Branches and tags are resolved to an exact commit for each build."
                 >
                   <input
-                    name="commit"
+                    name="source_ref"
                     className="font-mono"
-                    placeholder="Full commit hash"
+                    value={sourceValue}
+                    onChange={(event) => setSourceValue(event.target.value)}
                     required
-                    pattern="([a-f0-9]{40}|[a-f0-9]{64})"
+                    pattern={sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined}
                   />
                 </Field>
                 {kind === 'oci-service' ? (
                   <div className="grid sm:grid-cols-2 gap-4">
                     <Field label="Dockerfile path">
-                      <input name="dockerfile" defaultValue="Dockerfile" required />
+                      <input
+                        name="dockerfile"
+                        defaultValue={oci?.dockerfile ?? 'Dockerfile'}
+                        required
+                      />
                     </Field>
                     <Field label="Build context">
-                      <input name="context" defaultValue="." required />
+                      <input name="context" defaultValue={oci?.context ?? '.'} required />
                     </Field>
                   </div>
                 ) : (
                   <>
                     <Field label="Wrangler configuration">
-                      <input name="wrangler" defaultValue="wrangler.jsonc" required />
+                      <input
+                        name="wrangler"
+                        defaultValue={celld?.wrangler ?? 'wrangler.jsonc'}
+                        required
+                      />
                     </Field>
                     <Field
                       label="Bucket configuration reference"
@@ -575,6 +672,7 @@ function NewService() {
                     >
                       <input
                         name="bucket"
+                        defaultValue={celld?.bucket_ref}
                         placeholder="my-durable-app-bucket"
                         required
                         pattern="[a-z0-9]+(-[a-z0-9]+)*"
@@ -590,13 +688,20 @@ function NewService() {
               </h2>
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="CPU per instance (millicores)">
-                  <input name="cpu" type="number" defaultValue={500} min={1} max={64000} required />
+                  <input
+                    name="cpu"
+                    type="number"
+                    defaultValue={spec?.resources.cpu_millis ?? 500}
+                    min={1}
+                    max={64000}
+                    required
+                  />
                 </Field>
                 <Field label="Memory per instance (MiB)">
                   <input
                     name="memory"
                     type="number"
-                    defaultValue={512}
+                    defaultValue={spec?.resources.memory_mib ?? 512}
                     min={16}
                     max={65536}
                     required
@@ -608,7 +713,7 @@ function NewService() {
                       <input
                         name="replicas"
                         type="number"
-                        defaultValue={2}
+                        defaultValue={oci?.replicas ?? 2}
                         min={1}
                         max={32}
                         required
@@ -618,7 +723,7 @@ function NewService() {
                       <input
                         name="port"
                         type="number"
-                        defaultValue={3000}
+                        defaultValue={oci?.port ?? 3000}
                         min={1}
                         max={65535}
                         required
@@ -626,14 +731,18 @@ function NewService() {
                     </Field>
                     <div className="sm:col-span-2">
                       <Field label="Readiness path">
-                        <input name="readiness" defaultValue="/health" required />
+                        <input
+                          name="readiness"
+                          defaultValue={oci?.readiness.path ?? '/health'}
+                          required
+                        />
                       </Field>
                     </div>
                     <Field label="Check interval (seconds)">
                       <input
                         name="interval"
                         type="number"
-                        defaultValue={10}
+                        defaultValue={oci?.readiness.interval_seconds ?? 10}
                         min={1}
                         max={300}
                         required
@@ -643,7 +752,7 @@ function NewService() {
                       <input
                         name="stabilization"
                         type="number"
-                        defaultValue={30}
+                        defaultValue={oci?.readiness.stabilization_seconds ?? 30}
                         min={1}
                         max={3600}
                         required
@@ -655,7 +764,7 @@ function NewService() {
                     <input
                       name="members"
                       type="number"
-                      defaultValue={3}
+                      defaultValue={celld?.members ?? 3}
                       min={2}
                       max={32}
                       required
@@ -664,7 +773,11 @@ function NewService() {
                 )}
               </div>
               <label className="checkbox-field">
-                <input type="checkbox" name="distinct" defaultChecked />
+                <input
+                  type="checkbox"
+                  name="distinct"
+                  defaultChecked={spec?.distinct_nodes ?? true}
+                />
                 <span>
                   Spread across distinct nodes
                   <small>Different VMs on Lake still share one physical failure domain.</small>
@@ -680,28 +793,66 @@ function NewService() {
                   label="Domains (optional)"
                   hint="Separate with commas. Domains will not be routed or verified yet."
                 >
-                  <input name="domains" placeholder="api.example.com" />
+                  <input
+                    name="domains"
+                    defaultValue={spec?.domains.join(', ')}
+                    placeholder="api.example.com"
+                  />
                 </Field>
                 <Field
                   label="Secret names (optional)"
                   hint="Names only, separated by commas. Values belong in OpenBao."
                 >
-                  <input name="secrets" placeholder="DATABASE_URL, SESSION_SECRET" />
+                  <input
+                    name="secrets"
+                    defaultValue={spec?.secrets.join(', ')}
+                    placeholder="DATABASE_URL, SESSION_SECRET"
+                  />
                 </Field>
               </div>
             </section>
+            {baseline && mutation.isSuccess && !dirty && (
+              <p role="status" className="text-sm text-accent">
+                Configuration saved.
+              </p>
+            )}
+            {reloadError && <ErrorNotice error={reloadError} />}
             {mutation.isError && <ErrorNotice error={mutation.error} />}
             <div className="flex items-center justify-between gap-3">
-              <Link to="/" className="button secondary">
-                Cancel
-              </Link>
-              <button type="submit" className="button primary" disabled={mutation.isPending}>
+              {baseline ? (
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    void reloadSaved()
+                  }}
+                >
+                  Reload saved configuration
+                </button>
+              ) : (
+                <Link to="/" className="button secondary">
+                  Cancel
+                </Link>
+              )}
+              <button
+                type="submit"
+                className="button primary"
+                disabled={mutation.isPending || (!!baseline && !dirty)}
+              >
                 {mutation.isPending ? (
                   <LoaderCircle className="animate-spin" size={16} />
+                ) : baseline ? (
+                  <Check size={16} />
                 ) : (
                   <Plus size={16} />
                 )}
-                {mutation.isPending ? 'Registering…' : 'Register service'}
+                {mutation.isPending
+                  ? baseline
+                    ? 'Saving…'
+                    : 'Registering…'
+                  : baseline
+                    ? 'Save changes'
+                    : 'Register service'}
               </button>
             </div>
           </fieldset>
@@ -710,16 +861,16 @@ function NewService() {
           <span className="service-icon mb-5">
             <ArrowDownLeft size={22} />
           </span>
-          <h3>A specification, then a deployment.</h3>
+          <h3>{baseline ? 'Configure your service.' : 'A specification, then a deployment.'}</h3>
           <p>
-            This step saves the desired configuration and an audit event. It does not fetch your
-            repository or start a workload.
+            Changes apply to future builds. Existing builds and image revisions keep their recorded
+            configuration. Saving does not start a build or deploy a workload.
           </p>
           <div className="aside-divider" />
           <h4>What happens next?</h4>
           <p>
             {kind === 'oci-service'
-              ? 'The build pipeline will turn this commit and Dockerfile into an immutable OCI image before scheduling instances.'
+              ? 'The build pipeline will turn this source and Dockerfile into an immutable OCI image before scheduling instances.'
               : 'A dedicated deployment runner will validate Wrangler, deploy the application, and coordinate its fleet.'}
           </p>
           <div className="aside-divider" />
@@ -784,7 +935,7 @@ function ServiceDetail() {
           <Check size={19} />
         </span>
         <div>
-          <strong>Configuration saved.</strong>
+          <strong>Service registered.</strong>
           <p>
             Builds produce image revisions. Running instances and public routing are not enabled
             yet.
@@ -853,18 +1004,8 @@ function ServiceBuilds() {
 }
 
 function ServiceConfiguration() {
-  const { spec } = useCurrentService()
-  return (
-    <section className="panel p-6 min-w-0" aria-label="Service configuration">
-      <h2 className="mb-5">Service specification</h2>
-      <p className="text-xs text-muted mb-4 flex items-center gap-2">
-        <GitCommitHorizontal size={16} />
-        {spec.source.commit.slice(0, 12)}
-        <span>·</span>Schema v{spec.schema_version}
-      </p>
-      <pre className="spec-preview">{JSON.stringify(spec, null, 2)}</pre>
-    </section>
-  )
+  const service = useCurrentService()
+  return <ServiceForm key={service.id} service={service} />
 }
 
 function ServiceActivity() {

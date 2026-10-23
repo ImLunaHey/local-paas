@@ -4,10 +4,11 @@ A personal application platform, built from scratch. Rust control plane and
 runtime contract; Vite, React, Tailwind, TanStack Router and Query frontend.
 Independent of Anvil. Working project name; no remote repository created yet.
 
-**Implemented:** register OCI or celld specifications, persist configuration and
+**Implemented:** register and edit OCI or celld specifications, persist versioned configuration and
 audit events in PostgreSQL, queue OCI builds, inspect bounded build logs, cancel
 jobs, and record immutable image revisions after successful registry pushes.
-Registration and build requests are retry-safe. A separate Rust worker drives
+Registration, configuration saves and build requests are retry-safe. Sources accept
+branches, tags or full commit hashes; each build pins an exact commit. A separate Rust worker drives
 BuildKit in an isolated NixOS VM on Lake.
 
 **Not implemented:** node enrollment, runtime adapters, scheduling, deployments,
@@ -102,16 +103,23 @@ the app; application-level administrator authentication is not implemented yet.
   with different configuration, or a service name in the same project/environment,
   returns 409. Keep the same operation ID if a response is lost.
 - `GET /api/services?offset=0`: `{ "items": [...], "total": N }`, 50 per page.
-- `GET /api/services/{id}`: persisted configuration and registration time.
+- `GET /api/services/{id}`: persisted configuration, version and registration time.
+- `PUT /api/services/{id}`: `{ "operation_id": "UUID", "expected_version": 1, "spec": { ... } }`.
+  Saves validated configuration and an audit event atomically, incrementing the
+  version. A stale version returns 409; reload before retrying your edits. Identical
+  retries with the same operation ID return their original result. Workload kind
+  cannot change after registration. Existing builds and revisions are immutable.
 - `GET /api/services/{id}/events`: latest 100 audit events.
 
 Requests use JSON with a 64 KiB body limit. Semantic validation returns 422 with
-field-specific issues. Unknown fields are rejected. There is no update or delete
-API yet; configuration editing will require versioning and audit semantics.
+field-specific issues. Unknown fields are rejected. The Configuration tab edits source, build and runtime
+settings, domains and secret names. Saving affects future builds and does not
+trigger a build or deployment. Secret values never belong in a specification.
+No delete API is exposed.
 
 See [build execution, API endpoints and builder operations](docs/builds.md) to
 start the isolated builder and Rust worker. On a service page, **Queue build**
-builds the selected commit; successful pushes appear under **Image revisions**.
+resolves the selected branch/tag/commit and builds it; successful pushes appear under **Image revisions**.
 
 Examples: [OCI](examples/oci-service.json) and [celld](examples/celld-service.json).
 These contain placeholder repositories/hashes; validation checks their shape,

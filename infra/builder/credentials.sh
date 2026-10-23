@@ -31,6 +31,7 @@ cp "$builder_certs/ca.crt" "$builder_certs/server.crt" "$builder_certs/server.ke
   -o "$builder_certs/credentials.iso" "$builder_certs/guest"
 rm -r "$builder_certs/guest"
 cat > .local/builder.env <<EOF
+export BUILD_GIT_PATH='$builder_tools/bin/git'
 export BUILDCTL_PATH='$builder_tools/bin/buildctl'
 export BUILDKIT_ADDR='tcp://127.0.0.1:12340'
 export BUILDKIT_TLS_CA='$builder_certs/ca.crt'

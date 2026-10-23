@@ -14,7 +14,7 @@ export interface ServiceSpec {
   project: string
   environment: string
   name: string
-  source: { repository: string; commit: string }
+  source: { repository: string; commit?: string; branch?: string; tag?: string }
   resources: { cpu_millis: number; memory_mib: number }
   distinct_nodes: boolean
   domains: string[]
@@ -25,6 +25,7 @@ export interface ServiceSpec {
 export interface Service {
   id: string
   operation_id: string
+  version: number
   spec: ServiceSpec
   created_at: string
 }
@@ -40,6 +41,7 @@ export interface Build {
   service_id: string
   spec: ServiceSpec
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
+  resolved_commit: string | null
   no_cache: boolean
   cancel_requested: boolean
   error_code: string | null
@@ -80,3 +82,17 @@ export const serviceQuery = (id: string) => ({
   queryKey: ['services', id],
   queryFn: () => api<Service>(`/services/${id}`),
 })
+
+export type SourceKind = 'commit' | 'branch' | 'tag'
+export function sourceReference(source: ServiceSpec['source']): {
+  kind: SourceKind
+  value: string
+} {
+  if (source.branch !== undefined) return { kind: 'branch', value: source.branch }
+  if (source.tag !== undefined) return { kind: 'tag', value: source.tag }
+  return { kind: 'commit', value: source.commit ?? '' }
+}
+export function sourceLabel(source: ServiceSpec['source']): string {
+  const ref = sourceReference(source)
+  return ref.kind === 'commit' ? ref.value.slice(0, 8) : ref.value
+}

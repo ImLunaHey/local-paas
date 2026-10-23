@@ -6,7 +6,7 @@ Working name and repository directory: `local-paas`. This is independent of
 Anvil. Luna authorized starting implementation and chose Rust for the backend
 and Vite / React / Tailwind / TanStack for the frontend.
 
-The local platform registers validated specifications and executes queued OCI
+The local platform registers and edits versioned specifications and executes queued OCI
 builds through an isolated BuildKit VM, retaining logs and pushed image digests.
 Registration and image building are not deployment. No workload agent, scheduler,
 ingress, secret resolver or celld runner is active. Production release criteria
@@ -25,7 +25,8 @@ below remain unmet. See [build design and operations](builds.md).
   feature, not silently movable storage. celld durable state is a separate
   fleet-specific object-storage concern.
 - OCI configuration records a credential-free HTTPS Git URL and full commit
-  hash. BuildKit will produce an immutable digest before a runtime revision
+  hash, branch or tag. Mutable refs resolve once per build, before BuildKit receives
+  the full commit SHA. BuildKit will produce an immutable digest before a runtime revision
   exists. A registered Git commit is not a built image.
 - celld retains its Wrangler file. The platform wrapper records member count,
   resource limits, bucket configuration reference, domains, secret names, and

@@ -14,12 +14,16 @@ use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 
 pub mod builds;
+mod configuration;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/services", get(list_services).post(create_service))
-        .route("/api/services/{id}", get(get_service))
+        .route(
+            "/api/services/{id}",
+            get(get_service).put(configuration::update),
+        )
         .route("/api/services/{id}/events", get(list_events))
         .route("/api/specs/validate", post(validate_spec))
         .route("/api/build-system", get(builds::system))
@@ -115,10 +119,11 @@ impl IntoResponse for ApiError {
     }
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Service {
     pub id: Uuid,
     pub operation_id: Uuid,
+    pub version: i32,
     pub spec: DbJson<ServiceSpec>,
     pub created_at: DateTime<Utc>,
 }
@@ -152,7 +157,7 @@ async fn list_services(
     State(pool): State<PgPool>,
     Query(page): Query<Pagination>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let items = sqlx::query_as::<_, Service>("SELECT id, operation_id, spec, created_at FROM services ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1")
+    let items = sqlx::query_as::<_, Service>("SELECT id, operation_id, spec, created_at, version FROM services ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1")
         .bind(i64::from(page.offset)).fetch_all(&pool).await?;
     let total: i64 = sqlx::query_scalar("SELECT count(*) FROM services")
         .fetch_one(&pool)
@@ -165,7 +170,7 @@ async fn get_service(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Service>, ApiError> {
     sqlx::query_as::<_, Service>(
-        "SELECT id, operation_id, spec, created_at FROM services WHERE id = $1",
+        "SELECT id, operation_id, spec, created_at, version FROM services WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&pool)
@@ -210,13 +215,18 @@ async fn create_service(
         .execute(&mut *tx)
         .await?;
     if let Some(existing) = sqlx::query_as::<_, Service>(
-        "SELECT id, operation_id, spec, created_at FROM services WHERE operation_id = $1",
+        "SELECT id, operation_id, spec, created_at, version FROM services WHERE operation_id = $1",
     )
     .bind(request.operation_id)
     .fetch_optional(&mut *tx)
     .await?
     {
-        if existing.spec.0 != request.spec {
+        let registered: DbJson<ServiceSpec> =
+            sqlx::query_scalar("SELECT registered_spec FROM services WHERE id = $1")
+                .bind(existing.id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if registered.0 != request.spec {
             return Err(ApiError::Conflict(
                 "operation ID was already used with a different specification",
             ));
@@ -228,7 +238,7 @@ async fn create_service(
         .bind(Uuid::new_v4()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
         .bind(Uuid::new_v4()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
-    let service = sqlx::query_as::<_, Service>("INSERT INTO services (id, environment_id, name, kind, operation_id, spec) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, operation_id, spec, created_at")
+    let service = sqlx::query_as::<_, Service>("INSERT INTO services (id, environment_id, name, kind, operation_id, spec, registered_spec) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, operation_id, spec, created_at, version")
         .bind(Uuid::new_v4()).bind(environment_id).bind(&request.spec.name).bind(request.spec.kind())
         .bind(request.operation_id).bind(DbJson(&request.spec)).fetch_one(&mut *tx).await?;
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind) VALUES ($1, $2, $3, 'service.registered')")

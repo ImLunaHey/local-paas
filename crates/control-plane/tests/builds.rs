@@ -120,7 +120,7 @@ async fn success_atomically_records_digest_revision_and_audit_event(pool: PgPool
     );
     assert_eq!(
         revisions[0]["spec"]["source"]["commit"],
-        build.spec.source.commit
+        build.spec.source.commit.as_deref().unwrap()
     );
     let (_, events) = call(
         &pool,
@@ -334,4 +334,107 @@ async fn stale_worker_heartbeats_do_not_claim_availability(pool: PgPool) {
         call(&pool, "GET", "/api/build-system", Value::Null).await.1["worker_online"],
         false
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn mutable_refs_are_pinned_once_and_revisions_keep_only_the_commit(pool: PgPool) {
+    let id = service(&pool, false).await;
+    for kind in ["branch", "tag"] {
+        let request = json!({"operation_id":Uuid::new_v4(),kind:"release/v1"});
+        let (status, queued) = call(
+            &pool,
+            "POST",
+            &format!("/api/services/{id}/builds"),
+            request,
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert!(queued["resolved_commit"].is_null());
+        let build = builds::claim(&pool).await.unwrap().unwrap();
+        assert!(builds::finish(&pool, &build, success()).await.is_err());
+        let commit = if kind == "branch" {
+            "a".repeat(40)
+        } else {
+            "b".repeat(40)
+        };
+        assert!(
+            builds::record_resolution(&pool, &build, &commit)
+                .await
+                .unwrap()
+        );
+        assert!(
+            builds::record_resolution(&pool, &build, &commit)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !builds::record_resolution(&pool, &build, &"c".repeat(40))
+                .await
+                .unwrap()
+        );
+        assert!(builds::finish(&pool, &build, success()).await.unwrap());
+        let (_, stored) = call(
+            &pool,
+            "GET",
+            &format!("/api/builds/{}", build.id),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(stored["spec"]["source"][kind], "release/v1");
+        assert_eq!(stored["resolved_commit"], commit);
+        let revision: Value = sqlx::query_scalar("SELECT spec FROM revisions WHERE build_id=$1")
+            .bind(build.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(revision["source"]["commit"], commit);
+        assert!(revision["source"].get(kind).is_none());
+        assert!(
+            !builds::record_resolution(&pool, &build, &commit)
+                .await
+                .unwrap()
+        );
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn cancelled_and_expired_claims_cannot_resolve_sources(pool: PgPool) {
+    let id = service(&pool, false).await;
+    for expire in [true, false] {
+        call(
+            &pool,
+            "POST",
+            &format!("/api/services/{id}/builds"),
+            json!({"operation_id":Uuid::new_v4(),"branch":"main"}),
+        )
+        .await;
+        let build = builds::claim(&pool).await.unwrap().unwrap();
+        if expire {
+            sqlx::query("UPDATE builds SET lease_until=now()-interval '1 second' WHERE id=$1")
+                .bind(build.id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        } else {
+            call(
+                &pool,
+                "POST",
+                &format!("/api/builds/{}/cancel", build.id),
+                Value::Null,
+            )
+            .await;
+        }
+        assert!(
+            !builds::record_resolution(&pool, &build, &"a".repeat(40))
+                .await
+                .unwrap()
+        );
+        sqlx::query("UPDATE builds SET status='interrupted' WHERE id=$1")
+            .bind(build.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
 }

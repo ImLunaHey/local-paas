@@ -38,13 +38,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(build) = builds::claim(&pool).await? {
                 let completion = {
                     let (sender, mut receiver) = mpsc::channel(16);
-                    let request = Request {
+                    let mut request = Request {
                         build_id: build.id,
                         service_id: build.service_id,
                         spec: build.spec.0.clone(),
                         no_cache: build.no_cache,
                     };
-                    let runner = platform_build_runner::run(&config, request, sender);
+                    let runner = async {
+                        let commit =
+                            platform_build_runner::resolve_commit(&config, &request.spec).await?;
+                        if !builds::record_resolution(&pool, &build, &commit)
+                            .await
+                            .map_err(|_| platform_build_runner::Error::Lease)?
+                        {
+                            return Err(platform_build_runner::Error::Lease);
+                        }
+                        request.spec.source.pin(commit);
+                        platform_build_runner::run(&config, request, sender).await
+                    };
                     tokio::pin!(runner);
                     let mut interval = tokio::time::interval(Duration::from_secs(5));
                     let mut logs_open = true;

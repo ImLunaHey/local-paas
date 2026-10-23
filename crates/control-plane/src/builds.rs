@@ -6,7 +6,7 @@ use axum::{
     http::StatusCode,
 };
 use chrono::{DateTime, Utc};
-use platform_domain::{ImageDigest, ServiceSpec, Workload};
+use platform_domain::{ImageDigest, ServiceSpec, Workload, commit_hash};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Transaction, types::Json as DbJson};
@@ -33,9 +33,10 @@ pub struct Build {
     pub error_code: Option<String>,
     pub log_bytes: i32,
     pub logs_truncated: bool,
+    pub resolved_commit: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateBuild {
     pub operation_id: Uuid,
@@ -43,6 +44,8 @@ pub struct CreateBuild {
     pub no_cache: bool,
     /// A new source revision can be built without mutating the service's original spec.
     pub commit: Option<String>,
+    pub branch: Option<String>,
+    pub tag: Option<String>,
 }
 
 pub(crate) async fn create(
@@ -55,39 +58,57 @@ pub(crate) async fn create(
         .bind(request.operation_id.to_string())
         .execute(&mut *tx)
         .await?;
-    let service = sqlx::query_as::<_, Service>(
-        "SELECT id, operation_id, spec, created_at FROM services WHERE id = $1 FOR UPDATE",
-    )
-    .bind(service_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(ApiError::NotFound)?;
-    let mut spec = service.spec.0;
-    if let Some(commit) = request.commit {
-        spec.source.commit = commit;
-    }
-    spec.validate().map_err(ApiError::Invalid)?;
-    if !matches!(spec.workload, Workload::OciService { .. }) {
-        return Err(ApiError::Conflict(
-            "celld applications use a separate fleet deployment path; OCI builds are not supported",
-        ));
-    }
+    let request_json = serde_json::to_value(&request).map_err(|_| ApiError::Database)?;
     if let Some(existing) =
         sqlx::query_as::<_, Build>("SELECT * FROM builds WHERE operation_id = $1")
             .bind(request.operation_id)
             .fetch_optional(&mut *tx)
             .await?
     {
-        if existing.service_id != service_id
-            || existing.spec.0 != spec
-            || existing.no_cache != request.no_cache
-        {
+        let original: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT request_json FROM builds WHERE id = $1")
+                .bind(existing.id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let same = if let Some(original) = original {
+            original == request_json
+        } else {
+            // Legacy requests predate configuration editing. Compare any explicit
+            // override to their immutable snapshot, never today's service spec.
+            let mut source = existing.spec.source.clone();
+            if request.commit.is_some() || request.branch.is_some() || request.tag.is_some() {
+                source.commit = request.commit.clone();
+                source.branch = request.branch.clone();
+                source.tag = request.tag.clone();
+            }
+            source == existing.spec.source && existing.no_cache == request.no_cache
+        };
+        if existing.service_id != service_id || !same {
             return Err(ApiError::Conflict(
                 "build operation ID was already used with different input",
             ));
         }
         tx.commit().await?;
         return Ok((StatusCode::OK, Json(existing)));
+    }
+    let service = sqlx::query_as::<_, Service>(
+        "SELECT id, operation_id, spec, created_at, version FROM services WHERE id = $1 FOR UPDATE",
+    )
+    .bind(service_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let mut spec = service.spec.0;
+    if request.commit.is_some() || request.branch.is_some() || request.tag.is_some() {
+        spec.source.commit = request.commit;
+        spec.source.branch = request.branch;
+        spec.source.tag = request.tag;
+    }
+    spec.validate().map_err(ApiError::Invalid)?;
+    if !matches!(spec.workload, Workload::OciService { .. }) {
+        return Err(ApiError::Conflict(
+            "celld applications use a separate fleet deployment path; OCI builds are not supported",
+        ));
     }
     let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM builds WHERE service_id = $1 AND status IN ('queued', 'running'))")
         .bind(service_id).fetch_one(&mut *tx).await?;
@@ -96,8 +117,9 @@ pub(crate) async fn create(
             "this service already has a queued or running build",
         ));
     }
-    let build = sqlx::query_as::<_, Build>("INSERT INTO builds (id, service_id, operation_id, spec, no_cache) VALUES ($1, $2, $3, $4, $5) RETURNING *")
-        .bind(Uuid::new_v4()).bind(service_id).bind(request.operation_id).bind(DbJson(spec)).bind(request.no_cache)
+    let commit = spec.source.commit.clone();
+    let build = sqlx::query_as::<_, Build>("INSERT INTO builds (id, service_id, operation_id, spec, no_cache, resolved_commit, request_json) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *")
+        .bind(Uuid::new_v4()).bind(service_id).bind(request.operation_id).bind(DbJson(spec)).bind(request.no_cache).bind(commit).bind(request_json)
         .fetch_one(&mut *tx).await?;
     event(&mut tx, &build, "build.queued").await?;
     tx.commit().await?;
@@ -268,6 +290,27 @@ pub async fn renew(pool: &PgPool, build: &Build) -> Result<Option<bool>, sqlx::E
         .bind(build.id).bind(build.claim_token).fetch_optional(pool).await
 }
 
+/// Resolve once under the current claim; never move an already pinned job.
+pub async fn record_resolution(
+    pool: &PgPool,
+    build: &Build,
+    commit: &str,
+) -> Result<bool, sqlx::Error> {
+    if !commit_hash(commit) {
+        return Ok(false);
+    }
+    let mut tx = pool.begin().await?;
+    let updated = sqlx::query("UPDATE builds SET resolved_commit=$3 WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>now() AND NOT cancel_requested AND (resolved_commit IS NULL OR resolved_commit=$3)")
+        .bind(build.id).bind(build.claim_token).bind(commit).execute(&mut *tx).await?.rows_affected() == 1;
+    if updated {
+        // Idempotent resolution retries retain one audit event.
+        sqlx::query("INSERT INTO events (id,service_id,operation_id,kind,build_id) VALUES ($1,$2,$3,'build.source_resolved',$4) ON CONFLICT (operation_id,kind) DO NOTHING")
+            .bind(Uuid::new_v4()).bind(build.service_id).bind(build.operation_id).bind(build.id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(updated)
+}
+
 pub async fn append_log(pool: &PgPool, build: &Build, message: &str) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     let bytes: Option<i32> = sqlx::query_scalar("SELECT log_bytes FROM builds WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>now() FOR UPDATE")
@@ -330,8 +373,13 @@ pub async fn finish(
         Completion::Cancelled => ("cancelled", None),
     };
     if let Completion::Succeeded { repository, digest } = completion {
+        let commit = current.resolved_commit.ok_or_else(|| {
+            sqlx::Error::Protocol("successful build has no resolved commit".into())
+        })?;
+        let mut pinned = current.spec.0;
+        pinned.source.pin(commit);
         sqlx::query("INSERT INTO revisions (id,service_id,build_id,spec,image_repository,image_digest) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(Uuid::new_v4()).bind(build.service_id).bind(build.id).bind(&build.spec).bind(repository).bind(String::from(digest)).execute(&mut *tx).await?;
+            .bind(Uuid::new_v4()).bind(build.service_id).bind(build.id).bind(DbJson(pinned)).bind(repository).bind(String::from(digest)).execute(&mut *tx).await?;
     }
     sqlx::query(
         "UPDATE builds SET status=$2,error_code=$3,finished_at=now(),lease_until=NULL WHERE id=$1",

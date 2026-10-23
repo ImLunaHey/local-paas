@@ -14,7 +14,7 @@
         default = guest.config.system.build.vm;
         tools = pkgs.symlinkJoin {
           name = "local-paas-builder-tools";
-          paths = with pkgs; [ buildkit nftables openssl cdrkit qemu_kvm ];
+          paths = with pkgs; [ buildkit git nftables openssl cdrkit qemu_kvm ];
         };
       };
     };

@@ -1,7 +1,7 @@
 # Image builds and the Lake development builder
 
 Registration saves configuration. **Queue build** snapshots that configuration,
-optionally overrides its commit for this build, and writes a durable PostgreSQL
+optionally overrides its branch, tag or commit for this build, and writes a durable PostgreSQL
 job. It does not start an application or change traffic. The build runner accepts
 OCI services only; celld still needs its separate deployment runner.
 
@@ -17,9 +17,27 @@ build explicitly. API restart does not stop an independent build worker.
 
 Each request has an operation UUID; identical retries return the existing job.
 Different input with the same UUID conflicts. Only one queued/running job per
-service is allowed. The build snapshot is immutable even when a commit override
-differs from the registered service. Failed/cancelled/interrupted jobs never
+service is allowed. The build snapshot is immutable even after service configuration changes. Retries compare the original request,
+not current service settings. Failed/cancelled/interrupted jobs never
 create revisions. An interrupted push may leave an unreferenced registry image.
+
+Sources specify exactly one of `commit`, `branch` or `tag`. Branch/tag names are
+short names (for example `main`, `feature/forms`, `v1.2.3`), not `refs/…`. The
+worker resolves the exact `refs/heads/…` or `refs/tags/…` advertisement when it
+claims a build, peels annotated tags, and stores `resolved_commit` under the job's
+lease before execution. A later branch/tag move cannot change that job or revision;
+a new build resolves the current ref again. Missing refs fail without a revision.
+Revision specs contain only the resolved commit; build specs retain the requested
+ref for diagnostics. A SHA is checked for existence by BuildKit's actual fetch.
+
+Ref discovery uses pinned Git (`BUILD_GIT_PATH`) on the worker host for bounded
+`ls-remote` metadata only: 30-second timeout, 64 KiB output limits, empty inherited
+environment, private tmpfs HOME, no global/system config or credential helpers,
+HTTPS only and redirects disabled. It uses the same repository host allowlist.
+No source files, hooks or build steps execute there. Private Git authentication
+is not implemented. To upgrade an existing development setup, rebuild the tools
+output and add `BUILD_GIT_PATH=/absolute/path/to/.local/builder-tools/bin/git` to
+`.local/builder.env`; existing certificates do not need regeneration.
 
 BuildKit fetches a credential-free HTTPS Git repository at the full commit SHA.
 The initial host allowlist is `github.com`. Dockerfile paths are repository-relative;
@@ -128,9 +146,9 @@ production gate. There is no production backup guarantee for this builder.
 
 ## API and verification
 
-- `POST /api/services/{id}/builds`: `operation_id`, optional `commit`, `no_cache`.
+- `POST /api/services/{id}/builds`: `operation_id`, optional source override (one of `commit`, `branch`, `tag`), `no_cache`.
 - `GET /api/services/{id}/builds`: latest 50 jobs.
-- `GET /api/builds/{id}`: state and immutable source snapshot.
+- `GET /api/builds/{id}`: state, immutable source snapshot and `resolved_commit`.
 - `POST /api/builds/{id}/cancel`: idempotent cancellation request.
 - `GET /api/builds/{id}/logs?after=0`: up to 128 chunks, next cursor, truncation flag.
 - `GET /api/services/{id}/revisions`: successful image digests and build IDs.
@@ -161,8 +179,13 @@ Verified on Lake on 2026-10-23: real Git → VM build → registry push → pers
 revision, registry manifest body matching its recorded SHA-256, mTLS rejecting a
 client without a certificate, the Rust Dockerfile isolation test, cancellation
 of a running job, and worker SIGKILL leading to lease expiry without a revision.
-Rust checks, 18 PostgreSQL integration tests and four Tailscale browser tests
-passed. Showcase Studio's registered commit fetched successfully but failed
+Rust checks, PostgreSQL integration tests and Tailscale browser tests passed.
+Additional coverage checks configuration conflicts/retries, immutable queued
+snapshots, branch/tag resolution, cancellation/lease fencing and pinned revisions.
+A hello-world `master` branch build and a Traefik whoami `v1.11.0` tag build
+both completed in the isolated VM; registry manifest hashes matched the stored
+digests and revision specs contained the resolved commits. These are build
+fixtures only; no instances were started. Showcase Studio's registered commit fetched successfully but failed
 because its root Dockerfile is absent; its service configuration was preserved.
 
 `examples/build-canary.json` pins Docker's tiny scratch-based hello-world image.
@@ -178,3 +201,6 @@ it as the Railway web canary.
 - [BuildKit daemon configuration](https://github.com/moby/buildkit/blob/master/docs/buildkitd.toml.md)
 - [NixOS VM module](https://github.com/NixOS/nixpkgs/blob/nixos-26.05/nixos/modules/virtualisation/qemu-vm.nix)
 - [Distribution garbage collection](https://distribution.github.io/distribution/about/garbage-collection/)
+
+Git ref contracts: [ls-remote](https://git-scm.com/docs/git-ls-remote),
+[check-ref-format](https://git-scm.com/docs/git-check-ref-format).

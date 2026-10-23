@@ -94,3 +94,29 @@ async fn dockerfile_can_reach_public_internet_but_not_lake() {
         "a Dockerfile reached Lake's loopback listener"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires .local/builder.env and public GitHub access"]
+async fn public_git_refs_resolve_without_a_checkout() {
+    let config = Config::from_env().unwrap();
+    let mut spec: platform_domain::ServiceSpec =
+        serde_json::from_str(include_str!("../../../examples/build-canary.json")).unwrap();
+    spec.source.commit = None;
+    spec.source.branch = Some("master".into());
+    let branch = platform_build_runner::resolve_commit(&config, &spec)
+        .await
+        .unwrap();
+    assert!(platform_domain::commit_hash(&branch));
+    spec.source.repository = "https://github.com/traefik/whoami.git".into();
+    spec.source.branch = None;
+    spec.source.tag = Some("v1.11.0".into());
+    let tag = platform_build_runner::resolve_commit(&config, &spec)
+        .await
+        .unwrap();
+    assert!(platform_domain::commit_hash(&tag));
+    spec.source.tag = Some("local-paas-nonexistent-tag-test-20261023".into());
+    assert!(matches!(
+        platform_build_runner::resolve_commit(&config, &spec).await,
+        Err(platform_build_runner::Error::ReferenceMissing)
+    ));
+}

@@ -216,3 +216,126 @@ async fn tailnet_and_local_origins_work_without_allowing_other_origins(pool: PgP
         assert_eq!(response.status(), expected, "{origin}");
     }
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn configuration_updates_are_versioned_retry_safe_and_preserve_builds(pool: PgPool) {
+    let registration = request_body();
+    let (_, initial) = call(&pool, "POST", "/api/services", registration.clone()).await;
+    let id = initial["id"].as_str().unwrap();
+    let path = format!("/api/services/{id}");
+    let build_request = json!({"operation_id":Uuid::new_v4()});
+    let (_, build) = call(
+        &pool,
+        "POST",
+        &format!("{path}/builds"),
+        build_request.clone(),
+    )
+    .await;
+    let mut spec = initial["spec"].clone();
+    spec["source"] =
+        json!({"repository":"https://github.com/example/new.git","branch":"feature/config"});
+    spec["resources"]["memory_mib"] = json!(1024);
+    spec["name"] = json!("renamed-service");
+    let update = json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec});
+    let (a, b) = tokio::join!(
+        call(&pool, "PUT", &path, update.clone()),
+        call(&pool, "PUT", &path, update.clone())
+    );
+    assert_eq!(a.0, StatusCode::OK);
+    assert_eq!(a, b);
+    assert_eq!(a.1["version"], 2);
+    assert_eq!(a.1["spec"], spec);
+    let (_, stored) = call(&pool, "GET", &path, Value::Null).await;
+    assert_eq!(stored, a.1);
+    let retry = call(&pool, "POST", &format!("{path}/builds"), build_request).await;
+    assert_eq!(retry.0, StatusCode::OK);
+    assert_eq!(retry.1, build);
+    assert_eq!(retry.1["spec"], initial["spec"]);
+    // A stale editor must not overwrite the winning edit.
+    let mut stale = update.clone();
+    stale["operation_id"] = json!(Uuid::new_v4());
+    assert_eq!(
+        call(&pool, "PUT", &path, stale).await.0,
+        StatusCode::CONFLICT
+    );
+    let mut second = update.clone();
+    second["operation_id"] = json!(Uuid::new_v4());
+    second["expected_version"] = json!(2);
+    second["spec"]["resources"]["memory_mib"] = json!(2048);
+    assert_eq!(call(&pool, "PUT", &path, second).await.1["version"], 3);
+    // A lost response can be retried even after another update has committed.
+    assert_eq!(call(&pool, "PUT", &path, update.clone()).await, a);
+    let mut conflicting = update;
+    conflicting["spec"]["resources"]["memory_mib"] = json!(4096);
+    assert_eq!(
+        call(&pool, "PUT", &path, conflicting).await.0,
+        StatusCode::CONFLICT
+    );
+    // Registration retries retain the original request identity without undoing edits.
+    let replay = call(&pool, "POST", "/api/services", registration).await;
+    assert_eq!(replay.0, StatusCode::OK);
+    assert_eq!(replay.1["version"], 3);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE kind='service.updated'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+    call(
+        &pool,
+        "POST",
+        &format!("/api/builds/{}/cancel", build["id"].as_str().unwrap()),
+        Value::Null,
+    )
+    .await;
+    let (_, next) = call(
+        &pool,
+        "POST",
+        &format!("{path}/builds"),
+        json!({"operation_id":Uuid::new_v4()}),
+    )
+    .await;
+    assert_eq!(next["spec"]["source"]["branch"], "feature/config");
+    assert_eq!(next["spec"]["resources"]["memory_mib"], 2048);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn invalid_or_unauditable_updates_leave_configuration_unchanged(pool: PgPool) {
+    let (_, initial) = call(&pool, "POST", "/api/services", request_body()).await;
+    let path = format!("/api/services/{}", initial["id"].as_str().unwrap());
+    let mut update =
+        json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":initial["spec"]});
+    update["spec"]["workload"]["dockerfile"] = json!("../Dockerfile");
+    assert_eq!(
+        call(&pool, "PUT", &path, update.clone()).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    update["spec"] =
+        serde_json::from_str::<Value>(include_str!("../../../examples/celld-service.json"))
+            .unwrap();
+    assert_eq!(
+        call(&pool, "PUT", &path, update.clone()).await.0,
+        StatusCode::CONFLICT
+    );
+    update["spec"] = initial["spec"].clone();
+    update["spec"]["resources"]["memory_mib"] = json!(2048);
+    sqlx::query(
+        "ALTER TABLE events ADD CONSTRAINT reject_updates CHECK (kind != 'service.updated')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        call(&pool, "PUT", &path, update).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(call(&pool, "GET", &path, Value::Null).await.1, initial);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM service_updates")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+}

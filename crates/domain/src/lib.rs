@@ -21,7 +21,44 @@ pub struct ServiceSpec {
 #[serde(deny_unknown_fields)]
 pub struct GitSource {
     pub repository: String,
-    pub commit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+}
+
+impl GitSource {
+    pub fn pin(&mut self, commit: String) {
+        self.commit = Some(commit);
+        self.branch = None;
+        self.tag = None;
+    }
+}
+
+pub fn commit_hash(value: &str) -> bool {
+    matches!(value.len(), 40 | 64)
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+
+fn git_ref_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 255
+        && value != "@"
+        && !value.starts_with('-')
+        && !value.starts_with("refs/")
+        && !value.ends_with('.')
+        && !value.contains("..")
+        && !value.contains("@{")
+        && !value
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || "~^:?*[\\".contains(c))
+        && value
+            .split('/')
+            .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,15 +137,33 @@ impl ServiceSpec {
             "use an HTTPS repository URL without credentials, query or fragment",
         );
         check(
-            matches!(self.source.commit.len(), 40 | 64)
-                && self
-                    .source
-                    .commit
-                    .bytes()
-                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
-            "source.commit",
-            "use a full lowercase Git commit hash (40 or 64 hex characters)",
+            [&self.source.commit, &self.source.branch, &self.source.tag]
+                .iter()
+                .filter(|v| v.is_some())
+                .count()
+                == 1,
+            "source",
+            "choose exactly one commit, branch, or tag",
         );
+        if let Some(commit) = &self.source.commit {
+            check(
+                commit_hash(commit),
+                "source.commit",
+                "use a full lowercase Git commit hash (40 or 64 hex characters)",
+            );
+        }
+        for (field, value) in [
+            ("source.branch", &self.source.branch),
+            ("source.tag", &self.source.tag),
+        ] {
+            if let Some(value) = value {
+                check(
+                    git_ref_name(value),
+                    field,
+                    "use a branch or tag name without refs/ prefix, whitespace, wildcards, or revision expressions",
+                );
+            }
+        }
         check(
             (1..=64000).contains(&self.resources.cpu_millis),
             "resources.cpu_millis",
@@ -298,10 +353,47 @@ mod tests {
     }
 
     #[test]
+    fn sources_accept_one_commit_branch_or_tag_and_reject_unsafe_ref_names() {
+        let mut spec = example();
+        spec.source.branch = Some("feature/config".into());
+        assert!(spec.validate().is_err());
+        spec.source.commit = None;
+        spec.validate().unwrap();
+        spec.source.branch = None;
+        assert!(spec.validate().is_err());
+        spec.source.tag = Some("v1.2.3".into());
+        spec.validate().unwrap();
+        for name in [
+            "",
+            "-main",
+            "refs/heads/main",
+            "a..b",
+            "a@{1}",
+            "a b",
+            "a\nb",
+            "a*",
+            "a?",
+            "a[",
+            "a\\b",
+            "a:b",
+            ".hidden",
+            "a/.hidden",
+            "a.lock",
+            "a//b",
+            "a/",
+            "a.",
+            "@",
+        ] {
+            spec.source.tag = Some(name.into());
+            assert!(spec.validate().is_err(), "accepted {name:?}");
+        }
+    }
+
+    #[test]
     fn rejects_credentials_and_mutable_commits() {
         let mut spec = example();
         spec.source.repository = "https://user:secret@example.com/repo.git".into();
-        spec.source.commit = "main".into();
+        spec.source.commit = Some("main".into());
         let issues = spec.validate().unwrap_err();
         assert!(issues.iter().any(|i| i.field == "source.repository"));
         assert!(issues.iter().any(|i| i.field == "source.commit"));
