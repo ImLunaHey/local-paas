@@ -1,3 +1,5 @@
+import { EnvironmentManager, environmentsQuery } from './environments'
+import { Networking } from './networking'
 import { cloneElement, useId, createContext, StrictMode, useContext, useRef, useState } from 'react'
 import type { FormEvent, ReactElement, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -73,6 +75,9 @@ function Shell() {
         <Link to="/" className="nav-item">
           <Box size={17} /> Services <ChevronRight size={14} className="ml-auto" />
         </Link>
+        <Link to="/environments" className="nav-item">
+          <Layers3 size={17} /> Environments
+        </Link>
         <div className="sidebar-note">
           <ShieldCheck size={19} />
           <p>
@@ -101,7 +106,7 @@ function Shell() {
             Services
           </span>
           <span className="environment-tag">
-            <span className="status-dot" /> Development
+            <span className="status-dot" /> Private platform
           </span>
         </header>
         <main>
@@ -134,9 +139,17 @@ function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
 
 function Services() {
   const [offset, setOffset] = useState(0)
+  const [environmentId, setEnvironmentId] = useState('')
+  const environments = useQuery(environmentsQuery)
+  const selectedEnvironment = environments.data?.items.find((e) => e.id === environmentId)
+  const filterParams = new URLSearchParams({ offset: String(offset) })
+  if (selectedEnvironment) {
+    filterParams.set('project', selectedEnvironment.project)
+    filterParams.set('environment', selectedEnvironment.name)
+  }
   const services = useQuery({
-    queryKey: ['services', { offset }],
-    queryFn: () => api<{ items: Service[]; total: number }>(`/services?offset=${offset}`),
+    queryKey: ['services', { offset, environmentId }],
+    queryFn: () => api<{ items: Service[]; total: number }>('/services?' + filterParams),
   })
   const builder = useQuery({
     queryKey: ['build-system'],
@@ -156,6 +169,24 @@ function Services() {
           Register service
         </Link>
       </div>
+      <label className="field mb-5">
+        Environment
+        <select
+          aria-label="Filter environment"
+          value={environmentId}
+          onChange={(e) => {
+            setEnvironmentId(e.target.value)
+            setOffset(0)
+          }}
+        >
+          <option value="">All environments</option>
+          {environments.data?.items.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.project} / {e.name}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="phase-banner">
         <span className="phase-icon">
           <Terminal size={19} />
@@ -163,7 +194,8 @@ function Services() {
         <div>
           <strong>From source to image.</strong>
           <p>
-            Register a service, build a commit, and inspect its output. Deployments are coming next.
+            Build and deploy your services. Keep deployments, networking and secrets scoped to their
+            environment.
           </p>
         </div>
         <span className="chip ml-auto">Development preview</span>
@@ -408,6 +440,7 @@ function ServiceForm({ service }: { service?: Service }) {
   const [buildMode, setBuildMode] = useState<'auto' | 'dockerfile' | 'generated'>(
     oci?.build_mode ?? 'auto',
   )
+  const knownEnvironments = useQuery(environmentsQuery)
   const [dirty, setDirty] = useState(false)
   const [formVersion, setFormVersion] = useState(0)
   const [reloading, setReloading] = useState(false)
@@ -577,6 +610,7 @@ function ServiceForm({ service }: { service?: Service }) {
                 <Field label="Project">
                   <input
                     name="project"
+                    readOnly={!!service}
                     defaultValue={spec?.project}
                     placeholder="personal"
                     required
@@ -584,9 +618,18 @@ function ServiceForm({ service }: { service?: Service }) {
                     maxLength={63}
                   />
                 </Field>
+                <datalist id="known-environments">
+                  {knownEnvironments.data?.items.map((e) => (
+                    <option key={e.id} value={e.name}>
+                      {e.project}
+                    </option>
+                  ))}
+                </datalist>
                 <Field label="Environment">
                   <input
                     name="environment"
+                    readOnly={!!service}
+                    list="known-environments"
                     defaultValue={spec?.environment ?? 'development'}
                     required
                     pattern="[a-z0-9]+(-[a-z0-9]+)*"
@@ -980,10 +1023,26 @@ function ServiceDetail() {
               : 'Dedicated celld application fleet'}
           </p>
         </div>
-        <span className="chip">
-          <Circle size={10} />
-          {runtime.isError ? 'Runtime status unavailable' : runtimeLabel(runtime.data)}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          {runtime.data?.preview_url ? (
+            <a
+              className="button primary"
+              href={runtime.data.preview_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open app ↗
+            </a>
+          ) : (
+            <Link className="button" to="/services/$serviceId/networking" params={{ serviceId }}>
+              Set up URL
+            </Link>
+          )}
+          <span className="chip">
+            <Circle size={10} />
+            {runtime.isError ? 'Runtime status unavailable' : runtimeLabel(runtime.data)}
+          </span>
+        </div>
       </div>
       <div className="phase-banner">
         <span className="phase-icon">
@@ -1027,6 +1086,14 @@ function ServiceDetail() {
         />
       </div>
       <nav className="detail-nav" aria-label="Service tabs">
+        <Link
+          to="/services/$serviceId/networking"
+          params={{ serviceId }}
+          resetScroll={false}
+          activeProps={{ 'aria-current': 'page' }}
+        >
+          Networking
+        </Link>
         <Link
           to="/services/$serviceId/builds"
           params={{ serviceId }}
@@ -1159,6 +1226,16 @@ const rootRoute = createRootRoute({
   ),
 })
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: Services })
+const environmentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/environments',
+  component: EnvironmentManager,
+})
+const networkingRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'networking',
+  component: () => <Networking service={useCurrentService()} />,
+})
 const newRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/services/new',
@@ -1210,9 +1287,11 @@ const serviceActivityRoute = createRoute({
 const router = createRouter({
   routeTree: rootRoute.addChildren([
     indexRoute,
+    environmentsRoute,
     newRoute,
     detailRoute.addChildren([
       serviceIndexRoute,
+      networkingRoute,
       serviceBuildsRoute,
       serviceLogsRoute,
       serviceMetricsRoute,

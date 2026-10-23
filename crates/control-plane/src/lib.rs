@@ -15,13 +15,23 @@ use uuid::Uuid;
 
 pub mod builds;
 mod configuration;
+mod environments;
 pub mod logging;
+mod networking;
 pub mod preview;
 pub mod runtime;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route(
+            "/api/environments",
+            get(environments::list).post(environments::create),
+        )
+        .route(
+            "/api/services/{id}/networking",
+            get(networking::get).put(networking::update),
+        )
         .route("/api/services", get(list_services).post(create_service))
         .route(
             "/api/services/{id}",
@@ -168,15 +178,18 @@ async fn validate_spec(Json(spec): Json<ServiceSpec>) -> Result<Json<serde_json:
 struct Pagination {
     #[serde(default)]
     offset: u32,
+    project: Option<String>,
+    environment: Option<String>,
 }
 
 async fn list_services(
     State(pool): State<PgPool>,
     Query(page): Query<Pagination>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let items = sqlx::query_as::<_, Service>("SELECT id, operation_id, spec, created_at, version FROM services ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1")
-        .bind(i64::from(page.offset)).fetch_all(&pool).await?;
-    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM services")
+    let items = sqlx::query_as::<_, Service>("SELECT id, operation_id, spec, created_at, version FROM services WHERE ($2::text IS NULL OR spec->>'project'=$2) AND ($3::text IS NULL OR spec->>'environment'=$3) ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1")
+        .bind(i64::from(page.offset)).bind(&page.project).bind(&page.environment).fetch_all(&pool).await?;
+    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM services WHERE ($1::text IS NULL OR spec->>'project'=$1) AND ($2::text IS NULL OR spec->>'environment'=$2)")
+        .bind(&page.project).bind(&page.environment)
         .fetch_one(&pool)
         .await?;
     Ok(Json(json!({"items":items,"total":total})))

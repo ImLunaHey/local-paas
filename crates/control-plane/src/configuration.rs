@@ -53,6 +53,13 @@ pub(crate) async fn update(
             "an existing service cannot change workload kind; register a separate service",
         ));
     }
+    if current.spec.project != request.spec.project
+        || current.spec.environment != request.spec.environment
+    {
+        return Err(ApiError::Conflict(
+            "create a separate service in the target environment; existing service identity and secret scope cannot move",
+        ));
+    }
     let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
         .bind(Uuid::new_v4()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")

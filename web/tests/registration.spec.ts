@@ -247,3 +247,32 @@ test('filter retained logs and switch combined and instance metrics', async ({ p
     false,
   )
 })
+
+test('open the application from its header and inspect networking', async ({ page }) => {
+  const serviceId = process.env.E2E_RUNNING_SERVICE_ID
+  test.skip(!serviceId, 'Requires a ready private application')
+  await page.goto('/services/' + serviceId + '/logs')
+  await expect(page.getByRole('link', { name: 'Open app ↗', exact: true })).toHaveAttribute(
+    'href',
+    'https://lake.tail3275e2.ts.net:5201',
+  )
+  await page.getByRole('link', { name: 'Networking', exact: true }).click()
+  await expect(page).toHaveURL(/\/networking$/)
+  await expect(page.getByLabel('Container port', { exact: true })).toHaveValue('3000')
+  await expect(page.getByLabel('HTTPS endpoint', { exact: true })).toHaveValue(
+    'lake.tail3275e2.ts.net:5201',
+  )
+  await expect(page.getByText('Active container port: 3000 · configured port: 3000')).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('Service networking')).toBeVisible()
+  await page.getByRole('link', { name: 'Environments', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Environments', exact: true })).toBeVisible()
+  await expect(page.getByText('personal / development', { exact: true })).toBeVisible()
+  await page.goto('/')
+  await page.getByLabel('Filter environment').selectOption({ label: 'personal / development' })
+  await expect(page.getByRole('heading', { name: 'showcase-studio', exact: true })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+})

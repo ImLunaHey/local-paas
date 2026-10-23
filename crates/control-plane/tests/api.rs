@@ -339,3 +339,100 @@ async fn invalid_or_unauditable_updates_leave_configuration_unchanged(pool: PgPo
         0
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn environments_are_explicit_filtered_and_service_identity_cannot_move(pool: PgPool) {
+    let a = call(
+        &pool,
+        "POST",
+        "/api/environments",
+        json!({"project":"personal","name":"staging"}),
+    )
+    .await;
+    let b = call(
+        &pool,
+        "POST",
+        "/api/environments",
+        json!({"project":"personal","name":"staging"}),
+    )
+    .await;
+    assert_eq!(a, b);
+    assert_eq!(a.0, StatusCode::OK);
+    let (_, service) = call(&pool, "POST", "/api/services", request_body()).await;
+    let (_, page) = call(
+        &pool,
+        "GET",
+        "/api/services?environment=staging",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(page["total"], 0);
+    let (_, all) = call(&pool, "GET", "/api/services", Value::Null).await;
+    assert_eq!(all["total"], 1);
+    let id = service["id"].as_str().unwrap();
+    let mut spec = service["spec"].clone();
+    spec["environment"] = json!("staging");
+    assert_eq!(
+        call(
+            &pool,
+            "PUT",
+            &format!("/api/services/{id}"),
+            json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (_, envs) = call(&pool, "GET", "/api/environments", Value::Null).await;
+    assert!(
+        envs["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "staging")
+    );
+    let (_, net) = call(
+        &pool,
+        "GET",
+        &format!("/api/services/{id}/networking"),
+        Value::Null,
+    )
+    .await;
+    assert!(net["authority"].is_null());
+    assert_eq!(
+        call(
+            &pool,
+            "PUT",
+            &format!("/api/services/{id}/networking"),
+            json!({"authority":"unconfigured.example:5555","port":3000,"expected_version":1})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &pool,
+            "PUT",
+            &format!("/api/services/{id}/networking"),
+            json!({"authority":null,"port":4000,"expected_version":1})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, saved) = call(&pool, "GET", &format!("/api/services/{id}"), Value::Null).await;
+    assert_eq!(saved["spec"]["workload"]["port"], 4000);
+    assert_eq!(
+        call(
+            &pool,
+            "PUT",
+            &format!("/api/services/{id}/networking"),
+            json!({"authority":null,"port":5000,"expected_version":1})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+}
