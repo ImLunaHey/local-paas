@@ -149,7 +149,7 @@ export function ProjectWorkspace({
   })
   return (
     <>
-      <Link to="/" className="back-link mb-6">
+      <Link to="/projects" className="back-link mb-6">
         <ArrowLeft size={14} />
         All projects
       </Link>
@@ -159,14 +159,23 @@ export function ProjectWorkspace({
           <h1>{project.data?.name ?? 'Loading…'}</h1>
           <p>Services share an environment. Deployments and secrets stay isolated.</p>
         </div>
-        <Link
-          to="/services/new"
-          search={{ project: project.data?.name, environment: env?.name }}
-          className="button primary"
-        >
-          <Plus size={15} />
-          Add service
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/projects/$projectId/settings"
+            params={{ projectId }}
+            className="button secondary"
+          >
+            Settings
+          </Link>
+          <Link
+            to="/services/new"
+            search={{ project: project.data?.name, environment: env?.name }}
+            className="button primary"
+          >
+            <Plus size={15} />
+            Add service
+          </Link>
+        </div>
       </div>
       {(project.error || services.error || create.error) && (
         <p role="alert" className="error-notice">
@@ -243,6 +252,8 @@ export function ProjectWorkspace({
         <div className="service-table-head">
           <span>SERVICE / SOURCE</span>
           <span>WORKLOAD</span>
+          <span>CPU</span>
+          <span>MEMORY</span>
           <span>STATUS</span>
         </div>
         {services.data?.items.map(renderService)}
@@ -289,9 +300,95 @@ export function ProjectBackLink({
       Project services
     </Link>
   ) : (
-    <Link to="/" className="back-link">
+    <Link to="/projects" className="back-link">
       <ArrowLeft size={14} />
       All projects
     </Link>
+  )
+}
+
+export function ProjectSettings() {
+  const { projectId } = useParams({ strict: false }) as { projectId: string }
+  const client = useQueryClient()
+  const project = useQuery({
+    queryKey: ['projects', projectId],
+    queryFn: () => api<Project>('/projects/' + projectId),
+  })
+  const [name, setName] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: () =>
+      api('/projects/' + projectId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name ?? project.data?.name,
+          expected_name: project.data?.name,
+        }),
+      }),
+    onSuccess: async () => {
+      setName(null)
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['projects'] }),
+        client.invalidateQueries({ queryKey: ['services'] }),
+        client.invalidateQueries({ queryKey: ['search'] }),
+        client.invalidateQueries({ queryKey: ['environments'] }),
+      ])
+    },
+  })
+  return (
+    <>
+      <Link to="/projects/$projectId" params={{ projectId }} className="back-link mb-6">
+        <ArrowLeft size={14} />
+        Project services
+      </Link>
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow">PROJECT SETTINGS</div>
+          <h1>{project.data?.name ?? 'Loading…'}</h1>
+          <p>Manage this project's identity.</p>
+        </div>
+      </div>
+      <form
+        className="panel max-w-2xl space-y-5 p-6"
+        onSubmit={(event) => {
+          event.preventDefault()
+          save.mutate()
+        }}
+      >
+        <Field label="Project name" hint="Use lowercase letters, numbers and hyphens.">
+          <Input
+            required
+            maxLength={63}
+            pattern="[a-z0-9]+(-[a-z0-9]+)*"
+            value={name ?? project.data?.name ?? ''}
+            onChange={(event) => {
+              setName(event.target.value)
+              save.reset()
+            }}
+          />
+        </Field>
+        <p className="text-xs leading-relaxed text-muted">
+          Renaming keeps the project's services, environments, secrets and URLs. Existing deployment
+          history keeps its original name.
+        </p>
+        {(project.error || save.error) && (
+          <p role="alert" className="error-notice">
+            {(project.error || save.error)?.message}
+          </p>
+        )}
+        {save.isSuccess && (
+          <p role="status" className="text-xs text-emerald-300">
+            Project settings saved.
+          </p>
+        )}
+        <Button
+          variant="primary"
+          type="submit"
+          disabled={!project.data || save.isPending || name === null || name === project.data.name}
+        >
+          Save changes
+        </Button>
+      </form>
+    </>
   )
 }

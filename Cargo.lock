@@ -230,6 +230,7 @@ dependencies = [
  "axum",
  "chrono",
  "http-body-util",
+ "libc",
  "platform-build-runner",
  "platform-domain",
  "platform-protocol",

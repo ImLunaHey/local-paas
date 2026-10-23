@@ -16,10 +16,13 @@ use uuid::Uuid;
 mod audit;
 pub mod builds;
 mod configuration;
+mod domains;
 mod environments;
 mod history;
+pub mod host_metrics;
 pub mod logging;
 mod networking;
+mod overview;
 pub mod preview;
 mod projects;
 pub mod runtime;
@@ -28,9 +31,20 @@ pub mod secrets;
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route("/api/domains", get(domains::list).post(domains::create))
+        .route(
+            "/api/domains/{hostname}",
+            axum::routing::put(domains::update),
+        )
+        .route("/api/overview", get(overview::get))
+        .route("/api/hosts", get(overview::hosts))
         .route("/api/audit", get(audit::list))
         .route("/api/projects", get(projects::list).post(projects::create))
-        .route("/api/projects/{id}", get(projects::get))
+        .route(
+            "/api/projects/{id}",
+            get(projects::get).put(projects::update),
+        )
+        .route("/api/search", get(projects::search))
         .route(
             "/api/services/{id}/secrets",
             get(secrets::list).put(secrets::update),

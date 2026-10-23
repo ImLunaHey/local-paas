@@ -1,7 +1,11 @@
+import { Domains } from './domains'
+import { Overview, Hosts } from './overview'
+import { ServiceTrends } from './metrics'
+import { CommandMenu } from './command-menu'
 import { AuditLog } from './audit'
 import { cn } from 'cn'
 import { Button, Input, Select, Field } from './ui'
-import { Projects, ProjectWorkspace, ProjectBackLink } from './projects'
+import { Projects, ProjectWorkspace, ProjectBackLink, ProjectSettings } from './projects'
 import { SecretManager } from './secrets'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
@@ -35,6 +39,7 @@ import {
   ArrowDownLeft,
   AlertCircle,
   Box,
+  Globe,
   Check,
   ChevronRight,
   Circle,
@@ -87,9 +92,24 @@ function Shell() {
         </div>
         <div className="nav-label">WORKSPACE</div>
         <nav aria-label="Workspace navigation" className="flex gap-2 py-2 min-[721px]:flex-col">
-          <Link to="/" className={navClass(path !== '/audit')} activeOptions={{ exact: true }}>
+          <Link to="/" className={navClass(path === '/')}>
+            <Box size={17} />
+            <span>Overview</span>
+          </Link>
+          <Link
+            to="/projects"
+            className={navClass(path.startsWith('/projects') || path.startsWith('/services'))}
+          >
             <Layers3 size={17} />
             <span>Projects</span>
+          </Link>
+          <Link to="/hosts" className={navClass(path === '/hosts')}>
+            <Server size={17} />
+            <span>Hosts</span>
+          </Link>
+          <Link to="/domains" className={navClass(path === '/domains')}>
+            <Globe size={17} />
+            <span>Domains</span>
           </Link>
           <Link to="/audit" className={navClass(path === '/audit')}>
             <ShieldCheck size={17} />
@@ -121,11 +141,20 @@ function Shell() {
           <span className="flex items-center gap-2">
             <span className="text-muted">Workspace</span>
             <ChevronRight size={13} />
-            {path === '/audit' ? 'Audit log' : 'Projects'}
+            {path === '/'
+              ? 'Overview'
+              : path === '/hosts'
+                ? 'Hosts'
+                : path === '/domains'
+                  ? 'Domains'
+                  : path === '/audit'
+                    ? 'Audit log'
+                    : 'Projects'}
           </span>
           <span className="environment-tag">
             <span className="status-dot" /> Private platform
           </span>
+          <CommandMenu />
         </header>
         <main>
           <Outlet />
@@ -209,8 +238,15 @@ function ServiceRow({ service }: { service: Service }) {
           ? `${spec.workload.replicas} requested replicas`
           : `${spec.workload.members} requested members`}
       </span>
+      <ServiceTrends service={service} instances={runtime.data?.instances ?? []} />
       <span className="flex items-center justify-between gap-4">
-        <span className="chip">
+        <span
+          className={cn(
+            'chip',
+            runtimeLabel(runtime.data) === 'Running' &&
+              '!border-emerald-400/20 !bg-emerald-400/10 !text-emerald-300',
+          )}
+        >
           <Circle size={9} />
           {spec.workload.kind === 'celld-service'
             ? 'Fleet not deployed'
@@ -834,7 +870,14 @@ function ServiceDetail() {
               Set up URL
             </Link>
           )}
-          <span className="chip">
+          <span
+            className={cn(
+              'chip',
+              !runtime.isError &&
+                runtimeLabel(runtime.data) === 'Running' &&
+                '!border-emerald-400/20 !bg-emerald-400/10 !text-emerald-300',
+            )}
+          >
             <Circle size={10} />
             {runtime.isError ? 'Runtime status unavailable' : runtimeLabel(runtime.data)}
           </span>
@@ -1031,7 +1074,22 @@ const rootRoute = createRootRoute({
     </div>
   ),
 })
-const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: Projects })
+const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: Overview })
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects',
+  component: Projects,
+})
+const hostsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/hosts',
+  component: Hosts,
+})
+const domainsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/domains',
+  component: Domains,
+})
 const environmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/environments',
@@ -1060,6 +1118,11 @@ const projectRoute = createRoute({
       renderService={(service) => <ServiceRow key={service.id} service={service} />}
     />
   ),
+})
+const projectSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/$projectId/settings',
+  component: ProjectSettings,
 })
 const newRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -1127,7 +1190,11 @@ const serviceActivityRoute = createRoute({
 const router = createRouter({
   routeTree: rootRoute.addChildren([
     indexRoute,
+    projectsRoute,
+    hostsRoute,
+    domainsRoute,
     projectRoute,
+    projectSettingsRoute,
     auditRoute,
     environmentsRoute,
     newRoute,

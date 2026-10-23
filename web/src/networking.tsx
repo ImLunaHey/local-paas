@@ -1,4 +1,4 @@
-import { Button, Input, Select, Field } from './ui'
+import { Button, Input, Field } from './ui'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
@@ -38,14 +38,14 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
   const desiredPort =
     service.spec.workload.kind === 'oci-service' ? service.spec.workload.port : 3000
   const [port, setPort] = useState(desiredPort)
-  const [authority, setAuthority] = useState(network.authority ?? '')
+  const [enabled, setEnabled] = useState(!!network.authority)
   const save = useMutation({
     mutationFn: () =>
       api('/services/' + service.id + '/networking', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          authority: authority || null,
+          enabled,
           port,
           expected_version: service.version,
         }),
@@ -64,7 +64,7 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
         <div>
           <h2>Networking</h2>
           <p className="text-xs text-muted mt-2">
-            Private HTTPS URL → ready instances → container port
+            Give this app a private link, accessible from your Tailscale network.
           </p>
         </div>
         <span className="chip">Tailnet only</span>
@@ -74,8 +74,12 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
           <div>
             <code className="break-all">https://{network.authority}</code>
             <p className="text-xs text-muted mt-2">
-              Active container port: {network.active_port ?? 'Not deployed'} · configured port:{' '}
-              {desiredPort}
+              {network.active_port == null
+                ? 'URL reserved · deploy the app to serve requests'
+                : `HTTPS → container port ${network.active_port}`}
+              {network.active_port != null &&
+                desiredPort !== network.active_port &&
+                ` · next deployment: port ${desiredPort}`}
             </p>
           </div>
           <a
@@ -95,7 +99,10 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
           save.mutate()
         }}
       >
-        <Field label="Container port">
+        <Field
+          label="Container port"
+          hint="The port your application listens on, such as 3000. This is separate from its HTTPS URL."
+        >
           <Input
             aria-label="Container port"
             type="number"
@@ -106,35 +113,21 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
             onChange={(e) => setPort(Number(e.target.value))}
           />
         </Field>
-        <Field label="HTTPS endpoint">
-          <Select
-            aria-label="HTTPS endpoint"
-            value={authority}
-            onChange={(e) => setAuthority(e.target.value)}
+        <Field label="Private access" hint="We’ll assign an available HTTPS URL automatically.">
+          <Button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            aria-label="Enable private URL"
+            onClick={() => setEnabled((value) => !value)}
           >
-            <option value="">No URL mapping</option>
-            {[
-              ...new Set([...(network.authority ? [network.authority] : []), ...network.available]),
-            ].map((a) => (
-              <option key={a} value={a}>
-                {'https://' + a}
-              </option>
-            ))}
-          </Select>
+            {enabled ? 'Private URL enabled' : 'Enable private URL'}
+          </Button>
         </Field>
         <div className="flex gap-3 items-center sm:col-span-2">
           <Button variant="primary" disabled={save.isPending} type="submit">
             Save networking
           </Button>
-          {!authority && network.available.length > 0 && (
-            <Button
-              type="button"
-              className="button"
-              onClick={() => setAuthority(network.available[0])}
-            >
-              Choose available URL
-            </Button>
-          )}
         </div>
       </form>
       {save.error && (
@@ -155,9 +148,9 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
         the configured port.
       </p>
       <p className="text-xs text-muted">
-        These endpoints have TLS configured through Tailscale Serve. Custom public domains require
-        the planned public edge and DNS setup; entering a domain in service configuration does not
-        provision public ingress.
+        This link is private, not publicly accessible. Custom domains are not available yet. The
+        number at the end of the assigned URL is managed by the platform; you do not need to change
+        your app to match it.
       </p>
     </section>
   )

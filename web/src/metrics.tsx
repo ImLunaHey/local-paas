@@ -1,3 +1,4 @@
+import { Trend } from './trend'
 import { Select, Field } from './ui'
 import { useMemo, useState } from 'react'
 import { defineChart, lineY } from '@tanstack/charts'
@@ -243,5 +244,60 @@ function Chart({
       </h3>
       <TanStackChart definition={definition} height={180} ariaLabel={label + ' (' + unit + ')'} />
     </div>
+  )
+}
+
+export function ServiceTrends({ service, instances }: { service: Service; instances: Instance[] }) {
+  const metrics = useQuery({
+    queryKey: ['runtime-metrics', service.id],
+    queryFn: () => api<{ samples: Sample[] }>('/services/' + service.id + '/runtime/metrics'),
+    refetchInterval: 10000,
+    enabled: service.spec.workload.kind === 'oci-service',
+  })
+  const active = instances.filter(
+    (i) =>
+      i.desired_state === 'running' &&
+      ['ready', 'starting'].includes(i.state) &&
+      i.observed_at &&
+      Date.now() - Date.parse(i.observed_at) < 15000,
+  )
+  const ids = new Set(active.map((i) => i.id))
+  const samples = combine((metrics.data?.samples ?? []).filter((s) => ids.has(s.instance_id)))
+  return (
+    <>
+      {series.slice(0, 2).map(({ field, label, unit, scale }) => {
+        const current =
+          active.length && active.every((i) => i[field] != null)
+            ? active.reduce((sum, i) => sum + i[field]!, 0) / scale
+            : null
+        return (
+          <div key={field} className="service-trend min-w-0" aria-label={label}>
+            <span className="block text-[10px] text-muted min-[721px]:hidden">{label}</span>
+            <span className="text-[11px] text-zinc-300">
+              {current == null
+                ? '—'
+                : current.toLocaleString(undefined, { maximumFractionDigits: 1 }) +
+                  ' ' +
+                  (field === 'cpu_millis' ? 'm' : unit)}
+            </span>
+            {samples.some((s) => s[field] != null) && !metrics.isError ? (
+              <Trend
+                compact
+                label={label}
+                unit={unit}
+                points={samples.map((s) => ({
+                  time: Date.parse(s.timestamp),
+                  value: s[field] == null ? null : s[field]! / scale,
+                }))}
+              />
+            ) : (
+              <span className="block pt-2 text-[10px] text-muted">
+                {metrics.isError ? 'Unavailable' : 'No measurements'}
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </>
   )
 }

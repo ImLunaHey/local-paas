@@ -257,14 +257,15 @@ test('open the application from its header and inspect networking', async ({ pag
   await page.getByRole('link', { name: 'Networking', exact: true }).click()
   await expect(page).toHaveURL(/\/networking$/)
   await expect(page.getByLabel('Container port', { exact: true })).toHaveValue('3000')
-  await expect(page.getByLabel('HTTPS endpoint', { exact: true })).toHaveValue(
-    'lake.tail3275e2.ts.net:5201',
+  await expect(page.getByRole('switch', { name: 'Enable private URL' })).toHaveAttribute(
+    'aria-checked',
+    'true',
   )
-  await expect(page.getByText('Active container port: 3000 · configured port: 3000')).toBeVisible()
+  await expect(page.getByText('HTTPS → container port 3000')).toBeVisible()
   await page.reload()
   await expect(page.getByLabel('Service networking')).toBeVisible()
   await page.getByRole('link', { name: 'Project services', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'personal', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'showcase-studio', exact: true })).toBeVisible()
   await page.getByLabel('Project environment').selectOption('development')
   await expect(page.getByRole('heading', { name: 'showcase-studio', exact: true })).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })

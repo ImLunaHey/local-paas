@@ -6,6 +6,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+libc = "0.2"
 platform-domain = { path = "../domain" }
 platform-protocol = { path = "../protocol" }
 sha2 = "0.10"

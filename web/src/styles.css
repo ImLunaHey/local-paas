@@ -1146,3 +1146,62 @@ h3 {
   color: #ac8c76;
   font-variant-numeric: tabular-nums;
 }
+
+[cmdk-overlay] {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(0 0 0 / 65%);
+  backdrop-filter: blur(4px);
+}
+[cmdk-dialog] {
+  position: fixed;
+  z-index: 81;
+  top: min(20vh, 160px);
+  left: 50%;
+  width: min(640px, calc(100vw - 32px));
+  transform: translateX(-50%);
+}
+.command-group [cmdk-group-heading] {
+  padding: 12px;
+  color: #85858f;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.service-table-head,
+.service-row {
+  grid-template-columns: minmax(150px, 1fr) 130px 100px 110px 150px;
+  gap: 16px;
+}
+@media (max-width: 1200px) {
+  .service-table-head,
+  .service-row {
+    grid-template-columns: minmax(140px, 1fr) 90px 100px 135px;
+  }
+  .service-table-head > :nth-child(2),
+  .service-row > :nth-child(2) {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .service-table-head {
+    display: none;
+  }
+  .service-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .service-row > :first-child {
+    grid-column: 1 / -1;
+  }
+  .service-row > :last-child {
+    grid-column: 1 / -1;
+  }
+  .sidebar nav {
+    flex-wrap: wrap;
+  }
+  .topbar .environment-tag {
+    display: none;
+  }
+}

@@ -54,13 +54,14 @@ pub(crate) async fn get(
 #[serde(deny_unknown_fields)]
 pub(crate) struct Update {
     authority: Option<String>,
+    enabled: Option<bool>,
     port: u16,
     expected_version: i32,
 }
 pub(crate) async fn update(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
-    Json(input): Json<Update>,
+    Json(mut input): Json<Update>,
 ) -> Result<Json<Value>, ApiError> {
     if input
         .authority
@@ -72,6 +73,29 @@ pub(crate) async fn update(
         ));
     }
     let mut tx = pool.begin().await?;
+    // Serialize automatic allocation so two services cannot claim the same URL.
+    sqlx::query("SELECT pg_advisory_xact_lock(72401952)")
+        .execute(&mut *tx)
+        .await?;
+    if let Some(enabled) = input.enabled {
+        input.authority = if enabled {
+            let existing: Option<String> =
+                sqlx::query_scalar("SELECT authority FROM preview_routes WHERE service_id=$1")
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if existing.is_some() {
+                existing
+            } else {
+                let used: Vec<String> = sqlx::query_scalar("SELECT authority FROM preview_routes")
+                    .fetch_all(&mut *tx)
+                    .await?;
+                Some(endpoints().into_iter().find(|a| !used.contains(a)).ok_or(ApiError::Conflict("all private URLs are in use; ask the platform administrator to add capacity"))?)
+            }
+        } else {
+            None
+        };
+    }
     let mut service: Service = sqlx::query_as("SELECT * FROM services WHERE id=$1 FOR UPDATE")
         .bind(id)
         .fetch_optional(&mut *tx)

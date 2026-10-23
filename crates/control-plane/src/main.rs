@@ -37,6 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "local development control API listening");
+    let host_metrics = tokio::spawn(control_plane::host_metrics::run());
     let upkeep_pool = pool.clone();
     let upkeep = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
@@ -82,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_graceful_shutdown(shutdown())
     .await?;
+    host_metrics.abort();
     upkeep.abort();
     archive.abort();
     renewal.abort();

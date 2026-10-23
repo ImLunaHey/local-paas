@@ -277,3 +277,179 @@ async fn audit_records_actions_but_not_http_traffic(pool: PgPool) {
             .any(|entry| entry["target_id"] == service.to_string())
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn rename_updates_current_specs_preserves_ids_and_checks_stale_names(pool: PgPool) {
+    let (project, env, service) = fixture(&pool).await;
+    let path = format!("/api/projects/{project}");
+    let (status, _) = request(
+        &pool,
+        "PUT",
+        &path,
+        json!({"name":"renamed-canary","expected_name":"project-canary"}),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let (status, current) = request(
+        &pool,
+        "GET",
+        &format!("/api/services/{service}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(current["spec"]["project"], "renamed-canary");
+    let env_after: Uuid = sqlx::query_scalar("SELECT environment_id FROM services WHERE id=$1")
+        .bind(service)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(env, env_after);
+    let original: Value = sqlx::query_scalar("SELECT registered_spec FROM services WHERE id=$1")
+        .bind(service)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(original["project"], "project-canary");
+    let (status, _) = request(
+        &pool,
+        "PUT",
+        &path,
+        json!({"name":"overwritten","expected_name":"project-canary"}),
+    )
+    .await;
+    assert_eq!(status, 409);
+    let (_, results) = request(&pool, "GET", "/api/search?q=renamed-canary", Value::Null).await;
+    assert_eq!(results["items"].as_array().unwrap().len(), 2);
+    let (_, overview) = request(&pool, "GET", "/api/overview", Value::Null).await;
+    assert_eq!(overview["summary"]["services"], 1);
+    assert_eq!(overview["summary"]["ready_instances"], 0);
+    assert_eq!(overview["deployments"], json!([]));
+    let (status, hosts) = request(&pool, "GET", "/api/hosts", Value::Null).await;
+    assert_eq!(status, 200);
+    assert_eq!(hosts["nodes"], json!([]));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn global_domains_normalize_reassign_and_audit_without_claiming_live_routing(pool: PgPool) {
+    let (_, _, service) = fixture(&pool).await;
+    let (status, _) = request(
+        &pool,
+        "POST",
+        "/api/domains",
+        json!({"hostname":"HTTPS://bad.example"}),
+    )
+    .await;
+    assert_eq!(status, 409);
+    let (status, _) = request(
+        &pool,
+        "POST",
+        "/api/domains",
+        json!({"hostname":" App.Example.COM. "}),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        request(
+            &pool,
+            "POST",
+            "/api/domains",
+            json!({"hostname":"app.example.com"})
+        )
+        .await
+        .0,
+        409
+    );
+    let path = "/api/domains/app.example.com";
+    assert_eq!(
+        request(
+            &pool,
+            "PUT",
+            path,
+            json!({"service_id":service,"expected_version":1})
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        request(
+            &pool,
+            "PUT",
+            path,
+            json!({"service_id":null,"expected_version":1})
+        )
+        .await
+        .0,
+        409
+    );
+    let (_, domains) = request(&pool, "GET", "/api/domains", Value::Null).await;
+    assert_eq!(domains["edge_ready"], false);
+    assert_eq!(domains["items"][0]["service_id"], json!(service));
+    assert_eq!(domains["items"][0]["status"], "pending-edge");
+    assert_eq!(
+        request(
+            &pool,
+            "PUT",
+            path,
+            json!({"service_id":null,"expected_version":2})
+        )
+        .await
+        .0,
+        200
+    );
+    let audit:Value=sqlx::query_scalar("SELECT details FROM audit_log WHERE target_type='domains' AND action='domains.update' ORDER BY sequence DESC LIMIT 1").fetch_one(&pool).await.unwrap();
+    assert_eq!(audit["hostname"], "app.example.com");
+    assert_eq!(audit["previous_service_id"], json!(service));
+    assert!(audit["service_id"].is_null());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn private_url_auto_allocation_preserves_existing_url_and_disables_cleanly(pool: PgPool) {
+    let (_, _, service) = fixture(&pool).await;
+    let path = format!("/api/services/{service}/networking");
+    let (_, before) = request(&pool, "GET", &path, Value::Null).await;
+    let (status, saved) = request(
+        &pool,
+        "PUT",
+        &path,
+        json!({"enabled":true,"port":3000,"expected_version":1}),
+    )
+    .await;
+    if before["available"].as_array().unwrap().is_empty() {
+        assert_eq!(status, 409);
+        let version: i32 = sqlx::query_scalar("SELECT version FROM services WHERE id=$1")
+            .bind(service)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(version, 1);
+        return;
+    }
+    assert_eq!(status, 200);
+    let (status, retry) = request(
+        &pool,
+        "PUT",
+        &path,
+        json!({"enabled":true,"port":3000,"expected_version":2}),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(saved["url"], retry["url"]);
+    assert_eq!(
+        request(
+            &pool,
+            "PUT",
+            &path,
+            json!({"enabled":false,"port":3000,"expected_version":3})
+        )
+        .await
+        .0,
+        200
+    );
+    let (_, after) = request(&pool, "GET", &path, Value::Null).await;
+    assert!(after["authority"].is_null());
+}
