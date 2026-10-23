@@ -15,7 +15,7 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   await page.getByLabel('Commit SHA').fill('a'.repeat(40))
   await page.getByRole('button', { name: 'Register service', exact: true }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
-  await expect(page.getByText('Registered · not deployed')).toBeVisible()
+  await expect(page.getByText('Not deployed', { exact: true })).toBeVisible()
   await expect(page).toHaveURL(/\/builds$/)
   await page.getByRole('link', { name: 'Activity', exact: true }).click()
   await expect(page).toHaveURL(/\/activity$/)
@@ -141,7 +141,7 @@ test('show a real pushed image, build logs and digest on desktop and mobile', as
   await history.selectOption((await completed.getAttribute('value'))!)
   await expect(page.getByTestId('build-status')).toHaveText('succeeded')
   await expect(
-    page.getByText('Image pushed and revision recorded. No instances have been started.'),
+    page.getByText('Image pushed and revision recorded. Use Deploy revision to start this image.'),
   ).toBeVisible()
   await expect(page.locator('code').filter({ hasText: '@sha256:' }).first()).toBeVisible()
   await expect(page.getByLabel('Build output')).toContainText('pushing manifest')
@@ -176,4 +176,44 @@ test('show a real pushed image, build logs and digest on desktop and mobile', as
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,
   )
+})
+
+test('show live application logs, measured usage and the private preview', async ({ page }) => {
+  const serviceId = process.env.E2E_RUNNING_SERVICE_ID
+  test.skip(!serviceId, 'Requires a real ready runtime deployment')
+  await page.goto(`/services/${serviceId}/logs`)
+  await expect(page.getByLabel('Application output')).toContainText('Ready in')
+  await expect(page.getByText('Following · updates every 3 seconds')).toBeVisible()
+  await page.getByRole('button', { name: 'Pause live logs' }).click()
+  await expect(page.getByRole('button', { name: 'Resume live logs' })).toBeVisible()
+  await page.getByRole('button', { name: 'Resume live logs' }).click()
+  await page.getByRole('link', { name: 'Metrics', exact: true }).click()
+  await expect(page).toHaveURL(/\/metrics$/)
+  await expect(page.getByRole('img', { name: 'CPU usage (millicores)' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Memory usage (MiB)' })).toBeVisible()
+  const readings = page.getByLabel('Runtime metrics').locator('.metric strong')
+  await expect(readings.nth(1)).toHaveText(/\d+\.\d+ MiB/)
+  await expect(readings.nth(2)).toHaveText(/[1-9]\d*/)
+  await page.screenshot({ path: '../.local/runtime-metrics.png', fullPage: true })
+  await page.reload()
+  await expect(page.getByLabel('Runtime metrics')).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+  await page.getByRole('link', { name: 'Logs', exact: true }).click()
+  await expect(page.getByLabel('Application output')).toContainText('Ready in')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+  await page.getByRole('link', { name: 'Builds & revisions', exact: true }).click()
+  const href = await page
+    .getByRole('link', { name: 'Open application', exact: true })
+    .getAttribute('href')
+  expect(href).toBeTruthy()
+  const app = await page.context().newPage()
+  const response = await app.goto(href!)
+  expect(response?.status()).toBe(200)
+  await expect(app.locator('body')).not.toBeEmpty()
+  await app.close()
 })

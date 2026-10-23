@@ -23,7 +23,6 @@ import {
   ArrowLeft,
   ArrowRight,
   AlertCircle,
-  Activity,
   Box,
   Check,
   ChevronRight,
@@ -42,6 +41,7 @@ import { api, serviceQuery, sourceLabel, sourceReference } from './api'
 import type { AuditEvent, Service, ServiceSpec, SourceKind, Workload } from './api'
 import './styles.css'
 import { BuildPanel } from './builds'
+import { DeploymentPanel, RuntimePanel, useRuntime, runtimeLabel } from './runtime'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
@@ -949,6 +949,7 @@ function useCurrentService() {
 function ServiceDetail() {
   const { serviceId } = detailRoute.useParams()
   const service = useQuery(serviceQuery(serviceId))
+  const runtime = useRuntime(serviceId, service.isSuccess)
   if (service.isPending) return <p className="text-muted">Loading service…</p>
   if (service.isError)
     return (
@@ -981,7 +982,7 @@ function ServiceDetail() {
         </div>
         <span className="chip">
           <Circle size={10} />
-          Registered · not deployed
+          {runtime.isError ? 'Runtime status unavailable' : runtimeLabel(runtime.data)}
         </span>
       </div>
       <div className="phase-banner">
@@ -989,10 +990,15 @@ function ServiceDetail() {
           <Check size={19} />
         </span>
         <div>
-          <strong>Service registered.</strong>
+          <strong>
+            {runtime.isError ? 'Cannot read runtime status.' : `${runtimeLabel(runtime.data)}.`}
+          </strong>
           <p>
-            Builds produce image revisions. Running instances and public routing are not enabled
-            yet.
+            {spec.workload.kind === 'celld-service'
+              ? 'The dedicated celld fleet runtime is not implemented yet.'
+              : runtimeLabel(runtime.data) === 'Running'
+                ? 'The active deployment has ready instances. Logs and metrics report application data.'
+                : 'Build an image, then deploy its revision. Readiness checks control when instances can receive traffic.'}
           </p>
         </div>
       </div>
@@ -1070,7 +1076,13 @@ function ServiceDetail() {
 }
 
 function ServiceBuilds() {
-  return <BuildPanel service={useCurrentService()} />
+  const service = useCurrentService()
+  return (
+    <>
+      <DeploymentPanel service={service} />
+      <BuildPanel service={service} />
+    </>
+  )
 }
 
 function ServiceConfiguration() {
@@ -1078,48 +1090,8 @@ function ServiceConfiguration() {
   return <ServiceForm key={service.id} service={service} />
 }
 
-// Runtime execution and telemetry do not exist yet. These views intentionally
-// have no log stream, usage samples, or health claims to present as live data.
 function ServiceRuntime({ view }: { view: 'logs' | 'metrics' }) {
-  const service = useCurrentService()
-  const logs = view === 'logs'
-  const oci = service.spec.workload.kind === 'oci-service'
-  return (
-    <section className="panel p-6 space-y-5" aria-label={logs ? 'Runtime logs' : 'Runtime metrics'}>
-      <div className="section-heading">
-        <div>
-          <h2>{logs ? 'Runtime logs' : 'Runtime metrics'}</h2>
-          <p className="text-xs text-muted mt-2">
-            {logs ? 'Application stdout and stderr' : 'Observed CPU, memory and HTTP traffic'}
-          </p>
-        </div>
-        <span className="chip">Not deployed</span>
-      </div>
-      <div className="console-empty p-6">
-        {logs ? <Terminal size={24} /> : <Activity size={24} />}
-        <h3>{logs ? 'No running instances' : 'No runtime metrics yet'}</h3>
-        <p>
-          {oci
-            ? 'This platform can build images, but cannot start application instances yet.'
-            : 'The celld fleet has not been started. Fleet execution is not available yet.'}
-        </p>
-        <p>
-          {logs
-            ? 'Live logs require a running application and a connected log stream.'
-            : 'Usage and traffic measurements require a running application and telemetry collection.'}
-        </p>
-        {oci && (
-          <Link
-            to="/services/$serviceId/builds"
-            params={{ serviceId: service.id }}
-            className="back-link"
-          >
-            View build output <ArrowRight size={14} />
-          </Link>
-        )}
-      </div>
-    </section>
-  )
+  return <RuntimePanel service={useCurrentService()} view={view} />
 }
 
 function ServiceActivity() {

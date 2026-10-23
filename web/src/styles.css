@@ -920,3 +920,17 @@ h3 {
     transition: none !important;
   }
 }
+
+.runtime-log {
+  min-height: 280px;
+  max-height: 520px;
+}
+.runtime-log-row + .runtime-log-row {
+  margin-top: 8px;
+}
+.runtime-log pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  font: inherit;
+}

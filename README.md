@@ -4,22 +4,24 @@ A personal application platform, built from scratch. Rust control plane and
 runtime contract; Vite, React, Tailwind, TanStack Router and Query frontend.
 Independent of Anvil. Working project name; no remote repository created yet.
 
-**Implemented:** register and edit OCI or celld specifications, persist versioned configuration and
-audit events in PostgreSQL, queue OCI builds, inspect bounded build logs, cancel
-jobs, and record immutable image revisions after successful registry pushes.
-Registration, configuration saves and build requests are retry-safe. Sources accept
-branches, tags or full commit hashes; each build pins an exact commit. Missing
-Dockerfiles can be generated for supported Node/Bun apps, with editable build/start
-commands and a saved recipe visible in build details. A separate Rust worker drives
-BuildKit in an isolated NixOS VM on Lake.
+**Implemented:** register and edit OCI or celld specifications, build digest-addressed
+images, deploy OCI revisions across three isolated worker VMs, gate traffic on
+readiness, stop deployments, and view application logs and CPU/memory/PID metrics.
+Rust node agents authenticate through a private mTLS gateway and reconcile durable
+assignments. Healthy containers survive controller restarts. Failed candidates
+leave the previous active deployment intact. Sources support branches, tags and
+commits; supported Node/Bun apps can generate Dockerfiles with command overrides.
 
-**Not implemented:** node enrollment, runtime adapters, scheduling, deployments,
-routes, workload secrets, or celld fleet execution. Building an image does not
-start instances. The disposable builder registry is for development; this is
-not a production PaaS or the complete Phase 1 vertical slice.
-Service `/logs` and `/metrics` tabs explicitly show that no runtime is deployed;
-they do not stream application logs or collect metrics yet. Build output remains
-in the separate `/builds` tab.
+Showcase Studio is privately deployed with two replicas on different worker VMs:
+**https://lake.tail3275e2.ts.net:5201**. The dashboard remains on port 5188.
+All three workers share Lake as a physical failure domain. This is a development
+runtime, not a Railway production migration.
+
+**Not implemented:** automatic relocation after node loss, node cordon/drain UI,
+OpenBao secret delivery, persistent workload volumes, public DigitalOcean ingress,
+NetBird provisioning, production authentication/backup recovery, and celld fleet
+execution. Secret-bearing workloads and celld cannot enter the OCI deploy path.
+See [runtime operations and limitations](docs/runtime.md).
 
 See [architecture decisions and release gates](docs/architecture.md). Backend
 uses Rust; frontend uses TypeScript as explicitly requested by Luna.
@@ -180,7 +182,9 @@ and mobile layout. These tests do not deploy any workload.
 ```text
 crates/domain         service specifications, validation, immutable image digest
 crates/runtime        agent-owned OCI runtime trait; no runtime implementation
-crates/control-plane  Axum API, SQLx persistence, migrations, integration tests
+crates/control-plane  Axum API, desired deployments, private preview, persistence
+crates/node-agent     outbound node protocol, containerd adapter, health and telemetry
+crates/protocol       versioned runtime-independent assignments and observations
 crates/build-runner    bounded mTLS buildctl client, no local Dockerfile execution
 infra/builder         pinned NixOS builder VM and explicit development setup
 web                   Vite / React / Tailwind / TanStack UI
@@ -188,7 +192,7 @@ examples              small OCI and celld manifests
 docs                  decisions, threat boundaries, next milestones
 ```
 
-Lake has a development builder VM and private Tailscale Serve endpoint for this
-UI. The three workload worker VMs, DigitalOcean, NetBird, OpenBao, Railway and
-production databases remain untouched. The next milestone is authenticated node
-enrollment and the first limited containerd workload with readiness and cleanup.
+Lake has a development builder VM, three worker VMs, and private Tailscale Serve
+endpoints. DigitalOcean, NetBird, OpenBao, Railway and production databases remain
+untouched. Deployments and telemetry are real; production release gates remain
+listed in the architecture document.

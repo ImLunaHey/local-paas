@@ -292,7 +292,7 @@ export function BuildPanel({ service }: { service: Service }) {
                   )}
                   {selected.status === 'succeeded' && (
                     <p className="text-xs text-accent">
-                      Image pushed and revision recorded. No instances have been started.
+                      Image pushed and revision recorded. Use Deploy revision to start this image.
                     </p>
                   )}
                 </div>

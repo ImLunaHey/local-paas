@@ -6,11 +6,12 @@ Working name and repository directory: `local-paas`. This is independent of
 Anvil. Luna authorized starting implementation and chose Rust for the backend
 and Vite / React / Tailwind / TanStack for the frontend.
 
-The local platform registers and edits versioned specifications and executes queued OCI
-builds through an isolated BuildKit VM, retaining logs and pushed image digests.
-Registration and image building are not deployment. No workload agent, scheduler,
-ingress, secret resolver or celld runner is active. Production release criteria
-below remain unmet. See [build design and operations](builds.md).
+The local platform registers specifications, builds immutable image revisions,
+and deploys OCI instances through authenticated Rust agents in three NixOS VMs.
+Readiness gates private preview traffic; live logs and cgroup metrics are visible
+in the UI. Candidate failures retain the active deployment. Public edge routing,
+workload secrets, automatic relocation and celld execution remain unimplemented.
+See [build operations](builds.md) and [runtime operations](runtime.md).
 
 ## Reversible implementation choices
 
