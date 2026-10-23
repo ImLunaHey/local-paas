@@ -1,3 +1,5 @@
+import { Diagnostic } from './diagnostic'
+import { Button } from './ui'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api } from './api'
@@ -6,7 +8,13 @@ interface Deployment {
   revision_id: string
   created_at: string
   status: string
-  instances: { id: string; node: string; state: string; diagnostic: string | null }[]
+  instances: {
+    id: string
+    node: string
+    state: string
+    diagnostic: string | null
+    has_logs: boolean
+  }[]
 }
 interface Page {
   deployments: Deployment[]
@@ -50,21 +58,28 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
               <time dateTime={d.created_at}>{new Date(d.created_at).toLocaleString()}</time>
             </summary>
             {d.instances.map((i) => (
-              <div className="history-instance" key={i.id}>
-                <div>
-                  <span>{i.node}</span>
-                  <code>{i.id.slice(0, 8)}</code>
-                  <span className="text-muted">{i.state}</span>
-                  {i.diagnostic && <p className="text-muted text-xs mt-1">{i.diagnostic}</p>}
+              <div
+                className="border-t border-zinc-800 px-4 py-3"
+                key={i.id}
+                data-has-logs={i.has_logs}
+                data-instance-history
+              >
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs">
+                    <span>{i.node}</span>
+                    <code>{i.id.slice(0, 8)}</code>
+                    <span className="text-muted">{i.state}</span>
+                  </div>
+                  <Link
+                    className="button secondary shrink-0"
+                    to="/services/$serviceId/logs"
+                    params={{ serviceId }}
+                    search={{ instance: i.id }}
+                  >
+                    View logs
+                  </Link>
                 </div>
-                <Link
-                  className="button"
-                  to="/services/$serviceId/logs"
-                  params={{ serviceId }}
-                  search={{ instance: i.id }}
-                >
-                  View logs
-                </Link>
+                {i.diagnostic && <Diagnostic code={i.diagnostic} />}
               </div>
             ))}
             {!d.instances.length && (
@@ -73,13 +88,9 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
           </details>
         ))}
       {history.hasNextPage && (
-        <button
-          className="button"
-          disabled={history.isFetchingNextPage}
-          onClick={() => void history.fetchNextPage()}
-        >
+        <Button disabled={history.isFetchingNextPage} onClick={() => void history.fetchNextPage()}>
           Older deployments
-        </button>
+        </Button>
       )}
     </section>
   )

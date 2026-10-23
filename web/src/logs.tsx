@@ -1,3 +1,4 @@
+import { Button, Input, Select, Field } from './ui'
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearch } from '@tanstack/react-router'
@@ -17,7 +18,14 @@ interface Log {
   message: string
   fields: Record<string, unknown> | null
 }
+interface Marker {
+  id: string
+  timestamp: string
+  message: string
+  instance_id: string | null
+}
 interface Page {
+  markers?: Marker[]
   entries: Log[]
   next_cursor: number
   oldest_cursor: number | null
@@ -107,7 +115,7 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
         <div className="log-toolbar">
           <label className="field log-search">
             <span className="sr-only">Search logs</span>
-            <input
+            <Input
               aria-label="Search logs"
               value={draft.search}
               onChange={(e) => set('search', e.target.value)}
@@ -117,7 +125,7 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
           </label>
           <label className="field">
             <span className="sr-only">Level</span>
-            <select
+            <Select
               aria-label="Level"
               value={draft.level}
               onChange={(e) => set('level', e.target.value)}
@@ -126,11 +134,11 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
               {['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'unclassified'].map((l) => (
                 <option key={l}>{l}</option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="field">
             <span className="sr-only">Stream</span>
-            <select
+            <Select
               aria-label="Stream"
               value={draft.stream}
               onChange={(e) => set('stream', e.target.value)}
@@ -138,11 +146,10 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
               <option value="">stdout + stderr</option>
               <option>stdout</option>
               <option>stderr</option>
-            </select>
+            </Select>
           </label>
           <div className="flex gap-2">
-            <button
-              className="button"
+            <Button
               type="button"
               onClick={() => {
                 setDraft(empty)
@@ -150,7 +157,7 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
               }}
             >
               Clear
-            </button>
+            </Button>
           </div>{' '}
         </div>
         {filters.instance_id && (
@@ -167,9 +174,8 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
               : ''}
           </summary>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 pt-3">
-            <label className="field sm:col-span-2">
-              Instance
-              <select
+            <Field label="Instance" className="sm:col-span-2">
+              <Select
                 aria-label="Log instance"
                 value={draft.instance_id}
                 onChange={(e) => set('instance_id', e.target.value)}
@@ -186,43 +192,39 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
                     {i.node_name} · {i.id.slice(0, 8)} · {i.state}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="field">
-              JSON field
-              <input
+              </Select>
+            </Field>
+            <Field label="JSON field">
+              <Input
                 value={draft.field}
                 onChange={(e) => set('field', e.target.value)}
                 placeholder="request.id"
                 maxLength={128}
                 pattern="[A-Za-z0-9_.]*"
               />
-            </label>
-            <label className="field">
-              Field equals
-              <input
+            </Field>
+            <Field label="Field equals">
+              <Input
                 value={draft.value}
                 onChange={(e) => set('value', e.target.value)}
                 placeholder="Exact value"
                 maxLength={512}
               />
-            </label>
-            <label className="field">
-              From
-              <input
+            </Field>
+            <Field label="From">
+              <Input
                 type="datetime-local"
                 value={draft.from}
                 onChange={(e) => set('from', e.target.value)}
               />
-            </label>
-            <label className="field">
-              Until
-              <input
+            </Field>
+            <Field label="Until">
+              <Input
                 type="datetime-local"
                 value={draft.until}
                 onChange={(e) => set('until', e.target.value)}
               />
-            </label>
+            </Field>
           </div>
         </details>
       </form>
@@ -292,6 +294,11 @@ function LogFeed({
     const entries = [...unique.values()].sort((a, b) => a.sequence - b.sequence).slice(-5000)
     return {
       ...incoming,
+      markers: [
+        ...new Map(
+          [...(old.markers ?? []), ...(incoming.markers ?? [])].map((m) => [m.id, m]),
+        ).values(),
+      ],
       entries,
       next_cursor: Math.max(old.next_cursor, incoming.next_cursor),
       oldest_cursor: entries[0]?.sequence ?? null,
@@ -318,6 +325,17 @@ function LogFeed({
     if (output.current && follow.current && !paused)
       output.current.scrollTop = output.current.scrollHeight
   }, [logs.data?.next_cursor, paused])
+  const first = logs.data?.entries[0]
+  const timeline = [
+    ...(logs.data?.entries ?? []).map((log) => ({
+      kind: 'log' as const,
+      timestamp: log.timestamp,
+      log,
+    })),
+    ...(logs.data?.markers ?? [])
+      .filter((m) => !first || Date.parse(m.timestamp) >= Date.parse(first.timestamp) - 120000)
+      .map((marker) => ({ kind: 'marker' as const, timestamp: marker.timestamp, marker })),
+  ].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
   return (
     <>
       <div className="flex flex-wrap justify-between items-center gap-3">
@@ -325,8 +343,7 @@ function LogFeed({
           {paused ? 'Paused' : 'Following · updates every 3 seconds'}
         </span>
         <div className="flex gap-2">
-          <button
-            className="button"
+          <Button
             disabled={
               !logs.data?.has_more || older.isPending || (logs.data?.entries.length ?? 0) >= 5000
             }
@@ -337,11 +354,11 @@ function LogFeed({
             }}
           >
             Load older
-          </button>
-          <button className="button" onClick={() => setPaused(!paused)}>
+          </Button>
+          <Button onClick={() => setPaused(!paused)}>
             {paused ? <Play size={14} /> : <Pause size={14} />}
             {paused ? 'Resume live logs' : 'Pause live logs'}
-          </button>
+          </Button>
         </div>
       </div>
       {(logs.error || older.error) && (
@@ -359,7 +376,12 @@ function LogFeed({
           Showing 5,000 entries. Narrow the time range or filters to inspect more history.
         </p>
       )}
-      {logs.data?.entries.length ? (
+      {logs.data?.entries.length ||
+      (timeline.length &&
+        !filters.search &&
+        !filters.level &&
+        !filters.field &&
+        !filters.stream) ? (
         <div
           className="build-log runtime-log"
           aria-label="Application output"
@@ -376,48 +398,58 @@ function LogFeed({
             <span className="log-instance">Instance</span>
             <span>Message</span>
           </div>
-          {logs.data.entries.map((l) => (
-            <details key={l.sequence} className="runtime-log-row" data-level={l.level}>
-              <summary className="log-line" aria-label={'Expand log ' + l.sequence}>
-                <time dateTime={l.timestamp} title={new Date(l.timestamp).toLocaleString()}>
-                  {new Date(l.timestamp).toLocaleTimeString('en-GB', { hour12: false })}
-                </time>
-                <span className="log-level">{l.level === 'unclassified' ? '—' : l.level}</span>
-                <span className="log-stream">{l.stream}</span>
-                <span className="log-instance" title={l.node + ' / ' + l.instance_id}>
-                  {l.instance_id.slice(0, 8)}
-                </span>
-                <span className="log-message">{l.message || l.line || ' '}</span>
-              </summary>
-              <div className="log-detail">
-                <div className="text-muted mb-3">
-                  {new Date(l.timestamp).toLocaleString()} · {l.node} · {l.instance_id}
+          {timeline.map((entry) => {
+            if (entry.kind === 'marker')
+              return (
+                <div className="log-lifecycle" key={entry.marker.id}>
+                  <time>{new Date(entry.timestamp).toLocaleTimeString('en-GB')}</time>
+                  <span>{entry.marker.message}</span>
                 </div>
-                <pre>{l.message || l.line}</pre>
-                {l.fields && (
-                  <>
-                    <h4 className="mt-4 mb-2 text-muted">Structured fields</h4>
-                    <div className="log-field-list">
-                      {flatFields(l.fields).map(([field, value]) => (
-                        <button
-                          key={field}
-                          title={'Filter ' + field}
-                          onClick={() => selectField(field, value)}
-                        >
-                          <span>{field}</span>
-                          <code>{value}</code>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-                <details className="mt-3 text-muted">
-                  <summary>Original output</summary>
-                  <pre>{l.line}</pre>
-                </details>
-              </div>
-            </details>
-          ))}
+              )
+            const l = entry.log
+            return (
+              <details key={l.sequence} className="runtime-log-row" data-level={l.level}>
+                <summary className="log-line" aria-label={'Expand log ' + l.sequence}>
+                  <time dateTime={l.timestamp} title={new Date(l.timestamp).toLocaleString()}>
+                    {new Date(l.timestamp).toLocaleTimeString('en-GB', { hour12: false })}
+                  </time>
+                  <span className="log-level">{l.level === 'unclassified' ? '—' : l.level}</span>
+                  <span className="log-stream">{l.stream}</span>
+                  <span className="log-instance" title={l.node + ' / ' + l.instance_id}>
+                    {l.instance_id.slice(0, 8)}
+                  </span>
+                  <span className="log-message">{l.message || l.line || ' '}</span>
+                </summary>
+                <div className="log-detail">
+                  <div className="text-muted mb-3">
+                    {new Date(l.timestamp).toLocaleString()} · {l.node} · {l.instance_id}
+                  </div>
+                  <pre>{l.message || l.line}</pre>
+                  {l.fields && (
+                    <>
+                      <h4 className="mt-4 mb-2 text-muted">Structured fields</h4>
+                      <div className="log-field-list">
+                        {flatFields(l.fields).map(([field, value]) => (
+                          <Button
+                            key={field}
+                            title={'Filter ' + field}
+                            onClick={() => selectField(field, value)}
+                          >
+                            <span>{field}</span>
+                            <code>{value}</code>
+                          </Button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  <details className="mt-3 text-muted">
+                    <summary>Original output</summary>
+                    <pre>{l.line}</pre>
+                  </details>
+                </div>
+              </details>
+            )
+          })}
         </div>
       ) : (
         <div className="console-empty">

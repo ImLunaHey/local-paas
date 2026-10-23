@@ -1128,3 +1128,21 @@ h3 {
 .log-columns:hover {
   background: #18181b;
 }
+.log-lifecycle {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 14px;
+  border-top: 1px solid #4b3426;
+  border-bottom: 1px solid #4b3426;
+  color: #e9ab86;
+  background: #231a15;
+  font:
+    500 11px/1.5 ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+.log-lifecycle time {
+  color: #ac8c76;
+  font-variant-numeric: tabular-nums;
+}

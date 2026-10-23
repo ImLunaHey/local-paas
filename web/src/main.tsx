@@ -1,11 +1,16 @@
+import { AuditLog } from './audit'
+import { cn } from 'cn'
+import { Button, Input, Select, Field } from './ui'
+import { Projects, ProjectWorkspace, ProjectBackLink } from './projects'
+import { SecretManager } from './secrets'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { DeploymentHistory } from './history'
-import { EnvironmentManager, environmentsQuery } from './environments'
+import { environmentsQuery } from './environments'
 import { Networking } from './networking'
-import { cloneElement, useId, createContext, StrictMode, useContext, useRef, useState } from 'react'
-import type { FormEvent, ReactElement, ReactNode } from 'react'
+import { createContext, StrictMode, useContext, useRef, useState } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   QueryClient,
@@ -23,24 +28,21 @@ import {
   RouterProvider,
   redirect,
   useNavigate,
+  useSearch,
+  useRouterState,
 } from '@tanstack/react-router'
 import {
   ArrowDownLeft,
-  ArrowLeft,
-  ArrowRight,
   AlertCircle,
   Box,
   Check,
   ChevronRight,
   Circle,
-  Code2,
   Layers3,
   LoaderCircle,
   Plus,
-  Radio,
   Server,
   ShieldCheck,
-  Terminal,
   Workflow,
 } from 'lucide-react'
 import { api, serviceQuery, sourceLabel, sourceReference } from './api'
@@ -52,6 +54,14 @@ import { DeploymentPanel, RuntimePanel, useRuntime, runtimeLabel } from './runti
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
 function Shell() {
+  const path = useRouterState({ select: (s) => s.location.pathname })
+  const navClass = (active: boolean) =>
+    cn(
+      'flex min-h-11 items-center gap-3 rounded-md border px-3 py-2.5 text-xs transition-colors',
+      active
+        ? 'border-orange-400/20 bg-orange-400/10 text-orange-300'
+        : 'border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200',
+    )
   const health = useQuery({
     queryKey: ['health'],
     queryFn: () => api<{ status: string }>('/health'),
@@ -76,12 +86,16 @@ function Shell() {
           </div>
         </div>
         <div className="nav-label">WORKSPACE</div>
-        <Link to="/" className="nav-item">
-          <Box size={17} /> Services <ChevronRight size={14} className="ml-auto" />
-        </Link>
-        <Link to="/environments" className="nav-item">
-          <Layers3 size={17} /> Environments
-        </Link>
+        <nav aria-label="Workspace navigation" className="flex gap-2 py-2 min-[721px]:flex-col">
+          <Link to="/" className={navClass(path !== '/audit')} activeOptions={{ exact: true }}>
+            <Layers3 size={17} />
+            <span>Projects</span>
+          </Link>
+          <Link to="/audit" className={navClass(path === '/audit')}>
+            <ShieldCheck size={17} />
+            <span>Audit log</span>
+          </Link>
+        </nav>
         <div className="sidebar-note">
           <ShieldCheck size={19} />
           <p>
@@ -93,7 +107,7 @@ function Shell() {
         <div className="sidebar-bottom">
           <span className="tiny-label">CONTROL PLANE</span>
           <span className="flex items-center gap-2 text-xs mt-2">
-            <i className={`status-dot ${health.isSuccess ? 'online' : ''}`} />
+            <i className={cn('status-dot', { online: health.isSuccess })} />
             {health.isPending
               ? 'Connecting…'
               : health.isError
@@ -107,7 +121,7 @@ function Shell() {
           <span className="flex items-center gap-2">
             <span className="text-muted">Workspace</span>
             <ChevronRight size={13} />
-            Services
+            {path === '/audit' ? 'Audit log' : 'Projects'}
           </span>
           <span className="environment-tag">
             <span className="status-dot" /> Private platform
@@ -141,224 +155,11 @@ function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
       <strong>Something needs attention</strong>
       <p className="whitespace-pre-line">{error.message}</p>
       {retry && (
-        <button className="button secondary mt-3" onClick={retry}>
+        <Button className="button secondary mt-3" onClick={retry}>
           Try again
-        </button>
+        </Button>
       )}
     </div>
-  )
-}
-
-function Services() {
-  const [offset, setOffset] = useState(0)
-  const [environmentId, setEnvironmentId] = useState('')
-  const environments = useQuery(environmentsQuery)
-  const selectedEnvironment = environments.data?.items.find((e) => e.id === environmentId)
-  const filterParams = new URLSearchParams({ offset: String(offset) })
-  if (selectedEnvironment) {
-    filterParams.set('project', selectedEnvironment.project)
-    filterParams.set('environment', selectedEnvironment.name)
-  }
-  const services = useQuery({
-    queryKey: ['services', { offset, environmentId }],
-    queryFn: () => api<{ items: Service[]; total: number }>('/services?' + filterParams),
-  })
-  const builder = useQuery({
-    queryKey: ['build-system'],
-    queryFn: () => api<{ worker_online: boolean }>('/build-system'),
-    refetchInterval: 5000,
-  })
-  return (
-    <>
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">YOUR WORKSPACE</div>
-          <h1>Services</h1>
-          <p>Your applications, builds, and image revisions.</p>
-        </div>
-        <Link className="button primary" to="/services/new">
-          <Plus size={17} />
-          Register service
-        </Link>
-      </div>
-      <label className="field mb-5">
-        Environment
-        <select
-          aria-label="Filter environment"
-          value={environmentId}
-          onChange={(e) => {
-            setEnvironmentId(e.target.value)
-            setOffset(0)
-          }}
-        >
-          <option value="">All environments</option>
-          {environments.data?.items.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.project} / {e.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="phase-banner">
-        <span className="phase-icon">
-          <Terminal size={19} />
-        </span>
-        <div>
-          <strong>From source to image.</strong>
-          <p>
-            Build and deploy your services. Keep deployments, networking and secrets scoped to their
-            environment.
-          </p>
-        </div>
-        <span className="chip ml-auto">Development preview</span>
-      </div>
-      <div className="grid sm:grid-cols-3 gap-4 mt-7 mb-9">
-        <Metric
-          icon={<Box size={17} />}
-          label="Registered services"
-          value={services.data ? String(services.data.total) : '—'}
-          detail="Applications in this workspace"
-        />
-        <Metric
-          icon={<Server size={17} />}
-          label="Image builder"
-          value={
-            builder.isPending
-              ? 'Connecting'
-              : builder.isError
-                ? 'Unavailable'
-                : builder.data.worker_online
-                  ? 'Connected'
-                  : 'Offline'
-          }
-          detail="Build worker connection"
-        />
-        <Metric
-          icon={<Radio size={17} />}
-          label="Deployments"
-          value="Coming next"
-          detail="No workloads are running on this platform"
-        />
-      </div>
-      <div className="section-heading">
-        <h2>
-          Services <span className="count">{services.data?.total ?? '—'}</span>
-        </h2>
-        <span className="tiny-label">OCI CONTAINERS & CELLD FLEETS</span>
-      </div>
-      {services.isPending ? (
-        <div className="panel p-12 text-muted flex items-center justify-center gap-3">
-          <LoaderCircle className="animate-spin" size={18} />
-          Loading services…
-        </div>
-      ) : services.isError ? (
-        <ErrorNotice
-          error={services.error}
-          retry={() => {
-            void services.refetch()
-          }}
-        />
-      ) : services.data.total === 0 ? (
-        <div className="empty-state">
-          <div className="empty-illustration" aria-hidden="true">
-            <div className="orbit orbit-one" />
-            <div className="orbit orbit-two" />
-            <span className="empty-box">
-              <Box size={33} strokeWidth={1.3} />
-            </span>
-            <span className="small-node node-left">
-              <Code2 size={15} />
-            </span>
-            <span className="small-node node-right">
-              <Server size={15} />
-            </span>
-          </div>
-          <h2>Your next application starts here.</h2>
-          <p>
-            Connect a Dockerfile-based service or a dedicated celld fleet.
-            <br className="hidden sm:block" /> A small specification keeps the important details
-            together.
-          </p>
-          <Link to="/services/new" className="button primary mt-6">
-            <Plus size={16} />
-            Register your first service
-          </Link>
-          <span className="empty-footnote">
-            <ShieldCheck size={13} /> Configuration only. Nothing is deployed yet.
-          </span>
-        </div>
-      ) : (
-        <div className="panel overflow-hidden">
-          <div className="service-table-head">
-            <span>SERVICE / SOURCE</span>
-            <span>WORKLOAD</span>
-            <span>STATUS</span>
-          </div>
-          {services.data.items.map((service) => (
-            <ServiceRow key={service.id} service={service} />
-          ))}
-          {services.data.total > 50 && (
-            <div className="flex justify-between items-center p-4">
-              <button
-                className="button secondary"
-                disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - 50))}
-              >
-                Previous
-              </button>
-              <span className="text-xs text-muted">
-                {offset + 1}–{Math.min(offset + 50, services.data.total)} of {services.data.total}
-              </span>
-              <button
-                className="button secondary"
-                disabled={offset + 50 >= services.data.total}
-                onClick={() => setOffset(offset + 50)}
-              >
-                Next
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-      <div className="grid md:grid-cols-2 gap-5 mt-7">
-        <div className="workload-card">
-          <div className="flex items-center gap-3">
-            <Box size={18} />
-            <h3>Dockerfile services</h3>
-            <span className="tiny-label ml-auto">OCI</span>
-          </div>
-          <p>
-            A familiar build contract for your web apps and APIs. Immutable images, explicit
-            resources, and build logs in one place.
-          </p>
-          <div className="pipeline">
-            <span>Repository</span>
-            <ArrowRight size={12} />
-            <span>BuildKit</span>
-            <ArrowRight size={12} />
-            <span>Image</span>
-          </div>
-        </div>
-        <div className="workload-card">
-          <div className="flex items-center gap-3">
-            <Workflow size={18} />
-            <h3>celld applications</h3>
-            <span className="tiny-label ml-auto">FLEET</span>
-          </div>
-          <p>
-            Your Wrangler project with its own dedicated fleet. Workers and Durable Objects, with a
-            separate storage and lifecycle contract.
-          </p>
-          <div className="pipeline">
-            <span>Wrangler</span>
-            <ArrowRight size={12} />
-            <span>celld deploy</span>
-            <ArrowRight size={12} />
-            <span>Fleet</span>
-          </div>
-        </div>
-      </div>
-    </>
   )
 }
 
@@ -387,6 +188,7 @@ function Metric({
 
 function ServiceRow({ service }: { service: Service }) {
   const { spec } = service
+  const runtime = useRuntime(service.id, spec.workload.kind === 'oci-service')
   return (
     <Link to="/services/$serviceId" params={{ serviceId: service.id }} className="service-row">
       <div className="flex items-center gap-3 min-w-0">
@@ -410,30 +212,15 @@ function ServiceRow({ service }: { service: Service }) {
       <span className="flex items-center justify-between gap-4">
         <span className="chip">
           <Circle size={9} />
-          Registered
+          {spec.workload.kind === 'celld-service'
+            ? 'Fleet not deployed'
+            : runtime.isError
+              ? 'Status unavailable'
+              : runtimeLabel(runtime.data)}
         </span>
         <ChevronRight size={16} className="text-muted" />
       </span>
     </Link>
-  )
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string
-  hint?: string
-  children: ReactElement<{ id?: string; 'aria-describedby'?: string }>
-}) {
-  const id = useId()
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      {cloneElement(children, { id, 'aria-describedby': hint ? id + '-hint' : undefined })}
-      {hint && <small id={id + '-hint'}>{hint}</small>}
-    </div>
   )
 }
 
@@ -442,6 +229,7 @@ function NewService() {
 }
 
 function ServiceForm({ service }: { service?: Service }) {
+  const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
   const [baseline, setBaseline] = useState(service)
   const spec = baseline?.spec
   const oci = spec?.workload.kind === 'oci-service' ? spec.workload : undefined
@@ -564,9 +352,7 @@ function ServiceForm({ service }: { service?: Service }) {
     <>
       {!baseline && (
         <>
-          <Link to="/" className="back-link">
-            <ArrowLeft size={14} /> All services
-          </Link>
+          <ProjectBackLink project={scope.project} environment={scope.environment} />
           <div className="page-heading">
             <div>
               <div className="eyebrow">NEW SERVICE</div>
@@ -594,11 +380,11 @@ function ServiceForm({ service }: { service?: Service }) {
               </h2>
               <div className="grid sm:grid-cols-2 gap-3 mb-6">
                 {(['oci-service', 'celld-service'] as const).map((type) => (
-                  <button
+                  <Button
                     type="button"
                     disabled={!!baseline}
                     aria-pressed={kind === type}
-                    className={`kind-option ${kind === type ? 'selected' : ''}`}
+                    className={cn('kind-option', { selected: kind === type })}
                     key={type}
                     onClick={() => {
                       setKind(type)
@@ -615,15 +401,15 @@ function ServiceForm({ service }: { service?: Service }) {
                       </small>
                     </span>
                     {kind === type && <Check size={15} className="ml-auto text-accent" />}
-                  </button>
+                  </Button>
                 ))}
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="Project">
-                  <input
+                  <Input
                     name="project"
                     readOnly={!!service}
-                    defaultValue={spec?.project}
+                    defaultValue={spec?.project ?? scope.project}
                     placeholder="personal"
                     required
                     pattern="[a-z0-9]+(-[a-z0-9]+)*"
@@ -638,11 +424,11 @@ function ServiceForm({ service }: { service?: Service }) {
                   ))}
                 </datalist>
                 <Field label="Environment">
-                  <input
+                  <Input
                     name="environment"
                     readOnly={!!service}
                     list="known-environments"
-                    defaultValue={spec?.environment ?? 'development'}
+                    defaultValue={spec?.environment ?? scope.environment ?? 'development'}
                     required
                     pattern="[a-z0-9]+(-[a-z0-9]+)*"
                     maxLength={63}
@@ -650,7 +436,7 @@ function ServiceForm({ service }: { service?: Service }) {
                 </Field>
                 <div className="sm:col-span-2">
                   <Field label="Service name">
-                    <input
+                    <Input
                       name="name"
                       defaultValue={spec?.name}
                       placeholder={kind === 'oci-service' ? 'my-web-app' : 'my-durable-app'}
@@ -671,7 +457,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   label="Git repository"
                   hint="An HTTPS URL without a token or embedded credentials."
                 >
-                  <input
+                  <Input
                     name="repository"
                     defaultValue={spec?.source.repository}
                     type="url"
@@ -681,7 +467,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   />
                 </Field>
                 <Field label="Source type">
-                  <select
+                  <Select
                     className="build-select"
                     value={sourceKind}
                     onChange={(event) => setSourceKind(event.target.value as SourceKind)}
@@ -689,7 +475,7 @@ function ServiceForm({ service }: { service?: Service }) {
                     <option value="branch">Branch</option>
                     <option value="tag">Tag</option>
                     <option value="commit">Commit</option>
-                  </select>
+                  </Select>
                 </Field>
                 <Field
                   label={
@@ -701,7 +487,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   }
                   hint="Branches and tags are resolved to an exact commit for each build."
                 >
-                  <input
+                  <Input
                     name="source_ref"
                     className="font-mono"
                     value={sourceValue}
@@ -716,7 +502,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       label="Build method"
                       hint="Automatic uses your Dockerfile when present, otherwise generates one for a supported Node or Bun app with a lockfile and start script or custom start command."
                     >
-                      <select
+                      <Select
                         name="build_mode"
                         className="build-select"
                         value={buildMode}
@@ -725,7 +511,7 @@ function ServiceForm({ service }: { service?: Service }) {
                         <option value="auto">Automatic (Dockerfile or language detection)</option>
                         <option value="dockerfile">Repository Dockerfile only</option>
                         <option value="generated">Generate Dockerfile from app</option>
-                      </select>
+                      </Select>
                     </Field>
                     {buildMode !== 'dockerfile' && (
                       <>
@@ -733,7 +519,7 @@ function ServiceForm({ service }: { service?: Service }) {
                           label="Build command (optional)"
                           hint="Blank uses scripts.build when present. A custom command selects a generated Dockerfile, even if the repository has one. Commands run inside the builder; use secret references for secrets."
                         >
-                          <input
+                          <Input
                             name="build_command"
                             defaultValue={oci?.build_command}
                             placeholder="npm run build"
@@ -744,7 +530,7 @@ function ServiceForm({ service }: { service?: Service }) {
                           label="Start command (optional)"
                           hint="Blank uses scripts.start. A custom command selects a generated Dockerfile and runs when an instance starts."
                         >
-                          <input
+                          <Input
                             name="start_command"
                             defaultValue={oci?.start_command}
                             placeholder="npm start"
@@ -755,21 +541,21 @@ function ServiceForm({ service }: { service?: Service }) {
                     )}
                     <div className="grid sm:grid-cols-2 gap-4">
                       <Field label="Dockerfile path">
-                        <input
+                        <Input
                           name="dockerfile"
                           defaultValue={oci?.dockerfile ?? 'Dockerfile'}
                           required
                         />
                       </Field>
                       <Field label="Build context">
-                        <input name="context" defaultValue={oci?.context ?? '.'} required />
+                        <Input name="context" defaultValue={oci?.context ?? '.'} required />
                       </Field>
                     </div>
                   </>
                 ) : (
                   <>
                     <Field label="Wrangler configuration">
-                      <input
+                      <Input
                         name="wrangler"
                         defaultValue={celld?.wrangler ?? 'wrangler.jsonc'}
                         required
@@ -779,7 +565,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       label="Bucket configuration reference"
                       hint="A dedicated fleet's storage reference. Do not enter credentials."
                     >
-                      <input
+                      <Input
                         name="bucket"
                         defaultValue={celld?.bucket_ref}
                         placeholder="my-durable-app-bucket"
@@ -797,7 +583,7 @@ function ServiceForm({ service }: { service?: Service }) {
               </h2>
               <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="CPU per instance (millicores)">
-                  <input
+                  <Input
                     name="cpu"
                     type="number"
                     defaultValue={spec?.resources.cpu_millis ?? 500}
@@ -807,7 +593,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   />
                 </Field>
                 <Field label="Memory per instance (MiB)">
-                  <input
+                  <Input
                     name="memory"
                     type="number"
                     defaultValue={spec?.resources.memory_mib ?? 512}
@@ -819,7 +605,7 @@ function ServiceForm({ service }: { service?: Service }) {
                 {kind === 'oci-service' ? (
                   <>
                     <Field label="Replicas">
-                      <input
+                      <Input
                         name="replicas"
                         type="number"
                         defaultValue={oci?.replicas ?? 2}
@@ -829,7 +615,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       />
                     </Field>
                     <Field label="HTTP port">
-                      <input
+                      <Input
                         name="port"
                         type="number"
                         defaultValue={oci?.port ?? 3000}
@@ -840,7 +626,7 @@ function ServiceForm({ service }: { service?: Service }) {
                     </Field>
                     <div className="sm:col-span-2">
                       <Field label="Readiness path">
-                        <input
+                        <Input
                           name="readiness"
                           defaultValue={oci?.readiness.path ?? '/health'}
                           required
@@ -848,7 +634,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       </Field>
                     </div>
                     <Field label="Check interval (seconds)">
-                      <input
+                      <Input
                         name="interval"
                         type="number"
                         defaultValue={oci?.readiness.interval_seconds ?? 10}
@@ -858,7 +644,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       />
                     </Field>
                     <Field label="Stabilization period (seconds)">
-                      <input
+                      <Input
                         name="stabilization"
                         type="number"
                         defaultValue={oci?.readiness.stabilization_seconds ?? 30}
@@ -870,7 +656,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   </>
                 ) : (
                   <Field label="Fleet members">
-                    <input
+                    <Input
                       name="members"
                       type="number"
                       defaultValue={celld?.members ?? 3}
@@ -882,7 +668,7 @@ function ServiceForm({ service }: { service?: Service }) {
                 )}
               </div>
               <label className="checkbox-field">
-                <input
+                <Input
                   type="checkbox"
                   name="distinct"
                   defaultChecked={spec?.distinct_nodes ?? true}
@@ -902,7 +688,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   label="Domains (optional)"
                   hint="Separate with commas. Domains will not be routed or verified yet."
                 >
-                  <input
+                  <Input
                     name="domains"
                     defaultValue={spec?.domains.join(', ')}
                     placeholder="api.example.com"
@@ -912,7 +698,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   label="Secret names (optional)"
                   hint="Names only, separated by commas. Values belong in OpenBao."
                 >
-                  <input
+                  <Input
                     name="secrets"
                     defaultValue={spec?.secrets.join(', ')}
                     placeholder="DATABASE_URL, SESSION_SECRET"
@@ -929,7 +715,7 @@ function ServiceForm({ service }: { service?: Service }) {
             {mutation.isError && <ErrorNotice error={mutation.error} />}
             <div className="flex items-center justify-between gap-3">
               {baseline ? (
-                <button
+                <Button
                   type="button"
                   className="button secondary"
                   onClick={() => {
@@ -937,13 +723,13 @@ function ServiceForm({ service }: { service?: Service }) {
                   }}
                 >
                   Reload saved configuration
-                </button>
+                </Button>
               ) : (
                 <Link to="/" className="button secondary">
                   Cancel
                 </Link>
               )}
-              <button
+              <Button
                 type="submit"
                 className="button primary"
                 disabled={mutation.isPending || (!!baseline && !dirty)}
@@ -962,7 +748,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   : baseline
                     ? 'Save changes'
                     : 'Register service'}
-              </button>
+              </Button>
             </div>
           </fieldset>
         </form>
@@ -1020,9 +806,7 @@ function ServiceDetail() {
     spec.workload.kind === 'oci-service' ? spec.workload.replicas : spec.workload.members
   return (
     <>
-      <Link to="/" className="back-link">
-        <ArrowLeft size={14} /> All services
-      </Link>
+      <ProjectBackLink project={spec.project} environment={spec.environment} />
       <div className="page-heading">
         <div>
           <div className="eyebrow">
@@ -1139,6 +923,14 @@ function ServiceDetail() {
           Configuration
         </Link>
         <Link
+          to="/services/$serviceId/secrets"
+          params={{ serviceId }}
+          resetScroll={false}
+          activeProps={{ 'aria-current': 'page' }}
+        >
+          Secrets
+        </Link>
+        <Link
           to="/services/$serviceId/activity"
           params={{ serviceId }}
           resetScroll={false}
@@ -1239,20 +1031,43 @@ const rootRoute = createRootRoute({
     </div>
   ),
 })
-const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: Services })
+const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: Projects })
 const environmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/environments',
-  component: EnvironmentManager,
+  beforeLoad: () => {
+    throw redirect({ to: '/' })
+  },
 })
 const networkingRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'networking',
   component: () => <Networking service={useCurrentService()} />,
 })
+const auditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/audit',
+  component: AuditLog,
+})
+const projectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/$projectId',
+  validateSearch: (s: Record<string, unknown>): { environment?: string } => ({
+    environment: typeof s.environment === 'string' ? s.environment : undefined,
+  }),
+  component: () => (
+    <ProjectWorkspace
+      renderService={(service) => <ServiceRow key={service.id} service={service} />}
+    />
+  ),
+})
 const newRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/services/new',
+  validateSearch: (s: Record<string, unknown>): { project?: string; environment?: string } => ({
+    project: typeof s.project === 'string' ? s.project : undefined,
+    environment: typeof s.environment === 'string' ? s.environment : undefined,
+  }),
   component: NewService,
 })
 const detailRoute = createRoute({
@@ -1283,6 +1098,11 @@ const serviceConfigurationRoute = createRoute({
   path: 'configuration',
   component: ServiceConfiguration,
 })
+const serviceSecretsRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'secrets',
+  component: () => <SecretManager service={useCurrentService()} />,
+})
 const serviceLogsRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'logs',
@@ -1307,6 +1127,8 @@ const serviceActivityRoute = createRoute({
 const router = createRouter({
   routeTree: rootRoute.addChildren([
     indexRoute,
+    projectRoute,
+    auditRoute,
     environmentsRoute,
     newRoute,
     detailRoute.addChildren([
@@ -1314,6 +1136,7 @@ const router = createRouter({
       networkingRoute,
       serviceBuildsRoute,
       serviceLogsRoute,
+      serviceSecretsRoute,
       serviceMetricsRoute,
       serviceConfigurationRoute,
       serviceActivityRoute,

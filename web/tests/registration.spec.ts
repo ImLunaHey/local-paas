@@ -8,7 +8,7 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   const name = `browser-oci-${Date.now()}`
   await page.goto('/')
   await expect(page.getByText('Connected locally')).toBeVisible()
-  await page.getByRole('link', { name: 'Register service', exact: true }).click()
+  await page.goto('/services/new')
   await page.getByLabel('Project', { exact: true }).fill('browser-tests')
   await page.getByLabel('Service name').fill(name)
   await page.getByLabel('Git repository').fill('https://github.com/example/web-canary.git')
@@ -82,7 +82,7 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   await expect(page.getByTestId('build-status')).toHaveText('queued')
   await page.getByRole('button', { name: 'Cancel build', exact: true }).click()
   await expect(page.getByTestId('build-status')).toHaveText('cancelled')
-  await page.getByRole('link', { name: 'All services' }).click()
+  await page.getByRole('link', { name: 'Project services' }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
 })
 
@@ -263,11 +263,9 @@ test('open the application from its header and inspect networking', async ({ pag
   await expect(page.getByText('Active container port: 3000 · configured port: 3000')).toBeVisible()
   await page.reload()
   await expect(page.getByLabel('Service networking')).toBeVisible()
-  await page.getByRole('link', { name: 'Environments', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Environments', exact: true })).toBeVisible()
-  await expect(page.getByText('personal / development', { exact: true })).toBeVisible()
-  await page.goto('/')
-  await page.getByLabel('Filter environment').selectOption({ label: 'personal / development' })
+  await page.getByRole('link', { name: 'Project services', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'personal', exact: true })).toBeVisible()
+  await page.getByLabel('Project environment').selectOption('development')
   await expect(page.getByRole('heading', { name: 'showcase-studio', exact: true })).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
@@ -280,7 +278,10 @@ test('open archived instance logs from activity and filter on change', async ({ 
   test.skip(!id, 'Requires a real deployment history')
   await page.goto('/services/' + id + '/activity')
   const history = page.getByLabel('Deployment history')
-  const old = history.locator('.history-instance').filter({ hasText: 'stopped' }).first()
+  const old = history
+    .locator('[data-instance-history][data-has-logs=true]')
+    .filter({ hasText: 'stopped' })
+    .first()
   await expect(old).toBeVisible()
   const href = await old.getByRole('link', { name: 'View logs' }).getAttribute('href')
   const instance = new URL(href!, 'https://localhost').searchParams.get('instance')!
@@ -337,4 +338,84 @@ test('expose TanStack Query and Router devtools', async ({ page }) => {
   await expect(
     page.getByRole('button', { name: 'Open TanStack Devtools', exact: true }),
   ).toBeVisible()
+})
+
+test('project environment form uses aligned shared controls at desktop and mobile widths', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const projects = await page.evaluate(async () => (await fetch('/api/projects')).json())
+  const project =
+    projects.items.find((p: { name: string }) => p.name === 'personal') ?? projects.items[0]
+  test.skip(!project, 'Requires an existing project')
+  await page.goto('/projects/' + project.id)
+  await page.getByText('Create or shadow an environment', { exact: true }).click()
+  const input = page.getByLabel('Environment name', { exact: true }),
+    select = page.getByLabel('Shadow source', { exact: true }),
+    button = page.getByRole('button', { name: 'Create environment', exact: true })
+  await expect(input).toBeVisible()
+  await expect(select).toBeVisible()
+  const boxes = await Promise.all([input.boundingBox(), select.boundingBox(), button.boundingBox()])
+  expect(
+    Math.max(...boxes.map((b) => b!.height)) - Math.min(...boxes.map((b) => b!.height)),
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.max(...boxes.map((b) => b!.y + b!.height)) -
+      Math.min(...boxes.map((b) => b!.y + b!.height)),
+  ).toBeLessThanOrEqual(1)
+  await expect(select).toHaveCSS('background-color', 'rgb(23, 23, 25)')
+  await page.screenshot({ path: '../.local/project-controls-desktop.png', fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(select).toBeVisible()
+  await expect(button).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+  await page.screenshot({ path: '../.local/project-controls-mobile.png', fullPage: true })
+})
+
+test('audit table filters within headers and expands actions without HTTP traffic', async ({
+  page,
+}) => {
+  const project = `audit-browser-${Date.now()}`
+  await page.goto('/')
+  await page.getByLabel('Project name', { exact: true }).fill(project)
+  await page.getByRole('button', { name: 'Create project', exact: true }).click()
+  await expect(page.getByRole('heading', { name: project, exact: true })).toBeVisible()
+  await page.goto('/audit')
+  const table = page.getByRole('table', { name: 'Audit entries', exact: true })
+  await expect(table).toBeVisible()
+  await expect(table.locator('thead').getByLabel('Filter action')).toBeVisible()
+  await expect(table.locator('thead').getByLabel('Filter outcome')).toBeVisible()
+  await expect(table.getByRole('columnheader', { name: 'Actor', exact: true })).toBeVisible()
+  await expect(table.locator('[data-audit-entry]').first()).toBeVisible()
+  const first = table.locator('[data-audit-entry]').first()
+  await first.getByRole('button').click()
+  await expect(first.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
+  await expect(table.getByText('Action ID', { exact: true }).first()).toBeVisible()
+  await table.getByLabel('Filter action').fill('no-such-platform-action')
+  await expect(table.getByText('No matching audit entries.')).toBeVisible()
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(table.locator('[data-audit-entry]').first()).toBeVisible()
+  await table.getByLabel('Filter outcome').selectOption('committed')
+  await expect
+    .poll(async () => {
+      const outcomes = await table.locator('[data-audit-entry] td:last-child').allTextContents()
+      return outcomes.length > 0 && outcomes.every((value) => value === 'committed')
+    })
+    .toBe(true)
+  const forbidden = await page.evaluate(async () => {
+    const data = await fetch('/api/audit').then((response) => response.json())
+    return data.entries.some(
+      (entry: { action: string; target_type: string }) =>
+        entry.target_type === 'request' || /^(GET|POST|PUT|DELETE) /.test(entry.action),
+    )
+  })
+  expect(forbidden).toBe(false)
+  await page.screenshot({ path: '../.local/audit-table-desktop.png', fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+  await page.screenshot({ path: '../.local/audit-table-mobile.png', fullPage: true })
 })
