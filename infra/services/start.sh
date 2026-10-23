@@ -24,8 +24,11 @@ cat > "$service_root/clickhouse.xml" <<XML
  <merge_tree><number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation><number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge><number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition></merge_tree>
 </clickhouse>
 XML
-if [ ! -f "$service_root/tls/server.pem" ]; then
-  .local/worker-tools/bin/openssl req -x509 -newkey rsa:3072 -nodes -days 365 -subj /CN=local-paas-openbao -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost' -keyout "$service_root/tls/server.key" -out "$service_root/tls/server.pem" 2>/dev/null
+if [ ! -f "$service_root/tls/ca.pem" ]; then
+  .local/worker-tools/bin/openssl req -x509 -newkey rsa:3072 -nodes -days 3650 -subj /CN=local-paas-secrets-ca -addext "basicConstraints=critical,CA:TRUE" -keyout "$service_root/tls/ca.key" -out "$service_root/tls/ca.pem" 2>/dev/null
+  .local/worker-tools/bin/openssl req -new -newkey rsa:3072 -nodes -subj /CN=local-paas-openbao -keyout "$service_root/tls/server.key" -out "$service_root/tls/server.csr" 2>/dev/null
+  printf "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1,DNS:localhost\n" > "$service_root/tls/server.ext"
+  .local/worker-tools/bin/openssl x509 -req -in "$service_root/tls/server.csr" -CA "$service_root/tls/ca.pem" -CAkey "$service_root/tls/ca.key" -CAcreateserial -days 365 -extfile "$service_root/tls/server.ext" -out "$service_root/tls/server.pem" 2>/dev/null
 fi
 cat > "$service_root/openbao.hcl" <<HCL
 ui = false

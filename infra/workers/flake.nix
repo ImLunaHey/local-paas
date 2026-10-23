@@ -5,6 +5,12 @@
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
+      secretExec = pkgs.runCommand "local-paas-secret-exec" { nativeBuildInputs = [ pkgs.rustc pkgs.stdenv.cc pkgs.binutils ]; } ''
+        mkdir -p $out/bin
+        rustc --edition=2024 -L native=${pkgs.glibc.static}/lib -C target-feature=+crt-static -C opt-level=s ${./secret-exec.rs} -o $out/bin/secret-exec
+        strip $out/bin/secret-exec
+        if readelf -l $out/bin/secret-exec | grep -q INTERP; then exit 1; fi
+      '';
       # build.sh copies the freshly built agent into a private staging flake.
       agent = pkgs.runCommand "local-paas-node-agent" { nativeBuildInputs = [ pkgs.binutils pkgs.patchelf ]; } ''
         mkdir -p $out/bin
@@ -12,6 +18,7 @@
         chmod 755 $out/bin/node-agent
         strip $out/bin/node-agent
         patchelf --set-interpreter ${pkgs.stdenv.cc.bintools.dynamicLinker} --set-rpath ${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.glibc ]} $out/bin/node-agent
+        cp ${secretExec}/bin/secret-exec $out/bin/secret-exec
       '';
       worker = index: (nixpkgs.lib.nixosSystem {
         inherit system;

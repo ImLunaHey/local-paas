@@ -18,10 +18,16 @@ All three workers share Lake as a physical failure domain. This is a development
 runtime, not a Railway production migration.
 
 **Not implemented:** automatic relocation after node loss, node cordon/drain UI,
-OpenBao secret delivery, persistent workload volumes, public DigitalOcean ingress,
+Persistent workload volumes, public DigitalOcean ingress,
 NetBird provisioning, production authentication/backup recovery, and celld fleet
-execution. Secret-bearing workloads and celld cannot enter the OCI deploy path.
+execution. celld cannot enter the OCI deploy path.
 See [runtime operations and limitations](docs/runtime.md).
+
+Projects contain services and their own environments. New environments can copy
+service configuration and inherit secrets from another environment in the same
+project. OpenBao stores secret values; deployments pin their resolved version.
+The Audit log uses TanStack Table with column filters and records platform actions,
+excluding HTTP access traffic. See [projects, secrets and auditing](docs/projects-secrets-audit.md).
 
 See [architecture decisions and release gates](docs/architecture.md). Backend
 uses Rust; frontend uses TypeScript as explicitly requested by Luna.

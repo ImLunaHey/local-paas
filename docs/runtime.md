@@ -3,8 +3,9 @@
 The control plane persists deployments and node assignments in PostgreSQL. A
 transaction-scoped advisory lock serializes placement and promotion. Deployments
 snapshot the current runtime configuration and reference an immutable image
-revision. Retry operation IDs return the original deployment. celld and workloads
-with secret references are rejected until their dedicated execution paths exist.
+revision. Retry operation IDs return the original deployment. celld is rejected
+until its dedicated execution path exists. Secret-bearing deployments snapshot
+resolved OpenBao values and deliver them into workload-private tmpfs.
 
 Enrolled nodes have stable UUIDs, individual hashed bearer credentials, fixed
 allocatable resources and four or fewer slots. The versioned outbound agent
@@ -51,7 +52,7 @@ runtime libraries, and builds the three VM closures in an ignored staging flake.
 CA and mutually authenticated TLS certificates (30-day development validity).
 Keys remain outside Git and the Nix store. A private credentials ISO is copied
 into each VM's tmpfs at boot. `enroll-node` stores only a token hash in PostgreSQL.
-The host's loopback Caddy gateway exposes only the agent sync route over mTLS.
+The host's loopback Caddy gateway exposes agent sync and secret delivery over mTLS.
 
 For this local VM stage, agents reach the gateway through QEMU's private host
 address; the controller URL is configuration, so the same protocol can move to
@@ -65,8 +66,9 @@ and explicit public DNS resolvers.
 The agent uses a pinned nerdctl client inside the VM to control containerd.
 It sets user-namespace remapping, UID/GID 1000, read-only roots, bounded tmpfs,
 CPU/memory/PID/I/O limits, no-new-privileges, dropped capabilities, default seccomp,
-and an AppArmor policy. No arbitrary mounts, devices, environment secrets or
-runtime sockets are accepted. Images are pulled by digest. Operation generations
+and an AppArmor policy. No arbitrary mounts, devices or runtime sockets are
+accepted. Environment secrets are loaded by a static Rust launcher from tmpfs,
+never placed into the persisted container configuration. Images are pulled by digest. Operation generations
 are persisted before execution; a corrupt record fails closed. Container names
 are stable instance UUIDs, so retries inspect existing containers.
 

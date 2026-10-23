@@ -296,8 +296,10 @@ pub(crate) async fn logs(
         .or(q.after)
         .unwrap_or(0);
     let oldest = entries.first().and_then(|v| v["sequence"].as_i64());
+    let markers:Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'timestamp',timestamp,'message',message,'instance_id',instance_id) FROM (SELECT d.id::text AS id,d.created_at AS timestamp,'Deployment started · '||left(d.id::text,8) AS message,NULL::uuid AS instance_id FROM deployments d WHERE d.service_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM instances i WHERE i.deployment_id=d.id AND i.id=$2)) UNION ALL SELECT s.instance_id::text||':'||s.started_at::text,s.started_at,(CASE WHEN s.started_at=(SELECT min(s2.started_at) FROM instance_starts s2 WHERE s2.instance_id=s.instance_id) THEN 'Instance started · ' ELSE 'Instance restarted · ' END)||n.name||' / '||left(i.id::text,8),i.id FROM instance_starts s JOIN instances i ON i.id=s.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND ($2::uuid IS NULL OR i.id=$2)) timeline WHERE ($3::timestamptz IS NULL OR timestamp>=$3) AND ($4::timestamptz IS NULL OR timestamp<=$4) ORDER BY timestamp DESC LIMIT 500")
+        .bind(id).bind(q.instance_id).bind(q.from).bind(q.until).fetch_all(&pool).await?;
     Ok(Json(
-        json!({"entries":entries,"next_cursor":next,"oldest_cursor":oldest,"has_more":entries.len()==256,"archive_warning":archive_error}),
+        json!({"markers":markers,"entries":entries,"next_cursor":next,"oldest_cursor":oldest,"has_more":entries.len()==256,"archive_warning":archive_error}),
     ))
 }
 pub(crate) async fn status(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {

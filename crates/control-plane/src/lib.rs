@@ -13,6 +13,7 @@ use serde_json::json;
 use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 
+mod audit;
 pub mod builds;
 mod configuration;
 mod environments;
@@ -20,11 +21,21 @@ mod history;
 pub mod logging;
 mod networking;
 pub mod preview;
+mod projects;
 pub mod runtime;
+pub mod secrets;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route("/api/audit", get(audit::list))
+        .route("/api/projects", get(projects::list).post(projects::create))
+        .route("/api/projects/{id}", get(projects::get))
+        .route(
+            "/api/services/{id}/secrets",
+            get(secrets::list).put(secrets::update),
+        )
+        .route("/api/agent/secrets", post(secrets::deliver))
         .route(
             "/api/environments",
             get(environments::list).post(environments::create),
@@ -96,9 +107,21 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                     )
                         .into_response();
                 }
-                next.run(request).await
+                let secrets = request.uri().path().ends_with("/secrets");
+                let mut response = next.run(request).await;
+                if secrets {
+                    response.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        header::HeaderValue::from_static("no-store"),
+                    );
+                }
+                response
             }
         }))
+        .layer(middleware::from_fn_with_state(
+            pool.clone(),
+            audit::record_action,
+        ))
         .with_state(pool)
 }
 
@@ -107,6 +130,7 @@ pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
 }
 
 pub enum ApiError {
+    Unauthorized,
     Invalid(Vec<ValidationIssue>),
     Conflict(&'static str),
     NotFound,
@@ -132,6 +156,10 @@ impl From<sqlx::Error> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, value) = match self {
+            Self::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                json!({"error":"valid workload identity required"}),
+            ),
             Self::Unavailable(message) => {
                 (StatusCode::SERVICE_UNAVAILABLE, json!({"error":message}))
             }

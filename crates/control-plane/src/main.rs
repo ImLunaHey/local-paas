@@ -53,6 +53,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    let renewal = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            if control_plane::secrets::renew().await.is_err() {
+                tracing::error!("OpenBao controller identity renewal failed");
+            }
+        }
+    });
     let preview = control_plane::preview::start(pool.clone()).await?;
     let archive_pool = pool.clone();
     let archive = tokio::spawn(async move {
@@ -75,6 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     upkeep.abort();
     archive.abort();
+    renewal.abort();
     preview.abort();
     pool.close().await;
     Ok(())

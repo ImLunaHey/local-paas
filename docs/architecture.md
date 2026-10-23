@@ -10,7 +10,8 @@ The local platform registers specifications, builds immutable image revisions,
 and deploys OCI instances through authenticated Rust agents in three NixOS VMs.
 Readiness gates private preview traffic; live logs and cgroup metrics are visible
 in the UI. Candidate failures retain the active deployment. Public edge routing,
-workload secrets, automatic relocation and celld execution remain unimplemented.
+automatic relocation and celld execution remain unimplemented. Workload secrets
+are versioned in dedicated OpenBao storage and delivered through authenticated agents.
 See [build operations](builds.md) and [runtime operations](runtime.md).
 
 ## Reversible implementation choices

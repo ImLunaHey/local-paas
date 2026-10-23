@@ -45,7 +45,8 @@ https://:18443 {
       trust_pool file $worker_creds/ca.crt
     }
   }
-  handle /api/agent/sync {
+  @agent path /api/agent/sync /api/agent/secrets
+  handle @agent {
     reverse_proxy 127.0.0.1:8080 {
       header_up Host 127.0.0.1:8080
     }

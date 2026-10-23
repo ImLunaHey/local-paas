@@ -1,4 +1,5 @@
 mod containerd;
+mod secrets;
 use containerd::Containerd;
 use platform_domain::Workload;
 use platform_protocol::{
@@ -19,7 +20,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Config {
     node_id: Uuid,
     token: String,
@@ -53,6 +54,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let root = PathBuf::from("/var/lib/local-paas-agent");
     tokio::fs::create_dir_all(root.join("logs")).await?;
+    tokio::fs::create_dir_all("/run/local-paas-logs").await?;
+    let helper = std::env::var("SECRET_EXECUTOR")?;
+    tokio::fs::copy(helper, root.join("secret-exec.new")).await?;
+    tokio::fs::rename(root.join("secret-exec.new"), root.join("secret-exec")).await?;
     let runtime = Arc::new(Containerd::new(root, config.node_id));
     let reports: Reports = Arc::new(RwLock::new(HashMap::new()));
     let (desired, rx) = watch::channel(Vec::<Assignment>::new());
@@ -83,10 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let reports = reports.clone();
                             let rx = rx.clone();
                             let health = health.clone();
+                            let client = client.clone();
+                            let config = config.clone();
                             tasks.insert(
                                 id,
                                 tokio::spawn(async move {
-                                    instance_loop(id, runtime, reports, rx, health).await;
+                                    instance_loop(id, runtime, reports, rx, health, client, config)
+                                        .await;
                                 }),
                             );
                         }
@@ -101,10 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
-    if a.spec.validate().is_err()
-        || !a.spec.secrets.is_empty()
-        || !(20000..20004).contains(&a.published_port)
-        || a.generation < 1
+    if a.spec.validate().is_err() || !(20000..20004).contains(&a.published_port) || a.generation < 1
     {
         return None;
     }
@@ -137,7 +142,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
                 io_bytes_per_second: 20 * 1024 * 1024,
             },
             mounts: vec![],
-            secret_names: vec![],
+            secret_names: a.spec.secrets.clone(),
             network: NetworkPolicy {
                 declared_port: port,
                 published_port: a.published_port,
@@ -152,11 +157,14 @@ async fn instance_loop(
     reports: Reports,
     rx: watch::Receiver<Vec<Assignment>>,
     health: reqwest::Client,
+    client: reqwest::Client,
+    config: Config,
 ) {
+    let mut values = secrets::load(id).await.unwrap_or_default();
     let mut started = None;
     let mut stable = None;
     let mut previous = None;
-    let mut failed = None;
+    let mut failed: Option<String> = None;
     let mut last_generation = 0;
     let mut stopped = false;
     // A spawned task may run before the watch sender publishes its first assignment.
@@ -184,6 +192,7 @@ async fn instance_loop(
             instance_id: id,
             generation: a.generation,
             observed_unix_ms: now_millis(),
+            process_started_at: None,
             state: "starting".into(),
             diagnostic: None,
             metrics: None,
@@ -208,23 +217,40 @@ async fn instance_loop(
         } else if a.desired_state == "running" {
             if started.is_none() && failed.is_none() {
                 reports.write().await.insert(id, report.clone());
-                match runtime.prepare(&op, &spec).await {
-                    Ok(()) => {
-                        if runtime.start(&op).await.is_ok() {
-                            started = Some(Instant::now());
-                        } else {
-                            failed = Some("start_failed");
-                        }
+                if !a.spec.secrets.is_empty() && values.is_empty() {
+                    match secrets::obtain(&client, &config, &a).await {
+                        Ok(received) => match secrets::install(&runtime, id, &received).await {
+                            Ok(()) => values = received,
+                            Err(()) => failed = Some("secret_materialization_failed".into()),
+                        },
+                        Err(()) => failed = Some("secret_delivery_failed".into()),
                     }
-                    Err(_) => failed = Some("prepare_failed"),
+                }
+                if failed.is_none() {
+                    match runtime.prepare(&op, &spec).await {
+                        Ok(()) => {
+                            if runtime.start(&op).await.is_ok() {
+                                started = Some(Instant::now());
+                            } else {
+                                failed = Some("start_failed".into());
+                            }
+                        }
+                        Err(platform_runtime::RuntimeError::Diagnostic(code)) => {
+                            failed = Some(code)
+                        }
+                        Err(platform_runtime::RuntimeError::Rejected(code)) => {
+                            failed = Some(code.into())
+                        }
+                        Err(_) => failed = Some("prepare_failed".into()),
+                    }
                 }
             }
-            if let Some(code) = failed {
+            if let Some(code) = &failed {
                 report.state = "failed".into();
-                report.diagnostic = Some(code.into());
+                report.diagnostic = Some(code.clone());
             } else if let Ok(info) = runtime.info(id).await {
                 if info["State"]["Running"] != true {
-                    failed = Some("process_exited");
+                    failed = Some("process_exited".into());
                     report.state = "failed".into();
                     report.diagnostic = Some("process_exited".into());
                 } else {
@@ -248,11 +274,13 @@ async fn instance_loop(
                         stable = None;
                         report.diagnostic = Some("readiness_pending".into());
                         if started.is_some_and(|t| t.elapsed() > Duration::from_secs(120)) {
-                            failed = Some("readiness_failed");
+                            failed = Some("readiness_failed".into());
                             report.state = "failed".into();
                             report.diagnostic = Some("readiness_failed".into());
                         }
                     }
+                    report.process_started_at =
+                        info["State"]["StartedAt"].as_str().map(str::to_string);
                     if let Some(pid) = info["State"]["Pid"].as_u64() {
                         report.metrics = measure(pid, &mut previous).await;
                     }
@@ -265,7 +293,15 @@ async fn instance_loop(
             report.state = "unknown".into();
             report.diagnostic = Some("unsupported_desired_state".into());
         }
-        report.logs = read_logs(&runtime.logfile(id)).await;
+        if a.spec.secrets.is_empty() || !values.is_empty() {
+            report.logs = read_logs(&runtime.logfile(id)).await;
+            for log in &mut report.logs {
+                log.line = secrets::redact(&log.line, &values);
+            }
+        }
+        if stopped {
+            secrets::clear(id).await;
+        }
         report.observed_unix_ms = now_millis();
         reports.write().await.insert(id, report);
         tokio::time::sleep(Duration::from_secs(5)).await;

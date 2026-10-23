@@ -37,6 +37,8 @@ pub struct InstanceReport {
     pub instance_id: Uuid,
     pub generation: i64,
     pub observed_unix_ms: i64,
+    #[serde(default)]
+    pub process_started_at: Option<String>,
     pub state: String,
     pub diagnostic: Option<String>,
     pub metrics: Option<Metrics>,

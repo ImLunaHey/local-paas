@@ -110,6 +110,7 @@ in {
     '';
   };
   systemd.services.node-agent = {
+    environment.SECRET_EXECUTOR = "${agent}/bin/secret-exec";
     wantedBy = [ "multi-user.target" ];
     after = [ "network-online.target" "containerd.service" "node-credentials.service" "workload-network-policy.service" "apparmor.service" ];
     requires = [ "containerd.service" ]; wants = [ "network-online.target" ];

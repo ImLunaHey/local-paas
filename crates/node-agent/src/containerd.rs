@@ -4,6 +4,7 @@ use platform_domain::ImageDigest;
 use platform_runtime::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -69,13 +70,83 @@ impl Containerd {
                     return Err(RuntimeError::NotFound);
                 }
                 // No raw runtime diagnostics go to platform logs.
-                let _ = tokio::fs::write(self.root.join("last-runtime-error"), &err).await;
-                return Err(failure());
+                let mut text = String::from_utf8_lossy(&err).to_string();
+                if let Ok(mut entries) = tokio::fs::read_dir("/run/local-paas-secrets").await {
+                    while let Ok(Some(entry)) = entries.next_entry().await {
+                        if let Ok(id) = entry.file_name().to_string_lossy().parse::<Uuid>()
+                            && let Ok(values) = crate::secrets::load(id).await
+                        {
+                            text = crate::secrets::redact(&text, &values);
+                        }
+                    }
+                }
+                let text = text.lines().last().unwrap_or("runtime command failed");
+                let message = text.split("msg=").last().unwrap_or(text).trim_matches('"');
+                let stage = args.first().map(String::as_str).unwrap_or("runtime");
+                let mut diagnostic = format!("{stage}: {message}");
+                diagnostic.truncate(diagnostic.floor_char_boundary(128));
+                err.fill(0);
+                return Err(RuntimeError::Diagnostic(diagnostic));
             }
             Ok(out)
         })
         .await
         .map_err(|_| failure())?
+    }
+    async fn image_config(&self, repository: &str, digest: &str) -> Result<Value, RuntimeError> {
+        let repository = repository
+            .strip_prefix("127.0.0.1:15000/")
+            .ok_or_else(failure)?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|_| failure())?;
+        async fn get(
+            client: &reqwest::Client,
+            repository: &str,
+            kind: &str,
+            digest: &str,
+        ) -> Result<Value, RuntimeError> {
+            if !digest.starts_with("sha256:")
+                || digest.len() != 71
+                || !digest[7..].bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                return Err(failure());
+            }
+            let mut response=client.get(format!("http://10.0.2.2:15000/v2/{repository}/{kind}/{digest}")).header("Accept","application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json").send().await.map_err(|_|failure())?;
+            if !response.status().is_success() {
+                return Err(RuntimeError::Rejected("image_configuration_unavailable"));
+            }
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await.map_err(|_| failure())? {
+                if bytes.len() + chunk.len() > 1048576 {
+                    return Err(failure());
+                }
+                bytes.extend(chunk);
+            }
+            if format!("sha256:{:x}", Sha256::digest(&bytes)) != digest {
+                return Err(RuntimeError::Rejected(
+                    "image_configuration_digest_mismatch",
+                ));
+            }
+            serde_json::from_slice(&bytes).map_err(|_| failure())
+        }
+        let mut manifest = get(&client, repository, "manifests", digest).await?;
+        if let Some(members) = manifest["manifests"].as_array() {
+            let selected = members
+                .iter()
+                .find(|v| {
+                    v["platform"]["architecture"] == "amd64" && v["platform"]["os"] == "linux"
+                })
+                .and_then(|v| v["digest"].as_str())
+                .ok_or_else(failure)?;
+            manifest = get(&client, repository, "manifests", selected).await?;
+        }
+        let digest = manifest["config"]["digest"].as_str().ok_or_else(failure)?;
+        let config = get(&client, repository, "blobs", digest).await?;
+        Ok(config["config"].clone())
     }
     pub async fn info(&self, id: Uuid) -> Result<Value, RuntimeError> {
         let bytes = self.command(&["inspect".into(), id.to_string()]).await?;
@@ -132,7 +203,11 @@ impl Containerd {
         Ok(())
     }
     pub fn logfile(&self, id: Uuid) -> PathBuf {
-        self.root.join("logs").join(format!("{id}.json"))
+        if self.root.join(format!("{id}.has-secrets")).exists() {
+            PathBuf::from("/run/local-paas-logs").join(format!("{id}.json"))
+        } else {
+            self.root.join("logs").join(format!("{id}.json"))
+        }
     }
 }
 #[async_trait]
@@ -140,7 +215,6 @@ impl Runtime for Containerd {
     async fn prepare(&self, op: &Operation, spec: &PrepareSpec) -> Result<(), RuntimeError> {
         if spec.identity.instance != op.instance_id
             || spec.identity.node != self.node
-            || !spec.secret_names.is_empty()
             || !spec.mounts.is_empty()
         {
             return Err(failure());
@@ -259,7 +333,39 @@ impl Runtime for Containerd {
             args.push(flag.into());
             args.push(value);
         }
+        let mut original = Vec::new();
+        if !spec.secret_names.is_empty() {
+            let dir = crate::secrets::directory(op.instance_id);
+            if !dir.join(".environment").is_file() {
+                return Err(RuntimeError::Rejected("secret_files_missing"));
+            }
+            let config = self
+                .image_config(&spec.registry_repository, &String::from(spec.image.clone()))
+                .await?;
+            for key in ["Entrypoint", "Cmd"] {
+                if let Some(parts) = config[key].as_array() {
+                    for part in parts {
+                        original.push(part.as_str().ok_or_else(failure)?.to_string());
+                    }
+                }
+            }
+            if original.is_empty() {
+                return Err(RuntimeError::Rejected("image_command_missing"));
+            }
+            args.extend([
+                "--mount".into(),
+                format!("type=bind,src={},dst=/.platform-secrets,ro", dir.display()),
+                "--mount".into(),
+                format!(
+                    "type=bind,src={},dst=/.platform-secret-exec,ro",
+                    self.root.join("secret-exec").display()
+                ),
+                "--entrypoint".into(),
+                "/.platform-secret-exec".into(),
+            ]);
+        }
         args.extend(["--read-only".into(), "--no-healthcheck".into(), image]);
+        args.extend(original);
         self.command(&args).await?;
         Ok(())
     }
@@ -332,7 +438,15 @@ impl Runtime for Containerd {
                     .collect()
             })
             .unwrap_or_default();
-        let entries = crate::read_logs(&self.logfile(id)).await;
+        let mut entries = crate::read_logs(&self.logfile(id)).await;
+        let values = if self.root.join(format!("{id}.has-secrets")).exists() {
+            crate::secrets::load(id).await.map_err(|_| failure())?
+        } else {
+            BTreeMap::new()
+        };
+        for entry in &mut entries {
+            entry.line = crate::secrets::redact(&entry.line, &values);
+        }
         let after = request
             .cursor
             .as_ref()

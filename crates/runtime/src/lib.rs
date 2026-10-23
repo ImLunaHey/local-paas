@@ -120,6 +120,10 @@ pub type LogStream = Pin<Box<dyn Stream<Item = Result<LogEntry, RuntimeError>> +
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error("runtime failure: {0}")]
+    Diagnostic(String),
+    #[error("runtime rejected operation: {0}")]
+    Rejected(&'static str),
     #[error("runtime operation is not supported by this adapter")]
     Unsupported,
     #[error("instance not found")]

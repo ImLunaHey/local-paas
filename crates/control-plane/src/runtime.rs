@@ -55,17 +55,15 @@ pub(crate) async fn deploy(
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(ApiError::NotFound)?;
-    let spec = &service.spec.0;
+    let mut resolved_spec = service.spec.0.clone();
+    resolved_spec.secrets = crate::secrets::references(&pool, service_id).await?;
+    let spec = &resolved_spec;
     let Workload::OciService { replicas, .. } = spec.workload else {
         return Err(ApiError::Conflict(
             "celld requires its dedicated fleet runtime",
         ));
     };
-    if !spec.secrets.is_empty() {
-        return Err(ApiError::Conflict(
-            "workload secret delivery is not implemented; deployment with secret references is blocked",
-        ));
-    }
+    let secret_version = crate::secrets::snapshot(&pool, service_id, &spec.secrets).await?;
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM revisions WHERE id=$1 AND service_id=$2)")
             .bind(input.revision_id)
@@ -121,7 +119,7 @@ pub(crate) async fn deploy(
         ));
     }
     let deployment = Uuid::new_v4();
-    sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status) VALUES($1,$2,$3,$4,$5,'preparing')").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot) VALUES($1,$2,$3,$4,$5,'preparing',$6,true)").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).execute(&mut *tx).await?;
     for (node, slot) in placements {
         sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(deployment).bind(node).bind(slot).execute(&mut *tx).await?;
     }
@@ -253,10 +251,19 @@ pub async fn sync(
             return Err((StatusCode::BAD_REQUEST, "invalid measurement"));
         }
         let m = o.metrics.as_ref();
-        let updated=sqlx::query("UPDATE instances SET state=$4,diagnostic=$5,observed_at=to_timestamp($9::double precision/1000),cpu_millis=$6,memory_bytes=$7,pids=$8 WHERE id=$1 AND node_id=$2 AND generation=$3 AND (observed_at IS NULL OR observed_at<to_timestamp($9::double precision/1000)) RETURNING id")
+        let updated=sqlx::query("UPDATE instances SET state=$4,diagnostic=CASE WHEN $4='stopped' THEN coalesce($5,diagnostic) ELSE $5 END,observed_at=to_timestamp($9::double precision/1000),cpu_millis=$6,memory_bytes=$7,pids=$8 WHERE id=$1 AND node_id=$2 AND generation=$3 AND (observed_at IS NULL OR observed_at<to_timestamp($9::double precision/1000)) RETURNING id")
             .bind(o.instance_id).bind(input.node_id).bind(o.generation).bind(&o.state).bind(&o.diagnostic).bind(m.map(|m|m.cpu_millis)).bind(m.map(|m|m.memory_bytes as i64)).bind(m.map(|m|m.pids as i64)).bind(o.observed_unix_ms as f64).fetch_optional(&mut *tx).await.map_err(db_error)?;
         if updated.is_none() {
             continue;
+        }
+        if let Some(started) = &o.process_started_at {
+            let started = started
+                .parse::<DateTime<Utc>>()
+                .map_err(|_| (StatusCode::BAD_REQUEST, "invalid process start time"))?;
+            if started.timestamp_millis() > o.observed_unix_ms + 5000 || started.timestamp() < 0 {
+                return Err((StatusCode::BAD_REQUEST, "invalid process start time"));
+            }
+            sqlx::query("INSERT INTO instance_starts(instance_id,started_at) VALUES($1,$2) ON CONFLICT DO NOTHING").bind(o.instance_id).bind(started).execute(&mut *tx).await.map_err(db_error)?;
         }
         sqlx::query("UPDATE instances SET io_read_bytes_per_second=$2,io_write_bytes_per_second=$3,network_rx_bytes_per_second=$4,network_tx_bytes_per_second=$5 WHERE id=$1").bind(o.instance_id).bind(m.and_then(|m|m.io_read_bytes_per_second)).bind(m.and_then(|m|m.io_write_bytes_per_second)).bind(m.and_then(|m|m.network_rx_bytes_per_second)).bind(m.and_then(|m|m.network_tx_bytes_per_second)).execute(&mut *tx).await.map_err(db_error)?;
         if let Some(m) = m {
