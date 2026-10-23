@@ -65,12 +65,15 @@
 }
 .detail-nav {
   display: flex;
+  overflow-x: auto;
   gap: 26px;
   border-bottom: 1px solid #28282c;
   margin-bottom: 24px;
   font-size: 12px;
 }
 .detail-nav a {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 0 0 14px;
   color: #a0a0a8;
   border-bottom: 2px solid transparent;

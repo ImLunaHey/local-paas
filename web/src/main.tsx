@@ -23,6 +23,7 @@ import {
   ArrowLeft,
   ArrowRight,
   AlertCircle,
+  Activity,
   Box,
   Check,
   ChevronRight,
@@ -1029,6 +1030,22 @@ function ServiceDetail() {
           {spec.workload.kind === 'oci-service' ? 'Builds & revisions' : 'Fleet deployments'}
         </Link>
         <Link
+          to="/services/$serviceId/logs"
+          params={{ serviceId }}
+          resetScroll={false}
+          activeProps={{ 'aria-current': 'page' }}
+        >
+          Logs
+        </Link>
+        <Link
+          to="/services/$serviceId/metrics"
+          params={{ serviceId }}
+          resetScroll={false}
+          activeProps={{ 'aria-current': 'page' }}
+        >
+          Metrics
+        </Link>
+        <Link
           to="/services/$serviceId/configuration"
           params={{ serviceId }}
           resetScroll={false}
@@ -1059,6 +1076,50 @@ function ServiceBuilds() {
 function ServiceConfiguration() {
   const service = useCurrentService()
   return <ServiceForm key={service.id} service={service} />
+}
+
+// Runtime execution and telemetry do not exist yet. These views intentionally
+// have no log stream, usage samples, or health claims to present as live data.
+function ServiceRuntime({ view }: { view: 'logs' | 'metrics' }) {
+  const service = useCurrentService()
+  const logs = view === 'logs'
+  const oci = service.spec.workload.kind === 'oci-service'
+  return (
+    <section className="panel p-6 space-y-5" aria-label={logs ? 'Runtime logs' : 'Runtime metrics'}>
+      <div className="section-heading">
+        <div>
+          <h2>{logs ? 'Runtime logs' : 'Runtime metrics'}</h2>
+          <p className="text-xs text-muted mt-2">
+            {logs ? 'Application stdout and stderr' : 'Observed CPU, memory and HTTP traffic'}
+          </p>
+        </div>
+        <span className="chip">Not deployed</span>
+      </div>
+      <div className="console-empty p-6">
+        {logs ? <Terminal size={24} /> : <Activity size={24} />}
+        <h3>{logs ? 'No running instances' : 'No runtime metrics yet'}</h3>
+        <p>
+          {oci
+            ? 'This platform can build images, but cannot start application instances yet.'
+            : 'The celld fleet has not been started. Fleet execution is not available yet.'}
+        </p>
+        <p>
+          {logs
+            ? 'Live logs require a running application and a connected log stream.'
+            : 'Usage and traffic measurements require a running application and telemetry collection.'}
+        </p>
+        {oci && (
+          <Link
+            to="/services/$serviceId/builds"
+            params={{ serviceId: service.id }}
+            className="back-link"
+          >
+            View build output <ArrowRight size={14} />
+          </Link>
+        )}
+      </div>
+    </section>
+  )
 }
 
 function ServiceActivity() {
@@ -1159,6 +1220,16 @@ const serviceConfigurationRoute = createRoute({
   path: 'configuration',
   component: ServiceConfiguration,
 })
+const serviceLogsRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'logs',
+  component: () => <ServiceRuntime view="logs" />,
+})
+const serviceMetricsRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'metrics',
+  component: () => <ServiceRuntime view="metrics" />,
+})
 const serviceActivityRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'activity',
@@ -1171,6 +1242,8 @@ const router = createRouter({
     detailRoute.addChildren([
       serviceIndexRoute,
       serviceBuildsRoute,
+      serviceLogsRoute,
+      serviceMetricsRoute,
       serviceConfigurationRoute,
       serviceActivityRoute,
     ]),

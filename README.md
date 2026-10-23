@@ -17,6 +17,9 @@ BuildKit in an isolated NixOS VM on Lake.
 routes, workload secrets, or celld fleet execution. Building an image does not
 start instances. The disposable builder registry is for development; this is
 not a production PaaS or the complete Phase 1 vertical slice.
+Service `/logs` and `/metrics` tabs explicitly show that no runtime is deployed;
+they do not stream application logs or collect metrics yet. Build output remains
+in the separate `/builds` tab.
 
 See [architecture decisions and release gates](docs/architecture.md). Backend
 uses Rust; frontend uses TypeScript as explicitly requested by Luna.
