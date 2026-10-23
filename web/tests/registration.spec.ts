@@ -217,3 +217,33 @@ test('show live application logs, measured usage and the private preview', async
   await expect(app.locator('body')).not.toBeEmpty()
   await app.close()
 })
+
+test('filter retained logs and switch combined and instance metrics', async ({ page }) => {
+  const serviceId = process.env.E2E_RUNNING_SERVICE_ID
+  test.skip(!serviceId, 'Requires a real running service')
+  await page.goto('/services/' + serviceId + '/logs')
+  await expect(page.getByText('ClickHouse connected', { exact: true })).toBeVisible()
+  await page.getByLabel('Search logs', { exact: true }).fill('Ready in')
+  await page.getByRole('button', { name: 'Apply filters' }).click()
+  await expect(page.getByLabel('Application output')).toContainText('Ready in')
+  await page.getByLabel('Level', { exact: true }).selectOption('error')
+  await page.getByRole('button', { name: 'Apply filters' }).click()
+  await expect(page.getByRole('heading', { name: 'No matching log entries' })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(page.getByLabel('Application output')).toContainText('Ready in')
+  await page.getByRole('link', { name: 'Metrics', exact: true }).click()
+  await expect(page.getByText('Combined view', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Network received (KiB/s)' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Disk write (KiB/s)' })).toBeVisible()
+  const instance = await page
+    .getByLabel('Runtime instance')
+    .locator('option')
+    .nth(1)
+    .getAttribute('value')
+  await page.getByLabel('Runtime instance').selectOption(instance!)
+  await expect(page.getByText('Instance view', { exact: true })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+})

@@ -934,3 +934,28 @@ h3 {
   margin: 0;
   font: inherit;
 }
+
+.log-filters input,
+.log-filters select {
+  min-width: 0;
+  width: 100%;
+}
+.runtime-log-row[data-level='error'] .log-level,
+.runtime-log-row[data-level='fatal'] .log-level {
+  color: #ff8585;
+}
+.runtime-log-row[data-level='warn'] .log-level {
+  color: #e9b86e;
+}
+.runtime-log-row[data-level='info'] .log-level {
+  color: #8ab6a2;
+}
+.runtime-log details pre {
+  padding-top: 8px;
+  color: #a6a6ad;
+}
+.runtime-log .chip {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

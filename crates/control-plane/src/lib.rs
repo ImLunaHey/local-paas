@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 pub mod builds;
 mod configuration;
+pub mod logging;
 pub mod preview;
 pub mod runtime;
 
@@ -30,7 +31,8 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
         .route("/api/services/{id}/deployments", post(runtime::deploy))
         .route("/api/deployments/{id}/stop", post(runtime::stop))
         .route("/api/services/{id}/runtime", get(runtime::status))
-        .route("/api/services/{id}/runtime/logs", get(runtime::logs))
+        .route("/api/services/{id}/runtime/logs", get(logging::logs))
+        .route("/api/log-storage", get(logging::status))
         .route("/api/services/{id}/runtime/metrics", get(runtime::metrics))
         .route(
             "/api/agent/sync",
@@ -90,11 +92,12 @@ pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!().run(pool).await
 }
 
-pub(crate) enum ApiError {
+pub enum ApiError {
     Invalid(Vec<ValidationIssue>),
     Conflict(&'static str),
     NotFound,
     Database,
+    Unavailable(&'static str),
 }
 
 impl From<sqlx::Error> for ApiError {
@@ -115,6 +118,9 @@ impl From<sqlx::Error> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, value) = match self {
+            Self::Unavailable(message) => {
+                (StatusCode::SERVICE_UNAVAILABLE, json!({"error":message}))
+            }
             Self::Invalid(issues) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 json!({"error":"invalid service specification", "issues":issues}),

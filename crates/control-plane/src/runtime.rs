@@ -2,7 +2,7 @@
 use crate::{ApiError, Service};
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Utc};
@@ -240,6 +240,15 @@ pub async fn sync(
                 || !(0.0..=128000.0).contains(&m.cpu_millis)
                 || m.memory_bytes > 1 << 50
                 || m.pids > 1_000_000
+                || [
+                    m.io_read_bytes_per_second,
+                    m.io_write_bytes_per_second,
+                    m.network_rx_bytes_per_second,
+                    m.network_tx_bytes_per_second,
+                ]
+                .into_iter()
+                .flatten()
+                .any(|v| !v.is_finite() || !(0.0..=1e15).contains(&v))
         }) {
             return Err((StatusCode::BAD_REQUEST, "invalid measurement"));
         }
@@ -249,8 +258,9 @@ pub async fn sync(
         if updated.is_none() {
             continue;
         }
+        sqlx::query("UPDATE instances SET io_read_bytes_per_second=$2,io_write_bytes_per_second=$3,network_rx_bytes_per_second=$4,network_tx_bytes_per_second=$5 WHERE id=$1").bind(o.instance_id).bind(m.and_then(|m|m.io_read_bytes_per_second)).bind(m.and_then(|m|m.io_write_bytes_per_second)).bind(m.and_then(|m|m.network_rx_bytes_per_second)).bind(m.and_then(|m|m.network_tx_bytes_per_second)).execute(&mut *tx).await.map_err(db_error)?;
         if let Some(m) = m {
-            sqlx::query("INSERT INTO runtime_metrics(instance_id,cpu_millis,memory_bytes,pids) VALUES($1,$2,$3,$4)").bind(o.instance_id).bind(m.cpu_millis).bind(m.memory_bytes as i64).bind(m.pids as i64).execute(&mut *tx).await.map_err(db_error)?;
+            sqlx::query("INSERT INTO runtime_metrics(instance_id,cpu_millis,memory_bytes,pids,io_read_bytes_per_second,io_write_bytes_per_second,network_rx_bytes_per_second,network_tx_bytes_per_second) VALUES($1,$2,$3,$4,$5,$6,$7,$8)").bind(o.instance_id).bind(m.cpu_millis).bind(m.memory_bytes as i64).bind(m.pids as i64).bind(m.io_read_bytes_per_second).bind(m.io_write_bytes_per_second).bind(m.network_rx_bytes_per_second).bind(m.network_tx_bytes_per_second).execute(&mut *tx).await.map_err(db_error)?;
         }
         for log in o.logs {
             if log.key.len() != 64
@@ -263,10 +273,13 @@ pub async fn sync(
                 .timestamp
                 .parse::<DateTime<Utc>>()
                 .map_err(|_| (StatusCode::BAD_REQUEST, "invalid log timestamp"))?;
-            sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line) VALUES($1,$2,$3,$4,$5) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).execute(&mut *tx).await.map_err(db_error)?;
+            let inserted=sqlx::query("INSERT INTO runtime_log_keys(instance_id,entry_key) VALUES($1,$2) ON CONFLICT DO NOTHING").bind(o.instance_id).bind(&log.key).execute(&mut *tx).await.map_err(db_error)?;
+            if inserted.rows_affected() == 0 {
+                continue;
+            }
+            let (level, message, fields) = crate::logging::parse(&log.line);
+            sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line,level,message,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).bind(level).bind(message).bind(fields.map(DbJson)).execute(&mut *tx).await.map_err(db_error)?;
         }
-        // Bound each instance's retained text to at most 512 KiB (plus one row).
-        sqlx::query("DELETE FROM runtime_logs WHERE sequence IN (SELECT sequence FROM (SELECT sequence,row_number() OVER(ORDER BY sequence DESC) AS position,sum(octet_length(line)) OVER(ORDER BY sequence DESC) AS bytes FROM runtime_logs WHERE instance_id=$1) r WHERE bytes>524288 OR position>2048)").bind(o.instance_id).execute(&mut *tx).await.map_err(db_error)?;
     }
     let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut assignments = Vec::new();
@@ -295,7 +308,7 @@ pub async fn sync(
     }))
 }
 
-async fn service_exists(pool: &PgPool, id: Uuid) -> Result<(), ApiError> {
+pub(crate) async fn service_exists(pool: &PgPool, id: Uuid) -> Result<(), ApiError> {
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM services WHERE id=$1)")
         .bind(id)
         .fetch_one(pool)
@@ -312,7 +325,7 @@ pub(crate) async fn status(
 ) -> Result<Json<Value>, ApiError> {
     service_exists(&pool, id).await?;
     let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT to_jsonb(d) FROM (SELECT id,revision_id,status,error_code,created_at FROM deployments WHERE service_id=$1 ORDER BY created_at DESC LIMIT 20) d").bind(id).fetch_all(&pool).await?;
-    let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deployment_id',i.deployment_id,'node_id',n.id,'node_name',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desired_state',i.desired_state,'diagnostic',i.diagnostic,'observed_at',i.observed_at,'cpu_millis',i.cpu_millis,'memory_bytes',i.memory_bytes,'pids',i.pids) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
+    let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deployment_id',i.deployment_id,'node_id',n.id,'node_name',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desired_state',i.desired_state,'diagnostic',i.diagnostic,'observed_at',i.observed_at,'cpu_millis',i.cpu_millis,'memory_bytes',i.memory_bytes,'pids',i.pids,'io_read_bytes_per_second',i.io_read_bytes_per_second,'io_write_bytes_per_second',i.io_write_bytes_per_second,'network_rx_bytes_per_second',i.network_rx_bytes_per_second,'network_tx_bytes_per_second',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
     let nodes: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM nodes WHERE last_seen>now()-interval '30 seconds' AND NOT cordoned",
     )
@@ -327,30 +340,11 @@ pub(crate) async fn status(
         json!({"deployments":deployments,"instances":instances,"healthy_nodes":nodes,"preview_url":authority.map(|a|format!("https://{a}"))}),
     ))
 }
-#[derive(Deserialize)]
-pub struct LogQuery {
-    #[serde(default)]
-    pub after: i64,
-    pub instance_id: Option<Uuid>,
-}
-pub(crate) async fn logs(
-    State(pool): State<PgPool>,
-    Path(id): Path<Uuid>,
-    Query(q): Query<LogQuery>,
-) -> Result<Json<Value>, ApiError> {
-    service_exists(&pool, id).await?;
-    let entries:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('sequence',l.sequence,'instance_id',i.id,'node',n.name,'revision_id',d.revision_id,'timestamp',l.timestamp,'stream',l.stream,'line',l.line) FROM runtime_logs l JOIN instances i ON i.id=l.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND l.sequence>$2 AND ($3::uuid IS NULL OR i.id=$3) ORDER BY l.sequence LIMIT 256").bind(id).bind(q.after.max(0)).bind(q.instance_id).fetch_all(&pool).await?;
-    let cursor = entries
-        .last()
-        .and_then(|e| e.0["sequence"].as_i64())
-        .unwrap_or(q.after);
-    Ok(Json(json!({"entries":entries,"next_cursor":cursor})))
-}
 pub(crate) async fn metrics(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     service_exists(&pool, id).await?;
-    let entries:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('instance_id',i.id,'node',n.name,'timestamp',m.timestamp,'cpu_millis',m.cpu_millis,'memory_bytes',m.memory_bytes,'pids',m.pids) FROM runtime_metrics m JOIN instances i ON i.id=m.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND m.timestamp>now()-interval '15 minutes' ORDER BY m.timestamp DESC LIMIT 360").bind(id).fetch_all(&pool).await?;
+    let entries:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('instance_id',i.id,'node',n.name,'timestamp',m.timestamp,'cpu_millis',m.cpu_millis,'memory_bytes',m.memory_bytes,'pids',m.pids,'io_read_bytes_per_second',m.io_read_bytes_per_second,'io_write_bytes_per_second',m.io_write_bytes_per_second,'network_rx_bytes_per_second',m.network_rx_bytes_per_second,'network_tx_bytes_per_second',m.network_tx_bytes_per_second) FROM runtime_metrics m JOIN instances i ON i.id=m.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND m.timestamp>now()-interval '15 minutes' ORDER BY m.timestamp DESC LIMIT 5000").bind(id).fetch_all(&pool).await?;
     Ok(Json(json!({"samples":entries})))
 }

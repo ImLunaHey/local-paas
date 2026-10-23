@@ -240,3 +240,96 @@ async fn node_identity_and_generations_fence_observations(pool: PgPool) {
         .unwrap();
     assert_eq!(state, "ready");
 }
+
+async fn read(pool: &PgPool, path: &str) -> (StatusCode, Value) {
+    let response = control_plane::router(pool.clone(), vec![])
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header("host", "localhost:8080")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool: PgPool) {
+    let (service, revision, nodes) = fixture(&pool).await;
+    let (_, d) = call(
+        &pool,
+        &format!("/api/services/{service}/deployments"),
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let instance: Uuid =
+        sqlx::query_scalar("SELECT id FROM instances WHERE deployment_id=$1 AND node_id=$2")
+            .bind(d["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .bind(nodes[0])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let now = chrono::Utc::now();
+    let observation = json!({"instance_id":instance,"generation":1,"observed_unix_ms":now.timestamp_millis(),"state":"ready","diagnostic":null,"metrics":null,"logs":[
+        {"key":"a".repeat(64),"timestamp":now.to_rfc3339(),"stream":"stdout","line":"{\"level\":50,\"msg\":\"Request failed\",\"request\":{\"id\":\"abc\"}}"},
+        {"key":"b".repeat(64),"timestamp":now.to_rfc3339(),"stream":"stderr","line":"plain stderr"}
+    ]});
+    assert_eq!(
+        call(
+            &pool,
+            "/api/agent/sync",
+            json!({"version":1,"node_id":nodes[0],"observations":[observation.clone()]}),
+            Some(&"a".repeat(64))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let path = format!("/api/services/{service}/runtime/logs");
+    let (_, page) = read(
+        &pool,
+        &format!("{path}?level=error&stream=stdout&field=request.id&value=abc&search=FAILED"),
+    )
+    .await;
+    assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(page["entries"][0]["message"], "Request failed");
+    let (_, stderr) = read(&pool, &format!("{path}?level=unclassified&stream=stderr")).await;
+    assert_eq!(stderr["entries"].as_array().unwrap().len(), 1);
+    let (_, after) = read(&pool, &format!("{path}?after={}", page["next_cursor"])).await;
+    assert_eq!(after["entries"][0]["line"], "plain stderr");
+    assert_eq!(
+        read(&pool, &format!("{path}?field=a%27&value=b")).await.0,
+        StatusCode::CONFLICT
+    );
+    let (_, unknown) = read(
+        &pool,
+        &format!("/api/services/{}/runtime/logs", Uuid::new_v4()),
+    )
+    .await;
+    assert!(unknown["entries"].is_null());
+    // Repeated agent tails cannot rearchive a row after PostgreSQL cache eviction.
+    sqlx::query("DELETE FROM runtime_logs WHERE instance_id=$1")
+        .bind(instance)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut observation = observation;
+    observation["observed_unix_ms"] = json!(now.timestamp_millis() + 1);
+    call(
+        &pool,
+        "/api/agent/sync",
+        json!({"version":1,"node_id":nodes[0],"observations":[observation]}),
+        Some(&"a".repeat(64)),
+    )
+    .await;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM runtime_logs")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}

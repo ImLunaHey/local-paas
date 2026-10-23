@@ -42,12 +42,20 @@ pub struct InstanceReport {
     pub metrics: Option<Metrics>,
     pub logs: Vec<LogEntry>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Metrics {
     pub cpu_millis: f64,
     pub memory_bytes: u64,
     pub pids: u64,
+    #[serde(default)]
+    pub io_read_bytes_per_second: Option<f64>,
+    #[serde(default)]
+    pub io_write_bytes_per_second: Option<f64>,
+    #[serde(default)]
+    pub network_rx_bytes_per_second: Option<f64>,
+    #[serde(default)]
+    pub network_tx_bytes_per_second: Option<f64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

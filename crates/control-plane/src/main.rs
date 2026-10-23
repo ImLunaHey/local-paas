@@ -54,6 +54,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     let preview = control_plane::preview::start(pool.clone()).await?;
+    let archive_pool = pool.clone();
+    let archive = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            if control_plane::logging::archive(&archive_pool)
+                .await
+                .is_err()
+            {
+                tracing::error!("log archive unavailable; retaining queued output");
+            }
+        }
+    });
     axum::serve(
         listener,
         control_plane::router(pool.clone(), browser_origins),
@@ -61,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_graceful_shutdown(shutdown())
     .await?;
     upkeep.abort();
+    archive.abort();
     preview.abort();
     pool.close().await;
     Ok(())

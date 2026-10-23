@@ -277,7 +277,14 @@ fn now_millis() -> i64 {
         .unwrap_or_default()
         .as_millis() as i64
 }
-async fn measure(pid: u64, previous: &mut Option<(Instant, u64, u64)>) -> Option<Metrics> {
+struct Counters {
+    time: Instant,
+    pid: u64,
+    cpu: u64,
+    io: Option<(u64, u64)>,
+    network: Option<(u64, u64)>,
+}
+async fn measure(pid: u64, previous: &mut Option<Counters>) -> Option<Metrics> {
     let path = containerd::cgroup(pid).await?;
     let cpu = tokio::fs::read_to_string(path.join("cpu.stat"))
         .await
@@ -299,19 +306,86 @@ async fn measure(pid: u64, previous: &mut Option<(Instant, u64, u64)>) -> Option
         .trim()
         .parse()
         .ok()?;
+    let io = tokio::fs::read_to_string(path.join("io.stat"))
+        .await
+        .ok()
+        .map(|text| io_counters(&text));
+    let network = tokio::fs::read_to_string(format!("/proc/{pid}/net/dev"))
+        .await
+        .ok()
+        .map(|text| network_counters(&text));
     let now = Instant::now();
-    let milli = previous
-        .as_ref()
-        .filter(|(_, _, p)| *p == pid)
-        .map(|(t, c, _)| {
-            cpu.saturating_sub(*c) as f64 / now.duration_since(*t).as_secs_f64() / 1000.0
-        });
-    *previous = Some((now, cpu, pid));
-    Some(Metrics {
-        cpu_millis: milli?,
+    let old = previous.as_ref().filter(|v| v.pid == pid);
+    let elapsed = old
+        .map(|v| now.duration_since(v.time).as_secs_f64())
+        .unwrap_or(0.0);
+    let rate = |current: Option<u64>, last: Option<u64>| {
+        current
+            .zip(last)
+            .filter(|(c, p)| c >= p && elapsed > 0.0)
+            .map(|(c, p)| (c - p) as f64 / elapsed)
+    };
+    let result = Metrics {
+        cpu_millis: rate(Some(cpu), old.map(|v| v.cpu)).unwrap_or(0.0) / 1000.0,
         memory_bytes,
         pids,
-    })
+        io_read_bytes_per_second: rate(io.map(|v| v.0), old.and_then(|v| v.io).map(|v| v.0)),
+        io_write_bytes_per_second: rate(io.map(|v| v.1), old.and_then(|v| v.io).map(|v| v.1)),
+        network_rx_bytes_per_second: rate(
+            network.map(|v| v.0),
+            old.and_then(|v| v.network).map(|v| v.0),
+        ),
+        network_tx_bytes_per_second: rate(
+            network.map(|v| v.1),
+            old.and_then(|v| v.network).map(|v| v.1),
+        ),
+    };
+    let ready = old.is_some();
+    *previous = Some(Counters {
+        time: now,
+        pid,
+        cpu,
+        io,
+        network,
+    });
+    ready.then_some(result)
+}
+fn io_counters(text: &str) -> (u64, u64) {
+    let mut result = (0u64, 0u64);
+    for word in text.split_whitespace() {
+        if let Some(v) = word
+            .strip_prefix("rbytes=")
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            result.0 = result.0.saturating_add(v)
+        }
+        if let Some(v) = word
+            .strip_prefix("wbytes=")
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            result.1 = result.1.saturating_add(v)
+        }
+    }
+    result
+}
+fn network_counters(text: &str) -> (u64, u64) {
+    let mut result = (0u64, 0u64);
+    for line in text.lines() {
+        if let Some((name, values)) = line.split_once(':') {
+            if name.trim() == "lo" {
+                continue;
+            }
+            let values: Vec<&str> = values.split_whitespace().collect();
+            if let (Some(rx), Some(tx)) = (
+                values.first().and_then(|v| v.parse::<u64>().ok()),
+                values.get(8).and_then(|v| v.parse::<u64>().ok()),
+            ) {
+                result.0 = result.0.saturating_add(rx);
+                result.1 = result.1.saturating_add(tx)
+            }
+        }
+    }
+    result
 }
 async fn read_logs(path: &std::path::Path) -> Vec<LogEntry> {
     let Ok(mut file) = tokio::fs::File::open(path).await else {
@@ -353,4 +427,20 @@ async fn read_logs(path: &std::path::Path) -> Vec<LogEntry> {
         })
         .take(256)
         .collect()
+}
+
+#[cfg(test)]
+mod measurements_tests {
+    use super::*;
+    #[test]
+    fn sums_devices_and_excludes_loopback() {
+        assert_eq!(
+            io_counters("8:0 rbytes=100 wbytes=200 rios=1\n8:1 rbytes=5 wbytes=7"),
+            (105, 207)
+        );
+        assert_eq!(
+            network_counters("lo: 100 0 0 0 0 0 0 0 100 0\neth0: 50 0 0 0 0 0 0 0 60 0"),
+            (50, 60)
+        );
+    }
 }
