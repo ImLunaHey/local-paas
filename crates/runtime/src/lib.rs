@@ -33,6 +33,7 @@ pub struct PrepareSpec {
     pub mounts: Vec<Mount>,
     pub network: NetworkPolicy,
     pub secret_names: Vec<String>,
+    pub environment: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +56,7 @@ pub enum Mount {
         id: Uuid,
         destination: PathBuf,
         read_only: bool,
+        size_gib: u16,
     },
 }
 

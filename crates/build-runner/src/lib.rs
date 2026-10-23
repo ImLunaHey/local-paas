@@ -198,22 +198,29 @@ impl Config {
     }
 
     fn arguments(&self, request: &Request, metadata: &Path) -> Result<Vec<String>, Error> {
-        let mut repository = self.repository(&request.spec)?;
-        // Git checkout happens at the daemon, pinned to the complete commit.
-        let commit = request
-            .spec
-            .source
-            .commit
-            .as_deref()
-            .ok_or(Error::Config("source must be resolved before building"))?;
-        repository.set_fragment(Some(commit));
-        let Workload::OciService {
-            dockerfile,
-            context,
-            ..
-        } = &request.spec.workload
-        else {
-            return Err(Error::Workload);
+        request.spec.validate().map_err(|_| Error::Workload)?;
+        let (source, context, dockerfile) = match &request.spec.workload {
+            Workload::OciService {
+                dockerfile,
+                context,
+                ..
+            } => {
+                let mut repository = self.repository(&request.spec)?;
+                let commit = request
+                    .spec
+                    .source
+                    .commit
+                    .as_deref()
+                    .ok_or(Error::Config("source must be resolved before building"))?;
+                repository.set_fragment(Some(commit));
+                (
+                    repository.to_string(),
+                    context.as_str(),
+                    dockerfile.as_str(),
+                )
+            }
+            Workload::PostgresService { .. } => (String::new(), ".", "Dockerfile"),
+            _ => return Err(Error::Workload),
         };
         let mut output = format!(
             "type=image,name={}:build-{},push=true",
@@ -240,7 +247,7 @@ impl Config {
             "--progress".into(),
             "plain".into(),
             "--opt".into(),
-            format!("context={repository}"),
+            format!("context={source}"),
             "--opt".into(),
             format!("contextsubdir={context}"),
             "--opt".into(),
@@ -288,6 +295,19 @@ pub async fn run(
     let metadata = temp.path().join("metadata.json");
     let mut args = config.arguments(&request, &metadata)?;
     prepare_recipe(plan, temp.path(), &mut args).await?;
+    if matches!(request.spec.workload, Workload::PostgresService { .. }) {
+        // A database template has no repository: send only an empty build context.
+        let context = temp.path().join("context");
+        tokio::fs::create_dir(&context)
+            .await
+            .map_err(|_| Error::Client)?;
+        let position = args
+            .iter()
+            .position(|v| v == "context=")
+            .ok_or(Error::Client)?;
+        args.drain(position - 1..=position);
+        args.extend(["--local".into(), format!("context={}", context.display())]);
+    }
     // Empty HOME prevents implicit host credentials. Only one explicitly supplied
     // registry auth entry is forwarded; credential helpers are not executed.
     let docker_config = temp.path().join("docker");

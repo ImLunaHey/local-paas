@@ -55,6 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let pool = runner_pool;
                         let build = runner_build;
                         let config = runner_config;
+                        if !matches!(request.spec.workload, platform_domain::Workload::PostgresService { .. }) {
                         let commit =
                             platform_build_runner::resolve_commit(&config, &request.spec).await?;
                         if !builds::record_resolution(&pool, &build, &commit)
@@ -64,6 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             return Err(platform_build_runner::Error::Lease);
                         }
                         request.spec.source.pin(commit);
+                        }
                         sender
                             .send("Inspecting build source…\n".into())
                             .await

@@ -1,5 +1,6 @@
 mod containerd;
 mod secrets;
+mod volumes;
 use containerd::Containerd;
 use platform_domain::Workload;
 use platform_protocol::{
@@ -113,8 +114,25 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
     {
         return None;
     }
-    let Workload::OciService { port, .. } = a.spec.workload else {
-        return None;
+    let (port, mounts, environment) = match &a.spec.workload {
+        Workload::OciService { port, .. } => (*port, vec![], std::collections::BTreeMap::new()),
+        Workload::PostgresService {
+            database,
+            storage_gib,
+        } => (
+            5432,
+            vec![platform_runtime::Mount::Volume {
+                id: a.service_id,
+                destination: "/var/lib/postgresql".into(),
+                read_only: false,
+                size_gib: *storage_gib,
+            }],
+            std::collections::BTreeMap::from([
+                ("POSTGRES_DB".into(), database.clone()),
+                ("POSTGRES_USER".into(), "postgres".into()),
+            ]),
+        ),
+        _ => return None,
     };
     Some((
         Operation {
@@ -141,7 +159,8 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
                 log_bytes: 2 * 1024 * 1024,
                 io_bytes_per_second: 20 * 1024 * 1024,
             },
-            mounts: vec![],
+            mounts,
+            environment,
             secret_names: a.spec.secrets.clone(),
             network: NetworkPolicy {
                 declared_port: port,
@@ -254,17 +273,42 @@ async fn instance_loop(
                     report.state = "failed".into();
                     report.diagnostic = Some("process_exited".into());
                 } else {
-                    let Workload::OciService { readiness, .. } = &a.spec.workload else {
-                        unreachable!()
+                    let default_readiness = platform_domain::Readiness {
+                        path: "/".into(),
+                        interval_seconds: 5,
+                        stabilization_seconds: 10,
                     };
-                    let ready = health
-                        .get(format!(
-                            "http://127.0.0.1:{}{}",
-                            a.published_port, readiness.path
-                        ))
-                        .send()
-                        .await
-                        .is_ok_and(|r| r.status().is_success());
+                    let readiness = match &a.spec.workload {
+                        Workload::OciService { readiness, .. } => readiness,
+                        _ => &default_readiness,
+                    };
+                    let ready = if matches!(a.spec.workload, Workload::PostgresService { .. }) {
+                        runtime
+                            .command(&[
+                                "exec".into(),
+                                id.to_string(),
+                                "pg_isready".into(),
+                                "-h".into(),
+                                "127.0.0.1".into(),
+                                "-p".into(),
+                                "5432".into(),
+                                "-U".into(),
+                                "postgres".into(),
+                                "-t".into(),
+                                "2".into(),
+                            ])
+                            .await
+                            .is_ok()
+                    } else {
+                        health
+                            .get(format!(
+                                "http://127.0.0.1:{}{}",
+                                a.published_port, readiness.path
+                            ))
+                            .send()
+                            .await
+                            .is_ok_and(|r| r.status().is_success())
+                    };
                     if ready {
                         let since = stable.get_or_insert_with(Instant::now);
                         if since.elapsed().as_secs() >= readiness.stabilization_seconds as u64 {

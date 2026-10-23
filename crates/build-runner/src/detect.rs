@@ -47,6 +47,15 @@ const LOCKS: [(&str, &str); 6] = [
 const EXCLUDES: &str = "\n.git\n**/.git\nnode_modules\n**/node_modules\n.env\n.env.*\n**/.env\n**/.env.*\n.npmrc\n**/.npmrc\n.next\n**/.next\nnpm-debug.log*\n";
 
 pub async fn plan(config: &Config, request: &Request) -> Result<BuildPlan, Error> {
+    if matches!(request.spec.workload, Workload::PostgresService { .. }) {
+        request.spec.validate().map_err(|_| Error::Workload)?;
+        return Ok(BuildPlan::Generated {
+            generator: "platform-postgres-v1".into(), runtime: "PostgreSQL 18.6".into(), package_manager: "pinned official image".into(),
+            dockerfile: "FROM postgres:18.6-bookworm@sha256:bbf83594798e144bff365a9c191c5d779f181fb3135902064ab8ff11918020fc\nENV PGDATA=/var/lib/postgresql/18/docker\nCMD [\"postgres\",\"-c\",\"unix_socket_directories=/tmp\",\"-c\",\"max_connections=50\",\"-c\",\"shared_buffers=64MB\"]\n".into(),
+            dockerignore: "*\n".into(),
+        });
+    }
+
     let Workload::OciService {
         build_mode,
         build_command,

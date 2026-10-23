@@ -106,7 +106,10 @@ pub(crate) async fn create(
         spec.source.tag = request.tag;
     }
     spec.validate().map_err(ApiError::Invalid)?;
-    if !matches!(spec.workload, Workload::OciService { .. }) {
+    if !matches!(
+        spec.workload,
+        Workload::OciService { .. } | Workload::PostgresService { .. }
+    ) {
         return Err(ApiError::Conflict(
             "celld applications use a separate fleet deployment path; OCI builds are not supported",
         ));
@@ -391,11 +394,13 @@ pub async fn finish(
         Completion::Cancelled => ("cancelled", None),
     };
     if let Completion::Succeeded { repository, digest } = completion {
-        let commit = current.resolved_commit.ok_or_else(|| {
-            sqlx::Error::Protocol("successful build has no resolved commit".into())
-        })?;
         let mut pinned = current.spec.0;
-        pinned.source.pin(commit);
+        if !matches!(pinned.workload, Workload::PostgresService { .. }) {
+            let commit = current.resolved_commit.ok_or_else(|| {
+                sqlx::Error::Protocol("successful build has no resolved commit".into())
+            })?;
+            pinned.source.pin(commit);
+        }
         sqlx::query("INSERT INTO revisions (id,service_id,build_id,spec,image_repository,image_digest) VALUES ($1,$2,$3,$4,$5,$6)")
             .bind(Uuid::new_v4()).bind(build.service_id).bind(build.id).bind(DbJson(pinned)).bind(repository).bind(String::from(digest)).execute(&mut *tx).await?;
     }

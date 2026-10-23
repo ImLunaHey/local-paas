@@ -9,6 +9,7 @@ pub struct ServiceSpec {
     pub project: String,
     pub environment: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "GitSource::is_empty")]
     pub source: GitSource,
     pub resources: Resources,
     pub distinct_nodes: bool,
@@ -17,7 +18,7 @@ pub struct ServiceSpec {
     pub workload: Workload,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitSource {
     pub repository: String,
@@ -30,6 +31,9 @@ pub struct GitSource {
 }
 
 impl GitSource {
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
     pub fn pin(&mut self, commit: String) {
         self.commit = Some(commit);
         self.branch = None;
@@ -71,6 +75,10 @@ pub struct Resources {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Workload {
+    PostgresService {
+        database: String,
+        storage_gib: u16,
+    },
     OciService {
         #[serde(default)]
         build_mode: BuildMode,
@@ -137,46 +145,54 @@ impl ServiceSpec {
                 "use 1–63 lowercase letters, digits or interior hyphens",
             );
         }
-        let repo = url::Url::parse(&self.source.repository);
-        check(
-            self.source.repository.len() <= 2048
-                && repo.is_ok_and(|url| {
-                    url.scheme() == "https"
-                        && url.host_str().is_some()
-                        && url.username().is_empty()
-                        && url.password().is_none()
-                        && url.query().is_none()
-                        && url.fragment().is_none()
-                }),
-            "source.repository",
-            "use an HTTPS repository URL without credentials, query or fragment",
-        );
-        check(
-            [&self.source.commit, &self.source.branch, &self.source.tag]
-                .iter()
-                .filter(|v| v.is_some())
-                .count()
-                == 1,
-            "source",
-            "choose exactly one commit, branch, or tag",
-        );
-        if let Some(commit) = &self.source.commit {
+        if matches!(self.workload, Workload::PostgresService { .. }) {
             check(
-                commit_hash(commit),
-                "source.commit",
-                "use a full lowercase Git commit hash (40 or 64 hex characters)",
+                self.source.is_empty(),
+                "source",
+                "database services do not have a Git source",
             );
-        }
-        for (field, value) in [
-            ("source.branch", &self.source.branch),
-            ("source.tag", &self.source.tag),
-        ] {
-            if let Some(value) = value {
+        } else {
+            let repo = url::Url::parse(&self.source.repository);
+            check(
+                self.source.repository.len() <= 2048
+                    && repo.is_ok_and(|url| {
+                        url.scheme() == "https"
+                            && url.host_str().is_some()
+                            && url.username().is_empty()
+                            && url.password().is_none()
+                            && url.query().is_none()
+                            && url.fragment().is_none()
+                    }),
+                "source.repository",
+                "use an HTTPS repository URL without credentials, query or fragment",
+            );
+            check(
+                [&self.source.commit, &self.source.branch, &self.source.tag]
+                    .iter()
+                    .filter(|v| v.is_some())
+                    .count()
+                    == 1,
+                "source",
+                "choose exactly one commit, branch, or tag",
+            );
+            if let Some(commit) = &self.source.commit {
                 check(
-                    git_ref_name(value),
-                    field,
-                    "use a branch or tag name without refs/ prefix, whitespace, wildcards, or revision expressions",
+                    commit_hash(commit),
+                    "source.commit",
+                    "use a full lowercase Git commit hash (40 or 64 hex characters)",
                 );
+            }
+            for (field, value) in [
+                ("source.branch", &self.source.branch),
+                ("source.tag", &self.source.tag),
+            ] {
+                if let Some(value) = value {
+                    check(
+                        git_ref_name(value),
+                        field,
+                        "use a branch or tag name without refs/ prefix, whitespace, wildcards, or revision expressions",
+                    );
+                }
             }
         }
         check(
@@ -222,6 +238,41 @@ impl ServiceSpec {
             );
         }
         match &self.workload {
+            Workload::PostgresService {
+                database,
+                storage_gib,
+            } => {
+                check(
+                    !database.is_empty()
+                        && database.len() <= 63
+                        && database
+                            .bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+                    "workload.database",
+                    "use 1–63 lowercase letters, digits or underscores",
+                );
+                check(
+                    (1..=2).contains(storage_gib),
+                    "workload.storage_gib",
+                    "development database volumes support 1–2 GiB",
+                );
+                check(
+                    self.resources.memory_mib >= 256,
+                    "resources.memory_mib",
+                    "PostgreSQL needs at least 256 MiB",
+                );
+                check(
+                    self.domains.is_empty(),
+                    "domains",
+                    "databases use private connections, not HTTP domains",
+                );
+                check(
+                    !self.distinct_nodes,
+                    "distinct_nodes",
+                    "a database is a single instance pinned to its volume owner",
+                );
+            }
+
             Workload::OciService {
                 dockerfile,
                 context,
@@ -322,6 +373,7 @@ impl ServiceSpec {
     pub fn kind(&self) -> &'static str {
         match self.workload {
             Workload::OciService { .. } => "oci-service",
+            Workload::PostgresService { .. } => "postgres-service",
             Workload::CelldService { .. } => "celld-service",
         }
     }

@@ -213,10 +213,7 @@ impl Containerd {
 #[async_trait]
 impl Runtime for Containerd {
     async fn prepare(&self, op: &Operation, spec: &PrepareSpec) -> Result<(), RuntimeError> {
-        if spec.identity.instance != op.instance_id
-            || spec.identity.node != self.node
-            || !spec.mounts.is_empty()
-        {
+        if spec.identity.instance != op.instance_id || spec.identity.node != self.node {
             return Err(failure());
         }
         match self.record(op.instance_id).await {
@@ -332,6 +329,40 @@ impl Runtime for Containerd {
         ] {
             args.push(flag.into());
             args.push(value);
+        }
+        for mount in &spec.mounts {
+            let Mount::Volume {
+                id,
+                destination,
+                read_only: false,
+                size_gib,
+            } = mount
+            else {
+                return Err(RuntimeError::Unsupported);
+            };
+            if destination != Path::new("/var/lib/postgresql") {
+                return Err(RuntimeError::Unsupported);
+            }
+            let path = crate::volumes::prepare(&self.root, *id, *size_gib).await?;
+            args.extend([
+                "--mount".into(),
+                format!(
+                    "type=bind,src={},dst={}",
+                    path.display(),
+                    destination.display()
+                ),
+            ]);
+        }
+        for (key, value) in &spec.environment {
+            if !matches!(key.as_str(), "POSTGRES_DB" | "POSTGRES_USER")
+                || value.is_empty()
+                || !value
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            {
+                return Err(RuntimeError::Unsupported);
+            }
+            args.extend(["--env".into(), format!("{key}={value}")]);
         }
         let mut original = Vec::new();
         if !spec.secret_names.is_empty() {
