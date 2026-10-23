@@ -1,4 +1,4 @@
-import { StrictMode, useRef, useState } from 'react'
+import { createContext, StrictMode, useContext, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
@@ -15,12 +15,14 @@ import {
   Link,
   Outlet,
   RouterProvider,
+  redirect,
   useNavigate,
 } from '@tanstack/react-router'
 import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowRight,
+  AlertCircle,
   Box,
   Check,
   ChevronRight,
@@ -136,13 +138,18 @@ function Services() {
     queryKey: ['services', { offset }],
     queryFn: () => api<{ items: Service[]; total: number }>(`/services?offset=${offset}`),
   })
+  const builder = useQuery({
+    queryKey: ['build-system'],
+    queryFn: () => api<{ worker_online: boolean }>('/build-system'),
+    refetchInterval: 5000,
+  })
   return (
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">APPLICATION PLATFORM</div>
-          <h1>A place for your services.</h1>
-          <p>From a repository to infrastructure you own.</p>
+          <div className="eyebrow">YOUR WORKSPACE</div>
+          <h1>Services</h1>
+          <p>Your applications, builds, and image revisions.</p>
         </div>
         <Link className="button primary" to="/services/new">
           <Plus size={17} />
@@ -154,28 +161,38 @@ function Services() {
           <Terminal size={19} />
         </span>
         <div>
-          <strong>The foundation is taking shape.</strong>
-          <p>Register applications and queue image builds. Worker deployment is the next step.</p>
+          <strong>From source to image.</strong>
+          <p>
+            Register a service, build a commit, and inspect its output. Deployments are coming next.
+          </p>
         </div>
-        <span className="chip ml-auto">Phase 1 · Foundation</span>
+        <span className="chip ml-auto">Development preview</span>
       </div>
       <div className="grid sm:grid-cols-3 gap-4 mt-7 mb-9">
         <Metric
           icon={<Box size={17} />}
           label="Registered services"
           value={services.data ? String(services.data.total) : '—'}
-          detail="Specifications saved in PostgreSQL"
+          detail="Applications in this workspace"
         />
         <Metric
           icon={<Server size={17} />}
-          label="Worker nodes"
-          value="Not connected"
-          detail="Target: three VMs · one physical host"
+          label="Image builder"
+          value={
+            builder.isPending
+              ? 'Connecting'
+              : builder.isError
+                ? 'Unavailable'
+                : builder.data.worker_online
+                  ? 'Connected'
+                  : 'Offline'
+          }
+          detail="Build worker connection"
         />
         <Metric
           icon={<Radio size={17} />}
           label="Deployments"
-          value="Not enabled"
+          value="Coming next"
           detail="No workloads are running on this platform"
         />
       </div>
@@ -268,14 +285,14 @@ function Services() {
           </div>
           <p>
             A familiar build contract for your web apps and APIs. Immutable images, explicit
-            resources, and health-gated releases.
+            resources, and build logs in one place.
           </p>
           <div className="pipeline">
             <span>Repository</span>
             <ArrowRight size={12} />
             <span>BuildKit</span>
             <ArrowRight size={12} />
-            <span>Container</span>
+            <span>Image</span>
           </div>
         </div>
         <div className="workload-card">
@@ -716,14 +733,17 @@ function NewService() {
   )
 }
 
+const CurrentService = createContext<Service | null>(null)
+
+function useCurrentService() {
+  const service = useContext(CurrentService)
+  if (!service) throw new Error('Service view must be inside a service page')
+  return service
+}
+
 function ServiceDetail() {
   const { serviceId } = detailRoute.useParams()
   const service = useQuery(serviceQuery(serviceId))
-  const events = useQuery({
-    queryKey: ['events', serviceId],
-    queryFn: () => api<AuditEvent[]>(`/services/${serviceId}/events`),
-    refetchInterval: 3000,
-  })
   if (service.isPending) return <p className="text-muted">Loading service…</p>
   if (service.isError)
     return (
@@ -795,57 +815,108 @@ function ServiceDetail() {
           detail="Desired allocation"
         />
       </div>
-      <BuildPanel service={service.data} />
-      <div className="grid lg:grid-cols-[1.4fr_1fr] gap-6">
-        <section className="panel p-6 min-w-0">
-          <h2 className="mb-5">Service specification</h2>
-          <p className="text-xs text-muted mb-4 flex items-center gap-2">
-            <GitCommitHorizontal size={16} />
-            {spec.source.commit.slice(0, 12)}
-            <span>·</span>Schema v{spec.schema_version}
-          </p>
-          <pre className="spec-preview">{JSON.stringify(spec, null, 2)}</pre>
-        </section>
-        <section className="panel p-6 self-start">
-          <h2 className="mb-6">Activity</h2>
-          {events.isPending ? (
-            <p className="text-muted text-sm">Loading activity…</p>
-          ) : events.isError ? (
-            <ErrorNotice
-              error={events.error}
-              retry={() => {
-                void events.refetch()
-              }}
-            />
-          ) : (
-            events.data.map((event) => (
-              <div className="activity-event" key={event.id}>
-                <span className="activity-dot">
-                  <Check size={13} />
-                </span>
-                <div>
-                  <h3>
-                    {event.kind === 'service.registered'
-                      ? 'Service registered'
-                      : event.kind.replaceAll('.', ' ').replaceAll('_', ' ')}
-                  </h3>
-                  {event.kind === 'service.registered' && <p>Desired configuration saved.</p>}
-                  <time dateTime={event.created_at}>
-                    {new Date(event.created_at).toLocaleString()}
-                  </time>
-                </div>
-              </div>
-            ))
-          )}
-          <div className="aside-divider" />
-          <p className="text-xs text-muted break-all">
-            Service ID
-            <br />
-            <span className="font-mono">{service.data.id}</span>
-          </p>
-        </section>
-      </div>
+      <nav className="detail-nav" aria-label="Service tabs">
+        <Link
+          to="/services/$serviceId/builds"
+          params={{ serviceId }}
+          resetScroll={false}
+          activeProps={{ 'aria-current': 'page' }}
+        >
+          {spec.workload.kind === 'oci-service' ? 'Builds & revisions' : 'Fleet deployments'}
+        </Link>
+        <Link
+          to="/services/$serviceId/configuration"
+          params={{ serviceId }}
+          resetScroll={false}
+          activeProps={{ 'aria-current': 'page' }}
+        >
+          Configuration
+        </Link>
+        <Link
+          to="/services/$serviceId/activity"
+          params={{ serviceId }}
+          resetScroll={false}
+          activeProps={{ 'aria-current': 'page' }}
+        >
+          Activity
+        </Link>
+      </nav>
+      <CurrentService.Provider value={service.data}>
+        <Outlet />
+      </CurrentService.Provider>
     </>
+  )
+}
+
+function ServiceBuilds() {
+  return <BuildPanel service={useCurrentService()} />
+}
+
+function ServiceConfiguration() {
+  const { spec } = useCurrentService()
+  return (
+    <section className="panel p-6 min-w-0" aria-label="Service configuration">
+      <h2 className="mb-5">Service specification</h2>
+      <p className="text-xs text-muted mb-4 flex items-center gap-2">
+        <GitCommitHorizontal size={16} />
+        {spec.source.commit.slice(0, 12)}
+        <span>·</span>Schema v{spec.schema_version}
+      </p>
+      <pre className="spec-preview">{JSON.stringify(spec, null, 2)}</pre>
+    </section>
+  )
+}
+
+function ServiceActivity() {
+  const service = useCurrentService()
+  const events = useQuery({
+    queryKey: ['events', service.id],
+    queryFn: () => api<AuditEvent[]>(`/services/${service.id}/events`),
+    refetchInterval: 3000,
+  })
+  return (
+    <section className="panel p-6" aria-label="Service activity">
+      <h2 className="mb-6">Activity</h2>
+      {events.isPending ? (
+        <p className="text-muted text-sm">Loading activity…</p>
+      ) : events.isError ? (
+        <ErrorNotice
+          error={events.error}
+          retry={() => {
+            void events.refetch()
+          }}
+        />
+      ) : (
+        events.data.map((event) => (
+          <div className="activity-event" key={event.id}>
+            <span className="activity-dot" data-state={event.kind.split('.')[1]}>
+              {event.kind === 'build.failed' || event.kind === 'build.interrupted' ? (
+                <AlertCircle size={13} />
+              ) : event.kind === 'build.succeeded' || event.kind === 'service.registered' ? (
+                <Check size={13} />
+              ) : (
+                <Circle size={13} />
+              )}
+            </span>
+            <div>
+              <h3>
+                {event.kind === 'service.registered'
+                  ? 'Service registered'
+                  : event.kind.replaceAll('.', ' ').replaceAll('_', ' ')}
+              </h3>
+              {event.kind === 'service.registered' && <p>Desired configuration saved.</p>}
+              <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time>
+            </div>
+          </div>
+        ))
+      )}
+      <div className="aside-divider" />
+      <p className="text-xs text-muted break-all">
+        Service ID
+        <br />
+        <span className="font-mono">{service.id}</span>
+      </p>
+    </section>
   )
 }
 
@@ -871,8 +942,45 @@ const detailRoute = createRoute({
   path: '/services/$serviceId',
   component: ServiceDetail,
 })
+const serviceIndexRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: '/',
+  beforeLoad: ({ params, location }) => {
+    const to =
+      location.hash === 'configuration'
+        ? '/services/$serviceId/configuration'
+        : location.hash === 'activity'
+          ? '/services/$serviceId/activity'
+          : '/services/$serviceId/builds'
+    throw redirect({ to, params, replace: true, hash: '' })
+  },
+})
+const serviceBuildsRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'builds',
+  component: ServiceBuilds,
+})
+const serviceConfigurationRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'configuration',
+  component: ServiceConfiguration,
+})
+const serviceActivityRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'activity',
+  component: ServiceActivity,
+})
 const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute, newRoute, detailRoute]),
+  routeTree: rootRoute.addChildren([
+    indexRoute,
+    newRoute,
+    detailRoute.addChildren([
+      serviceIndexRoute,
+      serviceBuildsRoute,
+      serviceConfigurationRoute,
+      serviceActivityRoute,
+    ]),
+  ]),
   defaultPreload: 'intent',
 })
 declare module '@tanstack/react-router' {

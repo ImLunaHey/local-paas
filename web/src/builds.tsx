@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Box, Hammer, LoaderCircle, RefreshCw, X } from 'lucide-react'
+import { Box, Hammer, LoaderCircle, RefreshCw, Terminal, X } from 'lucide-react'
 import { api } from './api'
 import type { Build, Revision, Service } from './api'
 
@@ -75,7 +75,7 @@ export function BuildPanel({ service }: { service: Service }) {
   })
   if (!enabled)
     return (
-      <section className="panel p-6 mb-7">
+      <section className="panel p-6 mb-7" aria-label="Fleet deployments">
         <h2>Fleet deployments</h2>
         <p className="text-muted text-xs mt-3">
           celld uses a separate deployment runner. OCI build actions do not apply to this
@@ -88,7 +88,7 @@ export function BuildPanel({ service }: { service: Service }) {
     if (!busy && !create.isPending) create.mutate()
   }
   return (
-    <section className="panel p-6 mb-7 space-y-5">
+    <section className="panel p-6 mb-7 space-y-5" aria-label="Service builds">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2">
           <Hammer size={17} /> Builds & revisions
@@ -106,121 +106,141 @@ export function BuildPanel({ service }: { service: Service }) {
       <p className="text-xs text-muted">
         Build an immutable image from a commit. Building does not deploy or change traffic.
       </p>
-      <form onSubmit={submit} className="space-y-3">
-        <label className="field">
-          <span>Build commit SHA</span>
-          <input
-            className="font-mono"
-            value={commit}
-            onChange={(event) => setCommit(event.target.value)}
-            pattern="([a-f0-9]{40}|[a-f0-9]{64})"
-            required
-            disabled={create.isPending}
-          />
-        </label>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <label className="flex items-center gap-2 text-xs text-muted">
-            <input
-              type="checkbox"
-              checked={noCache}
-              onChange={(event) => setNoCache(event.target.checked)}
-              disabled={create.isPending}
-            />
-            Bypass build cache
-          </label>
-          <button
-            className="button primary"
-            type="submit"
-            disabled={busy || create.isPending || history.isPending || history.isError}
-          >
-            {create.isPending ? (
-              <LoaderCircle size={15} className="animate-spin" />
-            ) : (
-              <Hammer size={15} />
-            )}
-            Queue build
-          </button>
-        </div>
-      </form>
-      {!system.isPending && !system.isError && !system.data.worker_online && (
-        <p className="text-xs text-muted border-l-2 border-[#53634b] pl-3">
-          Requests stay queued until an isolated builder connects. No build runs on the
-          control-plane host.
-        </p>
-      )}
-      {(create.error || cancel.error || history.error) && (
-        <p className="error-notice" role="alert">
-          {(create.error || cancel.error || history.error)?.message}
-        </p>
-      )}
-      {history.data?.length === 0 && (
-        <p className="text-xs text-muted py-4">
-          No builds yet. Queue the first build when the source is ready.
-        </p>
-      )}
-      {!!history.data?.length && (
-        <>
-          <label className="field">
-            <span>Build history (latest 50)</span>
-            <select
-              className="build-select"
-              value={selected?.id}
-              onChange={(event) => {
-                setSelectedId(event.target.value)
-                cancel.reset()
-              }}
-            >
-              {history.data.map((build) => (
-                <option key={build.id} value={build.id}>
-                  {new Date(build.created_at).toLocaleString()} ·{' '}
-                  {build.spec.source.commit.slice(0, 8)} · {build.status}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selected && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap justify-between items-center gap-3">
-                <span className="flex gap-2 items-center">
-                  <span className="chip" data-testid="build-status">
-                    {selected.cancel_requested && active(selected)
-                      ? 'Cancellation requested'
-                      : selected.status}
-                  </span>
-                  <span className="text-xs text-muted">
-                    {selected.no_cache ? 'Cache bypassed' : 'Cache allowed'}
-                  </span>
-                </span>
-                {active(selected) && (
-                  <button
-                    className="button secondary"
-                    disabled={cancel.isPending || selected.cancel_requested}
-                    onClick={() => cancel.mutate(selected.id)}
-                  >
-                    <X size={14} />
-                    Cancel build
-                  </button>
+      <div className="build-workspace">
+        <div className="build-controls space-y-4">
+          <form onSubmit={submit} className="space-y-3">
+            <label className="field">
+              <span>Build commit SHA</span>
+              <input
+                className="font-mono"
+                value={commit}
+                onChange={(event) => setCommit(event.target.value)}
+                pattern="([a-f0-9]{40}|[a-f0-9]{64})"
+                required
+                disabled={create.isPending}
+              />
+            </label>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <label className="flex items-center gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={noCache}
+                  onChange={(event) => setNoCache(event.target.checked)}
+                  disabled={create.isPending}
+                />
+                Bypass build cache
+              </label>
+              <button
+                className="button primary"
+                type="submit"
+                disabled={busy || create.isPending || history.isPending || history.isError}
+              >
+                {create.isPending ? (
+                  <LoaderCircle size={15} className="animate-spin" />
+                ) : (
+                  <Hammer size={15} />
                 )}
-              </div>
-              {selected.error_code && (
-                <p className="error-notice">{errors[selected.error_code] ?? selected.error_code}</p>
+                Queue build
+              </button>
+            </div>
+          </form>
+          {!system.isPending && !system.isError && !system.data.worker_online && (
+            <p className="text-xs text-muted border-l-2 border-line pl-3">
+              Requests stay queued until an isolated builder connects. No build runs on the
+              control-plane host.
+            </p>
+          )}
+          {(create.error || cancel.error || history.error) && (
+            <p className="error-notice" role="alert">
+              {(create.error || cancel.error || history.error)?.message}
+            </p>
+          )}
+          {history.data?.length === 0 && (
+            <p className="text-xs text-muted py-4">
+              No builds yet. Queue the first build when the source is ready.
+            </p>
+          )}
+          {!!history.data?.length && (
+            <>
+              <label className="field">
+                <span>Build history (latest 50)</span>
+                <select
+                  className="build-select"
+                  value={selected?.id}
+                  onChange={(event) => {
+                    setSelectedId(event.target.value)
+                    cancel.reset()
+                  }}
+                >
+                  {history.data.map((build) => (
+                    <option key={build.id} value={build.id}>
+                      {new Date(build.created_at).toLocaleString()} ·{' '}
+                      {build.spec.source.commit.slice(0, 8)} · {build.status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selected && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap justify-between items-center gap-3">
+                    <span className="flex gap-2 items-center">
+                      <span
+                        className="chip"
+                        data-testid="build-status"
+                        data-state={selected.status}
+                      >
+                        {selected.cancel_requested && active(selected)
+                          ? 'Cancellation requested'
+                          : selected.status}
+                      </span>
+                      <span className="text-xs text-muted">
+                        {selected.no_cache ? 'Cache bypassed' : 'Cache allowed'}
+                      </span>
+                    </span>
+                    {active(selected) && (
+                      <button
+                        className="button secondary"
+                        disabled={cancel.isPending || selected.cancel_requested}
+                        onClick={() => cancel.mutate(selected.id)}
+                      >
+                        <X size={14} />
+                        Cancel build
+                      </button>
+                    )}
+                  </div>
+                  {selected.error_code && (
+                    <p className="error-notice">
+                      {errors[selected.error_code] ?? selected.error_code}
+                    </p>
+                  )}
+                  {selected.status === 'queued' && (
+                    <p className="text-xs text-muted">
+                      Saved in the build queue. Waiting for the worker to claim it.
+                    </p>
+                  )}
+                  {selected.status === 'succeeded' && (
+                    <p className="text-xs text-accent">
+                      Image pushed and revision recorded. No instances have been started.
+                    </p>
+                  )}
+                </div>
               )}
-              {selected.status === 'queued' && (
-                <p className="text-xs text-muted">
-                  Saved in the build queue. Waiting for the worker to claim it.
-                </p>
-              )}
-              {selected.status === 'succeeded' && (
-                <p className="text-xs text-accent">
-                  Image pushed and revision recorded. No instances have been started.
-                </p>
-              )}
-              <BuildLogs key={selected.id} build={selected} />
+            </>
+          )}
+        </div>
+        <div className="build-console">
+          {selected ? (
+            <BuildLogs key={selected.id} build={selected} />
+          ) : (
+            <div className="console-empty">
+              <Terminal size={24} strokeWidth={1.4} />
+              <span>Build output</span>
+              <p>Queue a build to follow its progress here.</p>
             </div>
           )}
-        </>
-      )}
-      <div className="border-t border-[#2e392f] pt-5">
+        </div>
+      </div>
+      <div className="border-t border-line pt-5">
         <h3 className="flex items-center gap-2">
           <Box size={15} />
           Image revisions
@@ -238,7 +258,7 @@ export function BuildPanel({ service }: { service: Service }) {
         ) : (
           <div className="space-y-3 mt-3">
             {revisions.data.map((revision) => (
-              <div key={revision.id} className="text-xs">
+              <div key={revision.id} className="revision-row text-xs">
                 <time className="text-muted">{new Date(revision.created_at).toLocaleString()}</time>
                 <code className="block text-accent break-all mt-2">
                   {revision.image_repository}@{revision.image_digest}
