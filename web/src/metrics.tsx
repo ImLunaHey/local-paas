@@ -252,7 +252,7 @@ export function ServiceTrends({ service, instances }: { service: Service; instan
     queryKey: ['runtime-metrics', service.id],
     queryFn: () => api<{ samples: Sample[] }>('/services/' + service.id + '/runtime/metrics'),
     refetchInterval: 10000,
-    enabled: service.spec.workload.kind === 'oci-service',
+    enabled: service.spec.workload.kind !== 'celld-service',
   })
   const active = instances.filter(
     (i) =>

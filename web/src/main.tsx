@@ -1,3 +1,6 @@
+import { StoragePanel } from './storage'
+import { CreationScope, WorkspaceBreadcrumbs } from './workspace-context'
+import { DatabaseForm, DatabasePanel } from './databases'
 import { Domains } from './domains'
 import { Overview, Hosts } from './overview'
 import { ServiceTrends } from './metrics'
@@ -11,7 +14,6 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { DeploymentHistory } from './history'
-import { environmentsQuery } from './environments'
 import { Networking } from './networking'
 import { createContext, StrictMode, useContext, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
@@ -138,19 +140,7 @@ function Shell() {
       </aside>
       <div className="main-shell">
         <header className="topbar">
-          <span className="flex items-center gap-2">
-            <span className="text-muted">Workspace</span>
-            <ChevronRight size={13} />
-            {path === '/'
-              ? 'Overview'
-              : path === '/hosts'
-                ? 'Hosts'
-                : path === '/domains'
-                  ? 'Domains'
-                  : path === '/audit'
-                    ? 'Audit log'
-                    : 'Projects'}
-          </span>
+          <WorkspaceBreadcrumbs />
           <span className="environment-tag">
             <span className="status-dot" /> Private platform
           </span>
@@ -217,7 +207,7 @@ function Metric({
 
 function ServiceRow({ service }: { service: Service }) {
   const { spec } = service
-  const runtime = useRuntime(service.id, spec.workload.kind === 'oci-service')
+  const runtime = useRuntime(service.id, spec.workload.kind !== 'celld-service')
   return (
     <Link to="/services/$serviceId" params={{ serviceId: service.id }} className="service-row">
       <div className="flex items-center gap-3 min-w-0">
@@ -229,14 +219,18 @@ function ServiceRow({ service }: { service: Service }) {
           <p className="truncate">
             {spec.project} / {spec.environment}
             <span className="mx-2">·</span>
-            {sourceLabel(spec.source)}
+            {spec.workload.kind === 'postgres-service' || spec.workload.kind === 'redis-service'
+              ? `${spec.workload.kind === 'redis-service' ? 'Redis 8' : 'PostgreSQL 18'} · local volume`
+              : sourceLabel(spec.source)}
           </p>
         </div>
       </div>
       <span className="text-xs text-muted">
         {spec.workload.kind === 'oci-service'
           ? `${spec.workload.replicas} requested replicas`
-          : `${spec.workload.members} requested members`}
+          : spec.workload.kind === 'celld-service'
+            ? `${spec.workload.members} requested members`
+            : '1 pinned database'}
       </span>
       <ServiceTrends service={service} instances={runtime.data?.instances ?? []} />
       <span className="flex items-center justify-between gap-4">
@@ -261,7 +255,25 @@ function ServiceRow({ service }: { service: Service }) {
 }
 
 function NewService() {
-  return <ServiceForm />
+  const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
+  const [database, setDatabase] = useState(false)
+  return (
+    <CreationScope key={scope.project + ':' + scope.environment}>
+      <div className="mb-6 flex gap-3">
+        <Button aria-pressed={!database} onClick={() => setDatabase(false)}>
+          Application
+        </Button>
+        <Button aria-pressed={database} onClick={() => setDatabase(true)}>
+          Database
+        </Button>
+      </div>
+      {database ? (
+        <DatabaseForm key={scope.project + ':' + scope.environment} />
+      ) : (
+        <ServiceForm key={scope.project + ':' + scope.environment} />
+      )}
+    </CreationScope>
+  )
 }
 
 function ServiceForm({ service }: { service?: Service }) {
@@ -276,14 +288,15 @@ function ServiceForm({ service }: { service?: Service }) {
   const [buildMode, setBuildMode] = useState<'auto' | 'dockerfile' | 'generated'>(
     oci?.build_mode ?? 'auto',
   )
-  const knownEnvironments = useQuery(environmentsQuery)
   const [dirty, setDirty] = useState(false)
   const [formVersion, setFormVersion] = useState(0)
   const [reloading, setReloading] = useState(false)
   const [reloadError, setReloadError] = useState<Error | null>(null)
   const navigate = useNavigate()
   const client = useQueryClient()
-  const [kind, setKind] = useState<Workload['kind']>(spec?.workload.kind ?? 'oci-service')
+  const [kind, setKind] = useState<'oci-service' | 'celld-service'>(
+    spec?.workload.kind === 'celld-service' ? 'celld-service' : 'oci-service',
+  )
   // Preserve the operation ID across retries of an identical submission, even
   // if a response was lost. A changed spec is a different operation.
   const pending = useRef<{ serialized: string; id: string } | null>(null)
@@ -382,6 +395,7 @@ function ServiceForm({ service }: { service?: Service }) {
       domains: list('domains'),
       secrets: list('secrets'),
       workload,
+      volume: spec?.volume,
     })
   }
   return (
@@ -441,35 +455,12 @@ function ServiceForm({ service }: { service?: Service }) {
                 ))}
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
-                <Field label="Project">
-                  <Input
-                    name="project"
-                    readOnly={!!service}
-                    defaultValue={spec?.project ?? scope.project}
-                    placeholder="personal"
-                    required
-                    pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                    maxLength={63}
-                  />
-                </Field>
-                <datalist id="known-environments">
-                  {knownEnvironments.data?.items.map((e) => (
-                    <option key={e.id} value={e.name}>
-                      {e.project}
-                    </option>
-                  ))}
-                </datalist>
-                <Field label="Environment">
-                  <Input
-                    name="environment"
-                    readOnly={!!service}
-                    list="known-environments"
-                    defaultValue={spec?.environment ?? scope.environment ?? 'development'}
-                    required
-                    pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                    maxLength={63}
-                  />
-                </Field>
+                <input type="hidden" name="project" value={spec?.project ?? scope.project ?? ''} />
+                <input
+                  type="hidden"
+                  name="environment"
+                  value={spec?.environment ?? scope.environment ?? ''}
+                />
                 <div className="sm:col-span-2">
                   <Field label="Service name">
                     <Input
@@ -839,7 +830,11 @@ function ServiceDetail() {
     )
   const { spec } = service.data
   const count =
-    spec.workload.kind === 'oci-service' ? spec.workload.replicas : spec.workload.members
+    spec.workload.kind === 'oci-service'
+      ? spec.workload.replicas
+      : spec.workload.kind === 'celld-service'
+        ? spec.workload.members
+        : 1
   return (
     <>
       <ProjectBackLink project={spec.project} environment={spec.environment} />
@@ -852,7 +847,11 @@ function ServiceDetail() {
           <p>
             {spec.workload.kind === 'oci-service'
               ? 'Dockerfile service'
-              : 'Dedicated celld application fleet'}
+              : spec.workload.kind === 'postgres-service' || spec.workload.kind === 'redis-service'
+                ? spec.workload.kind === 'redis-service'
+                  ? 'Redis database'
+                  : 'PostgreSQL database'
+                : 'Dedicated celld application fleet'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -867,7 +866,9 @@ function ServiceDetail() {
             </a>
           ) : (
             <Link className="button" to="/services/$serviceId/networking" params={{ serviceId }}>
-              Set up URL
+              {spec.workload.kind === 'postgres-service' || spec.workload.kind === 'redis-service'
+                ? 'Database connections'
+                : 'Set up URL'}
             </Link>
           )}
           <span
@@ -939,7 +940,7 @@ function ServiceDetail() {
           resetScroll={false}
           activeProps={{ 'aria-current': 'page' }}
         >
-          {spec.workload.kind === 'oci-service' ? 'Builds & revisions' : 'Fleet deployments'}
+          {spec.workload.kind !== 'celld-service' ? 'Builds & revisions' : 'Fleet deployments'}
         </Link>
         <Link
           to="/services/$serviceId/logs"
@@ -1001,7 +1002,18 @@ function ServiceBuilds() {
 
 function ServiceConfiguration() {
   const service = useCurrentService()
-  return <ServiceForm key={service.id} service={service} />
+  return service.spec.workload.kind === 'postgres-service' ||
+    service.spec.workload.kind === 'redis-service' ? (
+    <DatabaseForm key={service.id} service={service} />
+  ) : (
+    <>
+      {' '}
+      <ServiceForm key={service.id + ':' + service.version} service={service} />{' '}
+      {service.spec.workload.kind === 'oci-service' && (
+        <StoragePanel key={service.id + ':' + service.version} service={service} />
+      )}{' '}
+    </>
+  )
 }
 
 function ServiceRuntime({ view }: { view: 'logs' | 'metrics' }) {
@@ -1100,7 +1112,15 @@ const environmentsRoute = createRoute({
 const networkingRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'networking',
-  component: () => <Networking service={useCurrentService()} />,
+  component: () => {
+    const service = useCurrentService()
+    return service.spec.workload.kind === 'postgres-service' ||
+      service.spec.workload.kind === 'redis-service' ? (
+      <DatabasePanel service={service} />
+    ) : (
+      <Networking service={service} />
+    )
+  },
 })
 const auditRoute = createRoute({
   getParentRoute: () => rootRoute,

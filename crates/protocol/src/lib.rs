@@ -17,6 +17,10 @@ pub struct Assignment {
     pub image_digest: ImageDigest,
     pub spec: ServiceSpec,
     pub published_port: u16,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub database_ports: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_size_gib: Option<u16>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,6 +28,8 @@ pub struct SyncRequest {
     pub version: u32,
     pub node_id: Uuid,
     pub observations: Vec<InstanceReport>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

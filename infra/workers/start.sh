@@ -26,7 +26,7 @@ table inet local_paas_worker_$worker_index {
  }
  chain worker_egress {
   ct state established,related accept
-  ip daddr 127.0.0.1 tcp dport { 18443, 15000 } accept
+  ip daddr 127.0.0.1 tcp dport { 18443, 15000, 21000-21003, 21100-21103, 21200-21203 } accept
   meta nfproto ipv6 reject
   fib daddr type local reject
   ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4 } reject

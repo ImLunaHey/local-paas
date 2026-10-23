@@ -1,4 +1,5 @@
 mod containerd;
+mod network;
 mod secrets;
 mod volumes;
 use containerd::Containerd;
@@ -69,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             version: VERSION,
             node_id: config.node_id,
             observations: reports.read().await.values().cloned().collect(),
+            capabilities: vec!["databases-v1".into(), "shared-volumes-v1".into()],
         };
         match client
             .post(format!("{}/api/agent/sync", config.controller_url))
@@ -114,7 +116,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
     {
         return None;
     }
-    let (port, mounts, environment) = match &a.spec.workload {
+    let (port, mut mounts, environment) = match &a.spec.workload {
         Workload::OciService { port, .. } => (*port, vec![], std::collections::BTreeMap::new()),
         Workload::PostgresService {
             database,
@@ -132,8 +134,29 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
                 ("POSTGRES_USER".into(), "postgres".into()),
             ]),
         ),
+        Workload::RedisService { storage_gib } => (
+            6379,
+            vec![platform_runtime::Mount::Volume {
+                id: a.service_id,
+                destination: "/data".into(),
+                read_only: false,
+                size_gib: *storage_gib,
+            }],
+            std::collections::BTreeMap::from([(
+                "REDIS_MAXMEMORY".into(),
+                (u64::from(a.spec.resources.memory_mib) * 1024 * 1024 * 3 / 4).to_string(),
+            )]),
+        ),
         _ => return None,
     };
+    if let Some(v) = &a.spec.volume {
+        mounts.push(platform_runtime::Mount::Volume {
+            id: v.id,
+            destination: v.mount_path.clone().into(),
+            read_only: v.read_only,
+            size_gib: a.volume_size_gib?,
+        });
+    }
     Some((
         Operation {
             id: a.deployment_id,
@@ -165,7 +188,15 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
             network: NetworkPolicy {
                 declared_port: port,
                 published_port: a.published_port,
-                allowed_egress: vec![],
+                allowed_egress: a
+                    .database_ports
+                    .iter()
+                    .map(|port| platform_runtime::EgressRule {
+                        address: std::net::Ipv4Addr::new(10, 0, 2, 2).into(),
+                        prefix_length: 32,
+                        port: *port,
+                    })
+                    .collect(),
             },
         },
     ))
@@ -226,7 +257,8 @@ async fn instance_loop(
                 Err(platform_runtime::RuntimeError::NotFound) => Ok(()),
                 Err(e) => Err(e),
             };
-            if result.is_ok() {
+            let network_cleanup = network::apply(&runtime.root, id, None, &[]).await;
+            if result.is_ok() && network_cleanup.is_ok() {
                 report.state = "stopped".into();
                 stopped = true;
             } else {
@@ -282,7 +314,9 @@ async fn instance_loop(
                         Workload::OciService { readiness, .. } => readiness,
                         _ => &default_readiness,
                     };
-                    let ready = if matches!(a.spec.workload, Workload::PostgresService { .. }) {
+                    let ready = if matches!(a.spec.workload, Workload::RedisService { .. }) {
+                        runtime.command(&["exec".into(),id.to_string(),"/.platform-secret-exec".into(),"sh".into(),"-c".into(),"REDISCLI_AUTH=\"$REDIS_PASSWORD\" exec redis-cli -h 127.0.0.1 ping".into()]).await.is_ok_and(|out|out==b"PONG\n")
+                    } else if matches!(a.spec.workload, Workload::PostgresService { .. }) {
                         runtime
                             .command(&[
                                 "exec".into(),

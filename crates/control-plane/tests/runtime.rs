@@ -333,3 +333,117 @@ async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool
         .unwrap();
     assert_eq!(count, 0);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn shared_volumes_colocate_services_and_fence_replacements(pool: PgPool) {
+    let (service, revision, nodes) = fixture(&pool).await;
+    let request = json!({"operation_id":Uuid::new_v4(),"project":"sandbox","environment":"development","name":"uploads","size_gib":1});
+    let (code, volume) = call(&pool, "/api/volumes", request.clone(), None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(call(&pool, "/api/volumes", request, None).await.1, volume);
+    let attachment = json!({"id":volume["id"],"mount_path":"/data","read_only":false});
+    sqlx::query("UPDATE services SET spec=jsonb_set(jsonb_set(spec,'{volume}',$2),'{workload,replicas}','1') WHERE id=$1").bind(service).bind(&attachment).execute(&pool).await.unwrap();
+    let deploy = |revision| json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
+    let path = format!("/api/services/{service}/deployments");
+    assert_eq!(
+        call(&pool, &path, deploy(revision), None).await.0,
+        StatusCode::CONFLICT,
+        "legacy agents must not receive shared volume assignments"
+    );
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['shared-volumes-v1']")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (code, first) = call(&pool, &path, deploy(revision), None).await;
+    assert_eq!(code, StatusCode::OK, "{first}");
+    assert_eq!(
+        call(&pool, &path, deploy(revision), None).await.0,
+        StatusCode::CONFLICT,
+        "replacement must wait for confirmed stop"
+    );
+    let owner: Uuid = sqlx::query_scalar("SELECT node_id FROM shared_volumes WHERE id=$1")
+        .bind(volume["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(owner, nodes[0]);
+    let mut spec: Value = sqlx::query_scalar("SELECT spec FROM services WHERE id=$1")
+        .bind(service)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    spec["name"] = json!("file-browser");
+    spec["volume"]["read_only"] = json!(true);
+    let (code, app) = call(
+        &pool,
+        "/api/services",
+        json!({"operation_id":Uuid::new_v4(),"build_on_create":false,"spec":spec}),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{app}");
+    let appid = app["id"].as_str().unwrap().parse::<Uuid>().unwrap();
+    call(
+        &pool,
+        &format!("/api/services/{appid}/builds"),
+        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        None,
+    )
+    .await;
+    let b = control_plane::builds::claim(&pool).await.unwrap().unwrap();
+    control_plane::builds::finish(
+        &pool,
+        &b,
+        control_plane::builds::Completion::Succeeded {
+            repository: "127.0.0.1:15000/platform/test".into(),
+            digest: format!("sha256:{}", "b".repeat(64)).try_into().unwrap(),
+        },
+    )
+    .await
+    .unwrap();
+    let rev: Uuid = sqlx::query_scalar("SELECT id FROM revisions WHERE build_id=$1")
+        .bind(b.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (code, second) = call(
+        &pool,
+        &format!("/api/services/{appid}/deployments"),
+        deploy(rev),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{second}");
+    let second_owner: Uuid =
+        sqlx::query_scalar("SELECT node_id FROM instances WHERE deployment_id=$1")
+            .bind(second["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(second_owner, owner);
+    // Even an otherwise valid service cannot attach files across environment boundaries.
+    spec["name"] = json!("other-env");
+    spec["environment"] = json!("production");
+    assert_eq!(
+        call(
+            &pool,
+            "/api/services",
+            json!({"operation_id":Uuid::new_v4(),"build_on_create":false,"spec":spec}),
+            None
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (_,shadow)=call(&pool,"/api/environments",json!({"project":"sandbox","name":"shadow","parent_id":sqlx::query_scalar::<_,Uuid>("SELECT environment_id FROM services WHERE id=$1").bind(service).fetch_one(&pool).await.unwrap()}),None).await;
+    assert!(shadow["id"].is_string(), "{shadow}");
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM services WHERE environment_id=$1 AND spec ? 'volume'",
+    )
+    .bind(shadow["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}

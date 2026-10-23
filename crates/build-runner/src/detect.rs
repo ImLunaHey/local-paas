@@ -47,6 +47,20 @@ const LOCKS: [(&str, &str); 6] = [
 const EXCLUDES: &str = "\n.git\n**/.git\nnode_modules\n**/node_modules\n.env\n.env.*\n**/.env\n**/.env.*\n.npmrc\n**/.npmrc\n.next\n**/.next\nnpm-debug.log*\n";
 
 pub async fn plan(config: &Config, request: &Request) -> Result<BuildPlan, Error> {
+    if matches!(request.spec.workload, Workload::RedisService { .. }) {
+        request.spec.validate().map_err(|_| Error::Workload)?;
+        let script = r#"set -eu; umask 077; printf 'bind 0.0.0.0\nport 6379\ndir /data\nappendonly yes\nappendfsync everysec\nsave ""\nmaxmemory %s\nmaxmemory-policy noeviction\nrequirepass %s\n' "$REDIS_MAXMEMORY" "$REDIS_PASSWORD" > /tmp/platform-redis.conf; exec redis-server /tmp/platform-redis.conf"#;
+        return Ok(BuildPlan::Generated {
+            generator: "platform-redis-v1".into(),
+            runtime: "Redis 8.2.10".into(),
+            package_manager: "pinned official image".into(),
+            dockerfile: format!(
+                "FROM redis:8.2.10-bookworm@sha256:e5f23377739f95a2f530b9c99f93accb4f634577f09d00a7d8e0638f2fdf69e0\nCMD {}\n",
+                serde_json::to_string(&["sh", "-c", script]).map_err(|_| Error::Client)?
+            ),
+            dockerignore: "*\n".into(),
+        });
+    }
     if matches!(request.spec.workload, Workload::PostgresService { .. }) {
         request.spec.validate().map_err(|_| Error::Workload)?;
         return Ok(BuildPlan::Generated {

@@ -88,6 +88,8 @@ pub(crate) async fn create(
             let DbJson(mut spec): DbJson<Value> = row.get("spec");
             spec["environment"] = json!(input.name);
             spec["domains"] = json!([]);
+            // Shadow configuration, never attach the source environment's live filesystem.
+            spec.as_object_mut().unwrap().remove("volume");
             let service = Uuid::new_v4();
             let operation = Uuid::new_v4();
             sqlx::query("INSERT INTO services(id,environment_id,name,kind,operation_id,spec,registered_spec) VALUES($1,$2,$3,$4,$5,$6,$6)").bind(service).bind(id).bind(row.get::<String,_>("name")).bind(row.get::<String,_>("kind")).bind(operation).bind(DbJson(spec)).execute(&mut *tx).await?;

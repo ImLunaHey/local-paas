@@ -54,6 +54,7 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
     let action = match (method.as_str(), route.as_str()) {
         ("POST", "/api/projects") => "project.create",
         ("POST", "/api/domains") => "domain.register",
+        ("POST", "/api/services/{id}/database-connection") => "database.connect",
         ("PUT", "/api/domains/{hostname}") => "domain.assign",
         ("PUT", "/api/projects/{id}") => "project.configure",
         ("POST", "/api/environments") => "environment.create",

@@ -1205,3 +1205,12 @@ h3 {
     display: none;
   }
 }
+
+.topbar {
+  gap: 12px;
+  min-height: 62px;
+  height: auto;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  flex-wrap: wrap;
+}

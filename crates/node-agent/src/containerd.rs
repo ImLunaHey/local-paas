@@ -236,6 +236,23 @@ impl Runtime for Containerd {
             }
             Err(error) => return Err(error),
         }
+        let ip = crate::network::address(
+            spec.network
+                .published_port
+                .checked_sub(20000)
+                .ok_or_else(failure)?,
+        )?;
+        let mut ports = Vec::new();
+        for rule in &spec.network.allowed_egress {
+            if rule.address != std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 2, 2))
+                || rule.prefix_length != 32
+                || !crate::network::valid_port(rule.port)
+            {
+                return Err(RuntimeError::Unsupported);
+            }
+            ports.push(rule.port);
+        }
+        crate::network::apply(&self.root, op.instance_id, Some(ip), &ports).await?;
         match self.info(op.instance_id).await {
             Ok(_) => return Ok(()),
             Err(RuntimeError::NotFound) => {}
@@ -271,6 +288,7 @@ impl Runtime for Containerd {
             ("--security-opt", "no-new-privileges".into()),
             ("--security-opt", "apparmor=local-paas".into()),
             ("--network", "workloads".into()),
+            ("--ip", ip.to_string()),
             (
                 "--cpus",
                 format!("{:.3}", spec.limits.resources.cpu_millis as f64 / 1000.0),
@@ -334,28 +352,34 @@ impl Runtime for Containerd {
             let Mount::Volume {
                 id,
                 destination,
-                read_only: false,
+                read_only,
                 size_gib,
             } = mount
             else {
                 return Err(RuntimeError::Unsupported);
             };
-            if destination != Path::new("/var/lib/postgresql") {
+            if !destination
+                .to_str()
+                .is_some_and(platform_domain::volume_mount_path)
+            {
                 return Err(RuntimeError::Unsupported);
             }
             let path = crate::volumes::prepare(&self.root, *id, *size_gib).await?;
             args.extend([
                 "--mount".into(),
                 format!(
-                    "type=bind,src={},dst={}",
+                    "type=bind,src={},dst={}{}",
                     path.display(),
-                    destination.display()
+                    destination.display(),
+                    if *read_only { ",ro" } else { "" }
                 ),
             ]);
         }
         for (key, value) in &spec.environment {
-            if !matches!(key.as_str(), "POSTGRES_DB" | "POSTGRES_USER")
-                || value.is_empty()
+            if !matches!(
+                key.as_str(),
+                "POSTGRES_DB" | "POSTGRES_USER" | "REDIS_MAXMEMORY"
+            ) || value.is_empty()
                 || !value
                     .bytes()
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')

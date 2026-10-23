@@ -52,7 +52,10 @@ export function BuildPanel({ service }: { service: Service }) {
   const [commit, setCommit] = useState(initialRef.value)
   const [noCache, setNoCache] = useState(false)
   const operation = useRef<{ input: string; id: string } | null>(null)
-  const enabled = service.spec.workload.kind === 'oci-service'
+  const database =
+    service.spec.workload.kind === 'postgres-service' ||
+    service.spec.workload.kind === 'redis-service'
+  const enabled = service.spec.workload.kind !== 'celld-service'
   const history = useQuery({
     queryKey: ['builds', service.id],
     enabled,
@@ -81,7 +84,7 @@ export function BuildPanel({ service }: { service: Service }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          [sourceKind]: commit.trim(),
+          ...(database ? {} : { [sourceKind]: commit.trim() }),
           no_cache: noCache,
           operation_id: operation.current.id,
         }),
@@ -138,36 +141,38 @@ export function BuildPanel({ service }: { service: Service }) {
       <div className="build-workspace">
         <div className="build-controls space-y-4">
           <form onSubmit={submit} className="space-y-3">
-            <label className="field">
-              <span>Build source type</span>
-              <Select
-                className="build-select"
-                value={sourceKind}
-                onChange={(event) => setSourceKind(event.target.value as SourceKind)}
-                disabled={create.isPending}
-              >
-                <option value="branch">Branch</option>
-                <option value="tag">Tag</option>
-                <option value="commit">Commit</option>
-              </Select>
-            </label>
-            <label className="field">
-              <span>
-                {sourceKind === 'commit'
-                  ? 'Build commit SHA'
-                  : sourceKind === 'branch'
-                    ? 'Build branch'
-                    : 'Build tag'}
-              </span>
-              <Input
-                className="font-mono"
-                value={commit}
-                onChange={(event) => setCommit(event.target.value)}
-                pattern={sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined}
-                required
-                disabled={create.isPending}
-              />
-            </label>
+            <fieldset disabled={database} hidden={database} className="space-y-3">
+              <label className="field">
+                <span>Build source type</span>
+                <Select
+                  className="build-select"
+                  value={sourceKind}
+                  onChange={(event) => setSourceKind(event.target.value as SourceKind)}
+                  disabled={create.isPending}
+                >
+                  <option value="branch">Branch</option>
+                  <option value="tag">Tag</option>
+                  <option value="commit">Commit</option>
+                </Select>
+              </label>
+              <label className="field">
+                <span>
+                  {sourceKind === 'commit'
+                    ? 'Build commit SHA'
+                    : sourceKind === 'branch'
+                      ? 'Build branch'
+                      : 'Build tag'}
+                </span>
+                <Input
+                  className="font-mono"
+                  value={commit}
+                  onChange={(event) => setCommit(event.target.value)}
+                  pattern={sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined}
+                  required
+                  disabled={create.isPending}
+                />
+              </label>
+            </fieldset>
             <div className="flex flex-wrap items-center justify-between gap-4">
               <label className="flex items-center gap-2 text-xs text-muted">
                 <Input

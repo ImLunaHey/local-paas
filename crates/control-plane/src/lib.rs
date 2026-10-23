@@ -16,6 +16,7 @@ use uuid::Uuid;
 mod audit;
 pub mod builds;
 mod configuration;
+mod databases;
 mod domains;
 mod environments;
 mod history;
@@ -27,10 +28,12 @@ pub mod preview;
 mod projects;
 pub mod runtime;
 pub mod secrets;
+mod volumes;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route("/api/volumes", get(volumes::list).post(volumes::create))
         .route("/api/domains", get(domains::list).post(domains::create))
         .route(
             "/api/domains/{hostname}",
@@ -38,6 +41,11 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
         )
         .route("/api/overview", get(overview::get))
         .route("/api/hosts", get(overview::hosts))
+        .route("/api/services/{id}/database", get(databases::get))
+        .route(
+            "/api/services/{id}/database-connection",
+            post(databases::connect),
+        )
         .route("/api/audit", get(audit::list))
         .route("/api/projects", get(projects::list).post(projects::create))
         .route(
@@ -289,6 +297,7 @@ async fn create_service(
 ) -> Result<(StatusCode, Json<Service>), ApiError> {
     request.spec.validate().map_err(ApiError::Invalid)?;
     let mut tx = pool.begin().await?;
+    volumes::validate_scope(&mut tx, &request.spec).await?;
     // Concurrent retries of the same operation must observe the first commit.
     // A hash collision only serializes two otherwise unrelated registrations.
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")

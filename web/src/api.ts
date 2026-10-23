@@ -1,4 +1,6 @@
 export type Workload =
+  | { kind: 'redis-service'; storage_gib: number }
+  | { kind: 'postgres-service'; database: string; storage_gib: number }
   | {
       kind: 'oci-service'
       build_mode?: 'auto' | 'dockerfile' | 'generated'
@@ -23,6 +25,7 @@ export interface ServiceSpec {
   domains: string[]
   secrets: string[]
   workload: Workload
+  volume?: { id: string; mount_path: string; read_only: boolean }
 }
 
 export interface Service {
@@ -99,7 +102,7 @@ export const serviceQuery = (id: string) => ({
 })
 
 export type SourceKind = 'commit' | 'branch' | 'tag'
-export function sourceReference(source: ServiceSpec['source']): {
+export function sourceReference(source: ServiceSpec['source'] = { repository: '' }): {
   kind: SourceKind
   value: string
 } {

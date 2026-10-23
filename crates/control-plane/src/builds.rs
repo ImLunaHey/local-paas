@@ -108,7 +108,9 @@ pub(crate) async fn create(
     spec.validate().map_err(ApiError::Invalid)?;
     if !matches!(
         spec.workload,
-        Workload::OciService { .. } | Workload::PostgresService { .. }
+        Workload::OciService { .. }
+            | Workload::PostgresService { .. }
+            | Workload::RedisService { .. }
     ) {
         return Err(ApiError::Conflict(
             "celld applications use a separate fleet deployment path; OCI builds are not supported",
@@ -243,8 +245,9 @@ pub(crate) async fn revisions(
 
 pub(crate) async fn system(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
     let online: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM build_workers WHERE last_seen > now() - interval '15 seconds')").fetch_one(&pool).await?;
+    let database_runtime_ready:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes WHERE last_seen>now()-interval '30 seconds' AND NOT cordoned AND capabilities @> ARRAY['databases-v1'])").fetch_one(&pool).await?;
     Ok(Json(
-        json!({"worker_online":online,"log_limit_bytes":LOG_LIMIT}),
+        json!({"worker_online":online,"database_runtime_ready":database_runtime_ready,"log_limit_bytes":LOG_LIMIT}),
     ))
 }
 
@@ -395,7 +398,7 @@ pub async fn finish(
     };
     if let Completion::Succeeded { repository, digest } = completion {
         let mut pinned = current.spec.0;
-        if !matches!(pinned.workload, Workload::PostgresService { .. }) {
+        if !pinned.workload.is_database() {
             let commit = current.resolved_commit.ok_or_else(|| {
                 sqlx::Error::Protocol("successful build has no resolved commit".into())
             })?;

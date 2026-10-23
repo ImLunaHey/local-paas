@@ -216,6 +216,18 @@ pub(crate) async fn update(
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
+    if service.spec.workload.is_database() {
+        let initialized: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM volumes WHERE id=$1)")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if initialized {
+            return Err(ApiError::Conflict(
+                "database password rotation requires a coordinated SQL change and is not available yet",
+            ));
+        }
+    }
     let (version, mut values) = bao.read(&path, None, None).await?;
     if version != input.expected_version {
         return Err(ApiError::Conflict(
@@ -396,6 +408,61 @@ fn valid_name(name: &str) -> bool {
             .enumerate()
             .all(|(i, b)| b == b'_' || b.is_ascii_uppercase() || (i > 0 && b.is_ascii_digit()))
 }
+pub(crate) async fn database_password(pool: &PgPool, id: Uuid) -> Result<String, ApiError> {
+    let (_, path) = identity(pool, id).await?;
+    let bao = Bao::new()?;
+    let (version, values) = bao.read(&path, None, None).await?;
+    let spec: DbJson<platform_domain::ServiceSpec> =
+        sqlx::query_scalar("SELECT spec FROM services WHERE id=$1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+    let secret = spec.workload.database_secret();
+    if let Some(password) = values.get(secret) {
+        return Ok(password.clone());
+    }
+    let initialized: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM volumes WHERE id=$1)")
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+    if initialized {
+        return Err(ApiError::Conflict(
+            "database credentials are missing; restore the original OpenBao secret before starting this volume",
+        ));
+    }
+    let password = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let _ = update(
+        State(pool.clone()),
+        Path(id),
+        Json(Update {
+            name: secret.into(),
+            value: Some(password.clone()),
+            expected_version: version,
+        }),
+    )
+    .await?;
+    Ok(password)
+}
+pub(crate) async fn connect_database(
+    pool: &PgPool,
+    id: Uuid,
+    value: String,
+    name: &str,
+    expected_version: i32,
+) -> Result<(), ApiError> {
+    let _ = update(
+        State(pool.clone()),
+        Path(id),
+        Json(Update {
+            name: name.into(),
+            value: Some(value),
+            expected_version,
+        }),
+    )
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -16,6 +16,47 @@ pub struct ServiceSpec {
     pub domains: Vec<String>,
     pub secrets: Vec<String>,
     pub workload: Workload,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<VolumeAttachment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VolumeAttachment {
+    pub id: uuid::Uuid,
+    pub mount_path: String,
+    pub read_only: bool,
+}
+
+pub fn volume_mount_path(path: &str) -> bool {
+    path.len() <= 200
+        && path.starts_with('/')
+        && !path.ends_with('/')
+        && path.split('/').skip(1).all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_- .".contains(&b))
+                && !part.contains(' ')
+        })
+        && ![
+            "/proc",
+            "/sys",
+            "/dev",
+            "/etc",
+            "/run",
+            "/tmp",
+            "/bin",
+            "/sbin",
+            "/lib",
+            "/lib64",
+            "/usr",
+            "/.platform-secret-exec",
+        ]
+        .iter()
+        .any(|p| path == *p || path.starts_with(&format!("{p}/")))
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +116,9 @@ pub struct Resources {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Workload {
+    RedisService {
+        storage_gib: u16,
+    },
     PostgresService {
         database: String,
         storage_gib: u16,
@@ -122,6 +166,20 @@ pub struct ValidationIssue {
     pub message: String,
 }
 
+impl Workload {
+    pub fn is_database(&self) -> bool {
+        matches!(
+            self,
+            Self::PostgresService { .. } | Self::RedisService { .. }
+        )
+    }
+    pub fn database_secret(&self) -> &'static str {
+        match self {
+            Self::RedisService { .. } => "REDIS_PASSWORD",
+            _ => "POSTGRES_PASSWORD",
+        }
+    }
+}
 impl ServiceSpec {
     pub fn validate(&self) -> Result<(), Vec<ValidationIssue>> {
         let mut issues = Vec::new();
@@ -134,6 +192,18 @@ impl ServiceSpec {
             }
         };
         check(self.schema_version == 1, "schema_version", "must be 1");
+        if let Some(volume) = &self.volume {
+            check(
+                matches!(self.workload, Workload::OciService { replicas: 1, .. }),
+                "volume",
+                "a volume attachment requires an OCI application with one replica",
+            );
+            check(
+                volume_mount_path(&volume.mount_path),
+                "volume.mount_path",
+                "use an absolute data directory such as /data; system directories and path traversal are forbidden",
+            );
+        }
         for (field, value) in [
             ("project", &self.project),
             ("environment", &self.environment),
@@ -145,7 +215,14 @@ impl ServiceSpec {
                 "use 1–63 lowercase letters, digits or interior hyphens",
             );
         }
-        if matches!(self.workload, Workload::PostgresService { .. }) {
+        if self.workload.is_database() {
+            check(
+                self.secrets
+                    .iter()
+                    .all(|name| name == self.workload.database_secret()),
+                "secrets",
+                "database services only accept their managed password reference",
+            );
             check(
                 self.source.is_empty(),
                 "source",
@@ -238,6 +315,28 @@ impl ServiceSpec {
             );
         }
         match &self.workload {
+            Workload::RedisService { storage_gib } => {
+                check(
+                    (1..=2).contains(storage_gib),
+                    "workload.storage_gib",
+                    "development volumes support 1–2 GiB",
+                );
+                check(
+                    self.resources.memory_mib >= 128,
+                    "resources.memory_mib",
+                    "Redis needs at least 128 MiB",
+                );
+                check(
+                    self.domains.is_empty(),
+                    "domains",
+                    "databases use private connections",
+                );
+                check(
+                    !self.distinct_nodes,
+                    "distinct_nodes",
+                    "database storage is pinned to one node",
+                );
+            }
             Workload::PostgresService {
                 database,
                 storage_gib,
@@ -374,6 +473,7 @@ impl ServiceSpec {
         match self.workload {
             Workload::OciService { .. } => "oci-service",
             Workload::PostgresService { .. } => "postgres-service",
+            Workload::RedisService { .. } => "redis-service",
             Workload::CelldService { .. } => "celld-service",
         }
     }

@@ -83,11 +83,13 @@ in {
     script = ''
       ${pkgs.nftables}/bin/nft -f - <<'RULES'
       table inet local_paas_workloads {
+        set database_egress { type ipv4_addr . inet_service; }
         chain input { type filter hook input priority -20; policy accept; ct state established,related accept; iifname "lpbr0" drop; }
         chain forward {
           type filter hook forward priority -20; policy accept;
           ct state established,related accept
           iifname "lpbr0" meta nfproto ipv6 drop
+          iifname "lpbr0" ip daddr 10.0.2.2 ip saddr . tcp dport @database_egress accept
           iifname "lpbr0" ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } reject
           iifname "lpbr0" tcp dport { 80, 443 } accept
           iifname "lpbr0" ip daddr { 1.1.1.1, 8.8.8.8 } udp dport 53 accept
@@ -110,6 +112,7 @@ in {
     '';
   };
   systemd.services.node-agent = {
+    environment.WORKLOAD_NETWORK_PREFIX = "172.31.${toString index}";
     environment.SECRET_EXECUTOR = "${agent}/bin/secret-exec";
     wantedBy = [ "multi-user.target" ];
     after = [ "network-online.target" "containerd.service" "node-credentials.service" "workload-network-policy.service" "apparmor.service" ];

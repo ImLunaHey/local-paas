@@ -31,6 +31,8 @@ async fn run(program: &str, args: &[&str]) -> Result<(), RuntimeError> {
     }
 }
 pub async fn prepare(root: &Path, id: Uuid, size_gib: u16) -> Result<PathBuf, RuntimeError> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = LOCK.lock().await;
     if !(1..=2).contains(&size_gib) {
         return Err(failed());
     }

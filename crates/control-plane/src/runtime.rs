@@ -30,6 +30,17 @@ pub(crate) async fn deploy(
     Path(service_id): Path<Uuid>,
     Json(input): Json<DeployRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let database_spec: Option<DbJson<ServiceSpec>> =
+        sqlx::query_scalar("SELECT spec FROM services WHERE id=$1")
+            .bind(service_id)
+            .fetch_optional(&pool)
+            .await?;
+    if database_spec
+        .as_ref()
+        .is_some_and(|s| s.workload.is_database())
+    {
+        crate::secrets::database_password(&pool, service_id).await?;
+    }
     let mut tx = pool.begin().await?;
     // Serializes allocation and promotion across API processes without a leader lease.
     sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
@@ -58,10 +69,47 @@ pub(crate) async fn deploy(
     let mut resolved_spec = service.spec.0.clone();
     resolved_spec.secrets = crate::secrets::references(&pool, service_id).await?;
     let spec = &resolved_spec;
-    let Workload::OciService { replicas, .. } = spec.workload else {
+    let (replicas, database_size) = match spec.workload {
+        Workload::OciService { replicas, .. } => (replicas, None),
+        Workload::PostgresService { storage_gib, .. } | Workload::RedisService { storage_gib } => {
+            (1, Some(storage_gib))
+        }
+        _ => {
+            return Err(ApiError::Conflict(
+                "celld requires its dedicated fleet runtime",
+            ));
+        }
+    };
+    if database_size.is_some() || spec.volume.is_some() {
+        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped')").bind(service_id).fetch_one(&mut *tx).await?;
+        if occupied {
+            return Err(ApiError::Conflict(
+                "stop this service and wait for confirmed shutdown before deploying a volume-backed revision; other attached services keep running",
+            ));
+        }
+    }
+    let volume: Option<(Uuid, i32, i32)> =
+        sqlx::query_as("SELECT node_id,slot,size_gib FROM volumes WHERE id=$1")
+            .bind(service_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if let Some((_, _, size)) = volume
+        && database_size != Some(size as u16)
+    {
         return Err(ApiError::Conflict(
-            "celld requires its dedicated fleet runtime",
+            "database storage size and workload kind cannot change after volume allocation",
         ));
+    }
+    crate::volumes::validate_scope(&mut tx, spec).await?;
+    let shared: Option<(Option<Uuid>, i32)> = if let Some(v) = &spec.volume {
+        Some(
+            sqlx::query_as("SELECT node_id,size_gib FROM shared_volumes WHERE id=$1 FOR UPDATE")
+                .bind(v.id)
+                .fetch_one(&mut *tx)
+                .await?,
+        )
+    } else {
+        None
     };
     let secret_version = crate::secrets::snapshot(&pool, service_id, &spec.secrets).await?;
     let exists: bool =
@@ -82,10 +130,49 @@ pub(crate) async fn deploy(
     if preparing {
         return Err(ApiError::Conflict("a deployment is already preparing"));
     }
+    let database_ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1").bind(service_id).fetch_all(&mut *tx).await?;
     let nodes = sqlx::query("SELECT * FROM nodes WHERE NOT cordoned AND last_seen>now()-interval '30 seconds' ORDER BY name FOR UPDATE").fetch_all(&mut *tx).await?;
     let mut placements = Vec::new();
     for node in nodes {
         let id: Uuid = node.get("id");
+        if (database_size.is_some() || !database_ports.is_empty())
+            && !node
+                .get::<Vec<String>, _>("capabilities")
+                .iter()
+                .any(|c| c == "databases-v1")
+        {
+            continue;
+        }
+        if shared.is_some()
+            && !node
+                .get::<Vec<String>, _>("capabilities")
+                .iter()
+                .any(|c| c == "shared-volumes-v1")
+        {
+            continue;
+        }
+        if shared.and_then(|v| v.0).is_some_and(|owner| owner != id) {
+            continue;
+        }
+        if (database_size.is_some() && volume.is_none()) || shared.is_some_and(|v| v.0.is_none()) {
+            let reserved_gib:i64=sqlx::query_scalar("SELECT (SELECT coalesce(sum(size_gib),0) FROM volumes WHERE node_id=$1)+(SELECT coalesce(sum(size_gib),0) FROM shared_volumes WHERE node_id=$1)").bind(id).fetch_one(&mut *tx).await?;
+            let needed = database_size
+                .map(i32::from)
+                .or(shared.map(|v| v.1))
+                .unwrap_or(0);
+            if reserved_gib + i64::from(needed) > 8 {
+                continue;
+            }
+        }
+        if volume.is_some_and(|v| v.0 != id) {
+            continue;
+        }
+        let reserved: Vec<i32> =
+            sqlx::query_scalar("SELECT slot FROM volumes WHERE node_id=$1 AND id<>$2")
+                .bind(id)
+                .bind(service_id)
+                .fetch_all(&mut *tx)
+                .await?;
         let used = sqlx::query("SELECT i.slot,d.spec FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(id).fetch_all(&mut *tx).await?;
         let mut cpu = 0;
         let mut memory = 0;
@@ -101,6 +188,8 @@ pub(crate) async fn deploy(
                 break;
             }
             if !slots.contains(&slot)
+                && !reserved.contains(&slot)
+                && volume.is_none_or(|v| v.1 == slot)
                 && cpu + spec.resources.cpu_millis as i32 <= node.get::<i32, _>("cpu_millis")
                 && memory + spec.resources.memory_mib as i32 <= node.get::<i32, _>("memory_mib")
             {
@@ -118,8 +207,26 @@ pub(crate) async fn deploy(
             "insufficient healthy worker capacity for the requested replicas and placement; the current deployment is unchanged",
         ));
     }
+    if let Some(size) = database_size
+        && volume.is_none()
+    {
+        sqlx::query("INSERT INTO volumes(id,node_id,slot,size_gib) VALUES($1,$2,$3,$4)")
+            .bind(service_id)
+            .bind(placements[0].0)
+            .bind(placements[0].1)
+            .bind(i32::from(size))
+            .execute(&mut *tx)
+            .await?;
+    }
+    if let Some(v) = &spec.volume {
+        sqlx::query("UPDATE shared_volumes SET node_id=$2 WHERE id=$1 AND node_id IS NULL")
+            .bind(v.id)
+            .bind(placements[0].0)
+            .execute(&mut *tx)
+            .await?;
+    }
     let deployment = Uuid::new_v4();
-    sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot) VALUES($1,$2,$3,$4,$5,'preparing',$6,true)").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib) VALUES($1,$2,$3,$4,$5,'preparing',$6,true,$7,$8)").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(database_ports).bind(shared.map(|v| v.1)).execute(&mut *tx).await?;
     for (node, slot) in placements {
         sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(deployment).bind(node).bind(slot).execute(&mut *tx).await?;
     }
@@ -203,7 +310,16 @@ pub async fn sync(
     headers: HeaderMap,
     Json(input): Json<SyncRequest>,
 ) -> Result<Json<SyncResponse>, NodeError> {
-    if input.version != VERSION || input.observations.len() > 8 {
+    if input.version != VERSION
+        || input.observations.len() > 8
+        || input.capabilities.len() > 16
+        || input.capabilities.iter().any(|c| {
+            c.len() > 64
+                || !c
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+    {
         return Err((StatusCode::BAD_REQUEST, "invalid protocol request"));
     }
     let token = headers
@@ -214,10 +330,11 @@ pub async fn sync(
         .ok_or((StatusCode::UNAUTHORIZED, "node credentials required"))?;
     let mut tx = pool.begin().await.map_err(db_error)?;
     let known =
-        sqlx::query("UPDATE nodes SET last_seen=now() WHERE id=$1 AND token_hash=$2 RETURNING id")
+        sqlx::query("UPDATE nodes SET last_seen=now(),capabilities=$3 WHERE id=$1 AND token_hash=$2 RETURNING id")
             .bind(input.node_id)
             .bind(token_hash(token))
-            .fetch_optional(&mut *tx)
+            .bind(&input.capabilities)
+        .fetch_optional(&mut *tx)
             .await
             .map_err(db_error)?;
     if known.is_none() {
@@ -288,7 +405,7 @@ pub async fn sync(
             sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line,level,message,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).bind(level).bind(message).bind(fields.map(DbJson)).execute(&mut *tx).await.map_err(db_error)?;
         }
     }
-    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
+    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut assignments = Vec::new();
     for r in rows {
         let digest = r
@@ -305,7 +422,13 @@ pub async fn sync(
             image_repository: r.get("image_repository"),
             image_digest: digest,
             spec: r.get::<DbJson<ServiceSpec>, _>("spec").0,
+            volume_size_gib: r.get::<Option<i32>, _>("volume_size_gib").map(|v| v as u16),
             published_port: 20000 + r.get::<i32, _>("slot") as u16,
+            database_ports: r
+                .get::<Vec<i32>, _>("database_ports")
+                .into_iter()
+                .map(|p| p as u16)
+                .collect(),
         });
     }
     tx.commit().await.map_err(db_error)?;

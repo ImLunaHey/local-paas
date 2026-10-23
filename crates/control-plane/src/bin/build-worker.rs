@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let pool = runner_pool;
                         let build = runner_build;
                         let config = runner_config;
-                        if !matches!(request.spec.workload, platform_domain::Workload::PostgresService { .. }) {
+                        if !request.spec.workload.is_database() {
                         let commit =
                             platform_build_runner::resolve_commit(&config, &request.spec).await?;
                         if !builds::record_resolution(&pool, &build, &commit)

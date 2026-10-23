@@ -1,5 +1,5 @@
 import { Button, Input, Select, Field } from './ui'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Plus, Layers3, ArrowLeft } from 'lucide-react'
@@ -118,6 +118,7 @@ export function ProjectWorkspace({
   const [offset, setOffset] = useState(0),
     [name, setName] = useState(''),
     [parent, setParent] = useState('')
+  useEffect(() => setOffset(0), [env?.id])
   const params = new URLSearchParams({
     project: project.data?.name ?? '',
     environment: env?.name ?? '',
@@ -183,26 +184,6 @@ export function ProjectWorkspace({
         </p>
       )}
       <div className="flex flex-wrap gap-5 items-center mb-6">
-        <Field label="Environment">
-          <Select
-            aria-label="Project environment"
-            value={env?.name ?? ''}
-            onChange={(e) => {
-              setOffset(0)
-              void navigate({
-                to: '/projects/$projectId',
-                params: { projectId },
-                search: { environment: e.target.value },
-              })
-            }}
-          >
-            {project.data?.environments.map((e) => (
-              <option key={e.id} value={e.name}>
-                {e.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
         {env?.parent_name && (
           <p className="text-xs text-muted">
             Shadows {env.parent_name} · local secrets override inherited values

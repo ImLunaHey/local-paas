@@ -62,7 +62,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
   const revisions = useQuery({
     queryKey: ['revisions', service.id],
     queryFn: () => api<Revision[]>(`/services/${service.id}/revisions`),
-    enabled: service.spec.workload.kind === 'oci-service',
+    enabled: service.spec.workload.kind !== 'celld-service',
   })
   const [chosen, setChosen] = useState('')
   const revision = chosen || revisions.data?.[0]?.id || ''
@@ -88,7 +88,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
       await client.invalidateQueries({ queryKey: ['runtime', service.id] })
     },
   })
-  if (service.spec.workload.kind !== 'oci-service') return null
+  if (service.spec.workload.kind === 'celld-service') return null
   const preparing = runtime.data?.deployments.some((d) => d.status === 'preparing')
   return (
     <section className="panel p-6 mb-7 space-y-4" aria-label="Deployments">

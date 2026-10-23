@@ -48,6 +48,19 @@ pub(crate) async fn update(
             "configuration changed since you opened it; reload the configuration before saving",
         ));
     }
+    crate::volumes::validate_scope(&mut tx, &request.spec).await?;
+    if current.spec.workload.is_database() && current.spec.workload != request.spec.workload {
+        let allocated: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM volumes WHERE id=$1)")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if allocated {
+            return Err(ApiError::Conflict(
+                "database name and storage size are immutable after volume allocation",
+            ));
+        }
+    }
     if current.spec.kind() != request.spec.kind() {
         return Err(ApiError::Conflict(
             "an existing service cannot change workload kind; register a separate service",
