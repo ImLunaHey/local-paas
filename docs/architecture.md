@@ -56,30 +56,34 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
   At provisioning, available RAM was approximately 15 GiB; ZFS remained degraded.
   This sizing must be observed, not carried into production as a reservation.
 
-- Three NixOS worker VMs plus a fourth management VM on Lake, subject to a new
-  capacity and host-load inspection. Initial sizing is an experiment, not a
-  reservation: workers 6–8 GiB each, management 4–6 GiB. Builders need a separate
-  disposable VM/sandbox and cannot share management privileges or network reach.
+- Three NixOS worker VMs now run with 2 GiB guest RAM and one vCPU each, after
+  inspecting current host headroom. Management currently runs as development
+  processes on Lake; a dedicated management VM remains the production preference.
+  Initial sizing is an experiment, not a reservation. Builders use their separate
+  VM and cannot share management privileges or network reach.
 - PostgreSQL on management NVMe, outside scheduler control. Application-aware
   backups plus restore drills; healthy ZFS and off-site copies. Do not place
   production state on the array before replacement/resilver and scrub pass.
 - containerd inside worker KVM VMs first; Firecracker behind the same runtime
   contract later, preferably on physical KVM. Evaluate firecracker-containerd.
-- Propose outbound gRPC streams over NetBird with mutually authenticated TLS,
-  per-node certificates, one-use enrollment, short certificate lifetimes and
-  explicit revocation. NetBird membership alone is not node identity. Protocol
-  version, operation ID, generation, and controller fencing epoch accompany
-  commands. The agent durably deduplicates operations and reconciles after
-  restart. No SSH or raw runtime socket as the operating protocol.
+- The initial outbound protocol uses versioned HTTPS JSON sync requests with
+  per-node client certificates and hashed bearer credentials. Local VMs reach a
+  private mTLS gateway through QEMU networking. NetBird transport, one-use
+  enrollment, automated certificate rotation and explicit revocation remain
+  future work. Assignments carry stable identities and generations; the agent
+  durably fences stale generations and reconciles after restart. No SSH or raw
+  runtime socket is exposed as the operating protocol.
 - Propose CNCF Distribution for the OCI registry; retain all digests referenced
   by active deployments and the rollback window. GC must be coordinated with
   writers and use the registry's supported mode; never delete layers by hand.
 - Propose Caddy at the DigitalOcean edge, ACME certificate state backed up,
   health-checked upstreams over NetBird. Initial edge is a single point of
   failure. No DNS-based or second-edge failover claim until designed and tested.
-- One active reconciler/scheduler holds a PostgreSQL advisory lock on a dedicated
-  connection. Losing it fences further mutations. Persist work and results;
-  request handlers never execute a build or deployment inline.
+- The development API runs one reconciler; transaction-scoped PostgreSQL advisory
+  locks serialize placement and promotion. Long-lived scheduler leadership and
+  controller epoch allocation remain necessary before running multiple active
+  controllers. Work and results persist; request handlers never execute a build
+  or start a container inline.
 - Propose OTEL collection; defer telemetry storage selection until ingest,
   retention and maintenance budgets are measured. Product analytics stays
   separate. No unbounded log buffers or local disk growth.

@@ -32,6 +32,11 @@ registered in `preview_routes`, and supports HTTP requests up to 8 MiB with a
 edge routing, production authentication, backup/restore and fleet management
 remain separate release gates.
 
+The development preview runs inside the API process and depends on fresh database
+observations. Controller downtime therefore interrupts this preview even though
+healthy containers continue running. An independent edge with local health checks
+is still needed for ingress that survives controller downtime.
+
 ## Development workers on Lake
 
 Three reproducible NixOS worker VMs use 2 GiB RAM, one vCPU and a 16 GiB NVMe
@@ -103,3 +108,31 @@ stays under `.local/caddy`. An initial Showcase Studio preview is registered at
 `https://lake.tail3275e2.ts.net:5201`, forwarding through the private proxy;
 port 5188 remains the dashboard and existing port 443 routes are unchanged.
 The preview is reachable only inside the tailnet and only routes ready instances.
+
+## Verification on 2026-10-23
+
+- Rust formatting, Clippy, workspace tests, disposable PostgreSQL integration
+  tests, frontend formatting and the production frontend build passed.
+- Browser tests used the real API over Tailscale HTTPS: registration and editable
+  configuration, build queue/cancel, completed image output, live application
+  logs with pause/resume, measured CPU/memory/PIDs, charts and mobile layout.
+- Three individually authenticated workers registered. Showcase Studio reached
+  stabilized readiness with two replicas on different VMs; its private HTTPS
+  preview returned 200. Its readiness path is `/`, since this image has no
+  `/health` route.
+- A candidate deployment with a deliberately nonexistent readiness path failed
+  and both candidates were removed. The original active deployment and its two
+  allocations were preserved; the preview returned 200 throughout sampled checks.
+  The service's valid readiness configuration was restored immediately after
+  creating the candidate snapshot.
+- During a 20-second controller pause, both worker endpoints returned 200.
+  Restarting the controller retained the deployment and instance identities;
+  the private preview returned 200 after restart.
+- With worker 1 stopped, its observation became unknown, worker 2 stayed ready,
+  and the private preview returned 200 using the remaining replica.
+  Restarting worker 1 recovered the same instance identity and restored two ready
+  replicas after stabilization; all three nodes reported healthy.
+
+These are development checks on one physical Lake host. They do not establish
+hardware redundancy, lossless telemetry, automatic cross-node relocation,
+production ingress availability or backup recovery.

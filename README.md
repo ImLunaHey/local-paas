@@ -60,7 +60,7 @@ To use a different **development** database:
 
 ```sh
 export DATABASE_URL='postgresql://user:password@localhost/local_paas'
-cargo run -p control-plane
+cargo run -p control-plane --bin control-plane
 ```
 
 Startup applies embedded SQL migrations. The API does not load `.env` files or
@@ -175,7 +175,11 @@ resolve the hostname normally.
 On NixOS, use a Nix-provided Chromium instead of the downloaded Linux binary by
 setting `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable. Browser coverage
 includes OCI registration, build queue/cancel/reload, celld validation/registration,
-and mobile layout. These tests do not deploy any workload.
+and mobile layout. Set `E2E_COMPLETED_BUILD_SERVICE_ID` to a service with a real
+successful build to check its digest and build output. Set `E2E_RUNNING_SERVICE_ID`
+to a running service with a private preview to check live logs, measured usage,
+charts and application access. These tests observe existing deployments; they do
+not deploy any workload. Restart the build worker after queue/cancel checks.
 
 ## Layout
 
@@ -187,6 +191,7 @@ crates/node-agent     outbound node protocol, containerd adapter, health and tel
 crates/protocol       versioned runtime-independent assignments and observations
 crates/build-runner    bounded mTLS buildctl client, no local Dockerfile execution
 infra/builder         pinned NixOS builder VM and explicit development setup
+infra/workers         three pinned NixOS workers, private identities and mTLS gateway
 web                   Vite / React / Tailwind / TanStack UI
 examples              small OCI and celld manifests
 docs                  decisions, threat boundaries, next milestones
