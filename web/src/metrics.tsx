@@ -1,4 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { defineChart, lineY } from '@tanstack/charts'
+import { Chart as TanStackChart } from '@tanstack/charts/react'
+import { scaleLinear } from '@tanstack/charts/scales/linear'
+import { tooltip } from '@tanstack/charts/tooltip'
 import { useQuery } from '@tanstack/react-query'
 import { Activity } from 'lucide-react'
 import { api, type Service } from './api'
@@ -168,40 +172,76 @@ function Chart({
   unit: string
   scale: number
 }) {
-  const max = Math.max(1, ...samples.map((s) => (s[field] ?? 0) / scale))
-  const start = Date.parse(samples[0].timestamp),
-    end = Date.parse(samples[samples.length - 1].timestamp)
-  let previous = 0
-  const path = samples
-    .map((s) => {
-      const time = Date.parse(s.timestamp)
-      if (s[field] == null) {
-        previous = 0
-        return ''
-      }
-      const move = !previous || time - previous > 20000
-      previous = time
-      return (
-        (move ? 'M' : 'L') +
-        (20 + ((time - start) / Math.max(1, end - start)) * 600) +
-        ' ' +
-        (125 - (s[field]! / scale / max) * 105)
-      )
+  const definition = useMemo(() => {
+    const points: { time: number; value: number | null; node: string }[] = []
+    for (const sample of samples) {
+      const time = Date.parse(sample.timestamp)
+      const previous = points.at(-1)
+      if (previous && time - previous.time > 20000)
+        points.push({ time: previous.time + 1, value: null, node: sample.node })
+      points.push({
+        time,
+        value: sample[field] == null ? null : sample[field]! / scale,
+        node: sample.node,
+      })
+    }
+    return defineChart({
+      marks: [lineY(points, { x: 'time', y: 'value', stroke: '#ff9a62', strokeWidth: 1.75 })],
+      scales: {
+        x: {
+          scale: scaleLinear,
+          axis: {
+            ticks: {
+              count: 3,
+              format: (value) =>
+                new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+            },
+          },
+        },
+        y: {
+          scale: () =>
+            scaleLinear().domain([0, Math.max(1, ...points.map((p) => p.value ?? 0)) * 1.1]),
+          grid: true,
+          axis: {
+            ticks: {
+              count: 4,
+              format: (value) => value.toLocaleString(undefined, { maximumFractionDigits: 1 }),
+            },
+          },
+        },
+      },
+      theme: {
+        foreground: '#a1a1aa',
+        muted: '#81818b',
+        grid: '#29292f',
+        background: 'transparent',
+      },
+      focus: 'nearest-x',
+      maxFocusDistance: Number.POSITIVE_INFINITY,
+      tooltip: {
+        use: tooltip,
+        className: 'metric-tooltip',
+        format: (point) =>
+          new Date(point.datum.time).toLocaleString() +
+          '\n' +
+          label +
+          ': ' +
+          point.datum.value?.toLocaleString(undefined, { maximumFractionDigits: 2 }) +
+          ' ' +
+          unit +
+          '\n' +
+          (point.datum.node === 'combined'
+            ? 'Combined · all reporting instances'
+            : point.datum.node),
+      },
     })
-    .join(' ')
-  const title = label + ' (' + unit + ')'
+  }, [samples, field, scale, label, unit])
   return (
-    <div className="revision-row">
-      <h3 className="text-xs">{title}</h3>
-      <div className="text-xs text-muted mt-2">{max.toFixed(1)}</div>
-      <svg viewBox="0 0 640 140" className="w-full" role="img" aria-label={title}>
-        <path d="M20 125H620 M20 72H620 M20 20H620" stroke="#2c2c30" fill="none" />
-        <path d={path} stroke="#ff9a62" strokeWidth="2" fill="none" />
-      </svg>
-      <div className="flex justify-between text-xs text-muted">
-        <span>{new Date(start).toLocaleTimeString()}</span>
-        <span>{new Date(end).toLocaleTimeString()}</span>
-      </div>
+    <div className="revision-row metric-chart">
+      <h3 className="text-xs mb-3">
+        {label} ({unit})
+      </h3>
+      <TanStackChart definition={definition} height={180} ariaLabel={label + ' (' + unit + ')'} />
     </div>
   )
 }

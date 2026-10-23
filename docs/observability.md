@@ -42,3 +42,13 @@ excludes loopback and includes readiness probes.
 
 Checked with Rust formatting, Clippy, unit tests, disposable PostgreSQL integration
 tests, frontend compilation and real browser checks through Tailscale HTTPS.
+
+The runtime log view applies filters automatically (text input waits 250 ms), with
+sticky column headings and expandable structured fields. Activity lists paginated
+deployment history and links to an instance's archived logs using a `?instance=`
+URL; this does not require the container or node to still exist. Retention limits
+and pre-ingestion loss limitations described above still apply.
+
+Runtime metrics use TanStack Charts with a shared dark tooltip, available to both
+pointer and keyboard users. TanStack Query and Router devtools are available from
+the floating launcher in development mode; production builds omit the panels.

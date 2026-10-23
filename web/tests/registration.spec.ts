@@ -224,10 +224,8 @@ test('filter retained logs and switch combined and instance metrics', async ({ p
   await page.goto('/services/' + serviceId + '/logs')
   await expect(page.getByText('ClickHouse connected', { exact: true })).toBeVisible()
   await page.getByLabel('Search logs', { exact: true }).fill('Ready in')
-  await page.getByRole('button', { name: 'Apply filters' }).click()
   await expect(page.getByLabel('Application output')).toContainText('Ready in')
   await page.getByLabel('Level', { exact: true }).selectOption('error')
-  await page.getByRole('button', { name: 'Apply filters' }).click()
   await expect(page.getByRole('heading', { name: 'No matching log entries' })).toBeVisible()
   await page.getByRole('button', { name: 'Clear', exact: true }).click()
   await expect(page.getByLabel('Application output')).toContainText('Ready in')
@@ -275,4 +273,68 @@ test('open the application from its header and inspect networking', async ({ pag
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,
   )
+})
+
+test('open archived instance logs from activity and filter on change', async ({ page }) => {
+  const id = process.env.E2E_RUNNING_SERVICE_ID
+  test.skip(!id, 'Requires a real deployment history')
+  await page.goto('/services/' + id + '/activity')
+  const history = page.getByLabel('Deployment history')
+  const old = history.locator('.history-instance').filter({ hasText: 'stopped' }).first()
+  await expect(old).toBeVisible()
+  const href = await old.getByRole('link', { name: 'View logs' }).getAttribute('href')
+  const instance = new URL(href!, 'https://localhost').searchParams.get('instance')!
+  await old.getByRole('link', { name: 'View logs' }).click()
+  await expect(page).toHaveURL(/\/logs\?instance=/)
+  await expect(page.getByText('Showing instance')).toContainText(instance)
+  await expect(page.locator('.log-columns')).toContainText('Message')
+  const rows = page.locator('.runtime-log-row')
+  await expect(rows.first()).toBeVisible()
+  for (const text of await rows.locator('.log-line .log-instance').allTextContents())
+    expect(text).toBe(instance.slice(0, 8))
+  await rows.first().locator('summary').first().click()
+  await expect(rows.first().locator('.log-detail')).toBeVisible()
+  await page.getByLabel('Search logs', { exact: true }).fill('no-match-' + crypto.randomUUID())
+  await expect(page.getByRole('heading', { name: 'No matching log entries' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Apply filters' })).toHaveCount(0)
+  await page.getByLabel('Search logs', { exact: true }).fill('')
+  await expect(rows.first()).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('Showing instance')).toContainText(instance)
+  await page.screenshot({ path: '../.local/logs-compact.png', fullPage: true })
+})
+
+test('all metric charts have dark pointer and keyboard tooltips', async ({ page }) => {
+  const id = process.env.E2E_RUNNING_SERVICE_ID
+  test.skip(!id, 'Requires live metrics')
+  await page.goto('/services/' + id + '/metrics')
+  const charts = page.locator('.metric-chart')
+  await expect(charts).toHaveCount(6)
+  for (const chart of await charts.all()) {
+    const image = chart.getByRole('img')
+    await image.scrollIntoViewIfNeeded()
+    const box = await image.boundingBox()
+    await page.mouse.move(box!.x + box!.width * 0.6, box!.y + box!.height * 0.5)
+    const tip = chart.locator('.metric-tooltip')
+    await expect(tip).toBeVisible()
+    await expect(tip).toHaveCSS('background-color', 'rgb(26, 26, 30)')
+    await expect(tip).toContainText('Combined')
+    await page.mouse.move(0, 0)
+    await image.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(tip).toBeVisible()
+    await page.keyboard.press('Escape')
+  }
+  await page.screenshot({ path: '../.local/metrics-tanstack.png', fullPage: true })
+})
+
+test('expose TanStack Query and Router devtools', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open TanStack Devtools', exact: true }).click()
+  await expect(page.getByText('TanStack Query', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('TanStack Router', { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Close TanStack Devtools', exact: true }).click()
+  await expect(
+    page.getByRole('button', { name: 'Open TanStack Devtools', exact: true }),
+  ).toBeVisible()
 })

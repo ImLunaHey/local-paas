@@ -16,6 +16,7 @@ use uuid::Uuid;
 pub mod builds;
 mod configuration;
 mod environments;
+mod history;
 pub mod logging;
 mod networking;
 pub mod preview;
@@ -38,7 +39,10 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
             get(get_service).put(configuration::update),
         )
         .route("/api/services/{id}/events", get(list_events))
-        .route("/api/services/{id}/deployments", post(runtime::deploy))
+        .route(
+            "/api/services/{id}/deployments",
+            get(history::list).post(runtime::deploy),
+        )
         .route("/api/deployments/{id}/stop", post(runtime::stop))
         .route("/api/services/{id}/runtime", get(runtime::status))
         .route("/api/services/{id}/runtime/logs", get(logging::logs))

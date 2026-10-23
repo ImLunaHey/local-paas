@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import { Pause, Play, Search, Terminal } from 'lucide-react'
+import { Link, useSearch } from '@tanstack/react-router'
+import { Pause, Play, Terminal } from 'lucide-react'
 import { api, type Service } from './api'
 import { useRuntime } from './runtime'
 
@@ -45,9 +45,19 @@ const empty: Filters = {
   until: '',
 }
 export function LogViewer({ service }: { service: Service }) {
+  const search = useSearch({ strict: false }) as { instance?: string }
+  return (
+    <LogWorkspace
+      key={service.id + (search.instance ?? '')}
+      service={service}
+      instance={search.instance ?? ''}
+    />
+  )
+}
+function LogWorkspace({ service, instance }: { service: Service; instance: string }) {
   const runtime = useRuntime(service.id)
-  const [draft, setDraft] = useState(empty)
-  const [filters, setFilters] = useState(empty)
+  const [draft, setDraft] = useState({ ...empty, instance_id: instance })
+  const [filters, setFilters] = useState({ ...empty, instance_id: instance })
   const storage = useQuery({
     queryKey: ['log-storage'],
     queryFn: () =>
@@ -60,127 +70,161 @@ export function LogViewer({ service }: { service: Service }) {
       }>('/log-storage'),
     refetchInterval: 15000,
   })
-  const set = (key: keyof Filters, value: string) => setDraft((old) => ({ ...old, [key]: value }))
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (
+        (draft.from && !Number.isFinite(Date.parse(draft.from))) ||
+        (draft.until && !Number.isFinite(Date.parse(draft.until)))
+      )
+        return
+      if (!/^[A-Za-z0-9_.]*$/.test(draft.field)) return
+      setFilters(draft)
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [draft])
+  const set = (key: keyof Filters, value: string) => {
+    const next = { ...draft, [key]: value }
+    setDraft(next)
+    if (['level', 'stream', 'instance_id'].includes(key)) setFilters({ ...filters, [key]: value })
+  }
   return (
-    <section className="panel p-6 space-y-5" aria-label="Runtime logs">
+    <section className="panel p-5 space-y-4" aria-label="Runtime logs">
       <div className="section-heading">
         <div>
           <h2>Runtime logs</h2>
-          <p className="text-xs text-muted mt-2">
-            Structured events and plain text · stdout and stderr
-          </p>
         </div>
         <span className="chip">
           {storage.data?.available ? 'ClickHouse connected' : 'Archive unavailable'}
         </span>
       </div>
       <form
-        className="log-filters grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        className="log-filters space-y-3"
         onSubmit={(e) => {
           e.preventDefault()
           setFilters({ ...draft })
         }}
       >
-        <label className="field sm:col-span-2">
-          Search logs
-          <input
-            aria-label="Search logs"
-            value={draft.search}
-            onChange={(e) => set('search', e.target.value)}
-            placeholder="Message or any JSON field"
-            maxLength={512}
-          />
-        </label>
-        <label className="field">
-          Level
-          <select
-            aria-label="Level"
-            value={draft.level}
-            onChange={(e) => set('level', e.target.value)}
-          >
-            <option value="">All levels</option>
-            {['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'unclassified'].map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Stream
-          <select
-            aria-label="Stream"
-            value={draft.stream}
-            onChange={(e) => set('stream', e.target.value)}
-          >
-            <option value="">stdout + stderr</option>
-            <option>stdout</option>
-            <option>stderr</option>
-          </select>
-        </label>
-        <label className="field sm:col-span-2">
-          Instance
-          <select
-            aria-label="Log instance"
-            value={draft.instance_id}
-            onChange={(e) => set('instance_id', e.target.value)}
-          >
-            <option value="">All instances</option>
-            {runtime.data?.instances.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.node_name} · {i.id.slice(0, 8)} · {i.state}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          JSON field
-          <input
-            value={draft.field}
-            onChange={(e) => set('field', e.target.value)}
-            placeholder="request.id"
-            maxLength={128}
-            pattern="[A-Za-z0-9_.]*"
-          />
-        </label>
-        <label className="field">
-          Field equals
-          <input
-            value={draft.value}
-            onChange={(e) => set('value', e.target.value)}
-            placeholder="Exact value"
-            maxLength={512}
-          />
-        </label>
-        <label className="field">
-          From
-          <input
-            type="datetime-local"
-            value={draft.from}
-            onChange={(e) => set('from', e.target.value)}
-          />
-        </label>
-        <label className="field">
-          Until
-          <input
-            type="datetime-local"
-            value={draft.until}
-            onChange={(e) => set('until', e.target.value)}
-          />
-        </label>
-        <div className="flex gap-2 items-end sm:col-span-2">
-          <button className="button primary" type="submit">
-            <Search size={14} /> Apply filters
-          </button>
-          <button
-            className="button"
-            type="button"
-            onClick={() => {
-              setDraft(empty)
-              setFilters(empty)
-            }}
-          >
-            Clear
-          </button>
+        <div className="log-toolbar">
+          <label className="field log-search">
+            <span className="sr-only">Search logs</span>
+            <input
+              aria-label="Search logs"
+              value={draft.search}
+              onChange={(e) => set('search', e.target.value)}
+              placeholder="Message or any JSON field"
+              maxLength={512}
+            />
+          </label>
+          <label className="field">
+            <span className="sr-only">Level</span>
+            <select
+              aria-label="Level"
+              value={draft.level}
+              onChange={(e) => set('level', e.target.value)}
+            >
+              <option value="">All levels</option>
+              {['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'unclassified'].map((l) => (
+                <option key={l}>{l}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="sr-only">Stream</span>
+            <select
+              aria-label="Stream"
+              value={draft.stream}
+              onChange={(e) => set('stream', e.target.value)}
+            >
+              <option value="">stdout + stderr</option>
+              <option>stdout</option>
+              <option>stderr</option>
+            </select>
+          </label>
+          <div className="flex gap-2">
+            <button
+              className="button"
+              type="button"
+              onClick={() => {
+                setDraft(empty)
+                setFilters(empty)
+              }}
+            >
+              Clear
+            </button>
+          </div>{' '}
         </div>
+        {filters.instance_id && (
+          <div className="text-xs text-muted">
+            Showing instance <code>{filters.instance_id}</code>
+          </div>
+        )}
+        <details className="log-advanced">
+          <summary>
+            More filters
+            {[filters.instance_id, filters.field, filters.from, filters.until].filter(Boolean)
+              .length
+              ? ' · active'
+              : ''}
+          </summary>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 pt-3">
+            <label className="field sm:col-span-2">
+              Instance
+              <select
+                aria-label="Log instance"
+                value={draft.instance_id}
+                onChange={(e) => set('instance_id', e.target.value)}
+              >
+                <option value="">All instances</option>
+                {draft.instance_id &&
+                  !runtime.data?.instances.some((i) => i.id === draft.instance_id) && (
+                    <option value={draft.instance_id}>
+                      Archived · {draft.instance_id.slice(0, 8)}
+                    </option>
+                  )}
+                {runtime.data?.instances.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.node_name} · {i.id.slice(0, 8)} · {i.state}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              JSON field
+              <input
+                value={draft.field}
+                onChange={(e) => set('field', e.target.value)}
+                placeholder="request.id"
+                maxLength={128}
+                pattern="[A-Za-z0-9_.]*"
+              />
+            </label>
+            <label className="field">
+              Field equals
+              <input
+                value={draft.value}
+                onChange={(e) => set('value', e.target.value)}
+                placeholder="Exact value"
+                maxLength={512}
+              />
+            </label>
+            <label className="field">
+              From
+              <input
+                type="datetime-local"
+                value={draft.from}
+                onChange={(e) => set('from', e.target.value)}
+              />
+            </label>
+            <label className="field">
+              Until
+              <input
+                type="datetime-local"
+                value={draft.until}
+                onChange={(e) => set('until', e.target.value)}
+              />
+            </label>
+          </div>
+        </details>
       </form>
       <LogFeed
         key={service.id + JSON.stringify(filters)}
@@ -202,10 +246,7 @@ export function LogViewer({ service }: { service: Service }) {
         </span>
         <span>{storage.data?.pending_entries ?? '—'} entries awaiting archival</span>
       </div>
-      <p className="text-xs text-muted">
-        Severity is read from structured level/severity fields. Plain text stays unclassified;
-        stderr is a stream, not an error level. Persistent storage still needs independent backups.
-      </p>
+
       {!runtime.data?.instances.length && (
         <Link
           className="back-link"
@@ -328,42 +369,54 @@ function LogFeed({
             follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
           }}
         >
+          <div className="log-line log-columns" aria-hidden="true">
+            <span>Time</span>
+            <span>Level</span>
+            <span className="log-stream">Stream</span>
+            <span className="log-instance">Instance</span>
+            <span>Message</span>
+          </div>
           {logs.data.entries.map((l) => (
-            <article key={l.sequence} className="runtime-log-row" data-level={l.level}>
-              <div className="flex flex-wrap items-center gap-2 text-muted">
-                <time dateTime={l.timestamp}>{new Date(l.timestamp).toLocaleString()}</time>
-                <span>
-                  {l.node} / {l.instance_id.slice(0, 8)}
+            <details key={l.sequence} className="runtime-log-row" data-level={l.level}>
+              <summary className="log-line" aria-label={'Expand log ' + l.sequence}>
+                <time dateTime={l.timestamp} title={new Date(l.timestamp).toLocaleString()}>
+                  {new Date(l.timestamp).toLocaleTimeString('en-GB', { hour12: false })}
+                </time>
+                <span className="log-level">{l.level === 'unclassified' ? '—' : l.level}</span>
+                <span className="log-stream">{l.stream}</span>
+                <span className="log-instance" title={l.node + ' / ' + l.instance_id}>
+                  {l.instance_id.slice(0, 8)}
                 </span>
-                <span className="chip">{l.stream}</span>
-                {l.level !== 'unclassified' && <span className="log-level">{l.level}</span>}
-              </div>
-              <pre>{l.message || l.line}</pre>
-              {l.fields && (
-                <details>
-                  <summary className="cursor-pointer text-muted text-xs">Structured fields</summary>
-                  <div className="flex flex-wrap gap-2 my-2">
-                    {flatFields(l.fields)
-                      .slice(0, 24)
-                      .map(([field, value]) => (
+                <span className="log-message">{l.message || l.line || ' '}</span>
+              </summary>
+              <div className="log-detail">
+                <div className="text-muted mb-3">
+                  {new Date(l.timestamp).toLocaleString()} · {l.node} · {l.instance_id}
+                </div>
+                <pre>{l.message || l.line}</pre>
+                {l.fields && (
+                  <>
+                    <h4 className="mt-4 mb-2 text-muted">Structured fields</h4>
+                    <div className="log-field-list">
+                      {flatFields(l.fields).map(([field, value]) => (
                         <button
                           key={field}
-                          className="chip"
                           title={'Filter ' + field}
                           onClick={() => selectField(field, value)}
                         >
-                          {field}: {value.slice(0, 100)}
+                          <span>{field}</span>
+                          <code>{value}</code>
                         </button>
                       ))}
-                  </div>
-                  <pre>{JSON.stringify(l.fields, null, 2)}</pre>
-                  <details>
-                    <summary>Original output</summary>
-                    <pre>{l.line}</pre>
-                  </details>
+                    </div>
+                  </>
+                )}
+                <details className="mt-3 text-muted">
+                  <summary>Original output</summary>
+                  <pre>{l.line}</pre>
                 </details>
-              )}
-            </article>
+              </div>
+            </details>
           ))}
         </div>
       ) : (

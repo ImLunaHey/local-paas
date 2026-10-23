@@ -1,3 +1,7 @@
+import { TanStackDevtools } from '@tanstack/react-devtools'
+import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
+import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
+import { DeploymentHistory } from './history'
 import { EnvironmentManager, environmentsQuery } from './environments'
 import { Networking } from './networking'
 import { cloneElement, useId, createContext, StrictMode, useContext, useRef, useState } from 'react'
@@ -111,6 +115,14 @@ function Shell() {
         </header>
         <main>
           <Outlet />
+          {import.meta.env.DEV && (
+            <TanStackDevtools
+              plugins={[
+                { name: 'TanStack Query', render: <ReactQueryDevtoolsPanel /> },
+                { name: 'TanStack Router', render: <TanStackRouterDevtoolsPanel /> },
+              ]}
+            />
+          )}
         </main>
         <footer>
           Built for a smaller cloud.
@@ -1171,6 +1183,8 @@ function ServiceActivity() {
   return (
     <section className="panel p-6" aria-label="Service activity">
       <h2 className="mb-6">Activity</h2>
+      <DeploymentHistory serviceId={service.id} />
+      <h3 className="my-6 text-sm">Events</h3>
       {events.isPending ? (
         <p className="text-muted text-sm">Loading activity…</p>
       ) : events.isError ? (
@@ -1272,6 +1286,12 @@ const serviceConfigurationRoute = createRoute({
 const serviceLogsRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'logs',
+  validateSearch: (search: Record<string, unknown>): { instance?: string } => ({
+    instance:
+      typeof search.instance === 'string' && /^[0-9a-f-]{36}$/i.test(search.instance)
+        ? search.instance
+        : undefined,
+  }),
   component: () => <ServiceRuntime view="logs" />,
 })
 const serviceMetricsRoute = createRoute({
