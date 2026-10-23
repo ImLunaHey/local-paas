@@ -1,0 +1,11 @@
+/target/
+/web/node_modules/
+/web/dist/
+/.local/
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+/web/test-results/
+/web/playwright-report/

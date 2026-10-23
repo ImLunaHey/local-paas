@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "project": "sandbox",
+  "environment": "development",
+  "name": "durable-canary",
+  "source": {
+    "repository": "https://github.com/example/durable-canary.git",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "resources": { "cpu_millis": 1000, "memory_mib": 1024 },
+  "distinct_nodes": true,
+  "domains": [],
+  "secrets": [],
+  "workload": {
+    "kind": "celld-service",
+    "wrangler": "wrangler.jsonc",
+    "members": 3,
+    "bucket_ref": "durable-canary-bucket"
+  }
+}

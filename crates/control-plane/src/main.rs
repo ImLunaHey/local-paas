@@ -1,0 +1,62 @@
+use sqlx::postgres::PgPoolOptions;
+use std::{
+    env,
+    net::{Ipv4Addr, SocketAddrV4},
+    time::Duration,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "control_plane=info".into()),
+        )
+        .init();
+    let database_url =
+        env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required; see README.md")?;
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&database_url)
+        .await
+        .map_err(|_| "cannot connect to PostgreSQL")?;
+    control_plane::migrate(&pool)
+        .await
+        .map_err(|_| "database migration failed")?;
+    let port = env::var("PORT")
+        .unwrap_or_else(|_| "8080".into())
+        .parse::<u16>()?;
+    let mut browser_origins =
+        vec![env::var("BROWSER_ORIGIN").unwrap_or_else(|_| "http://localhost:5188".into())];
+    if let Ok(public_origin) = env::var("PUBLIC_ORIGIN")
+        && !public_origin.is_empty()
+    {
+        browser_origins.push(public_origin);
+    }
+    let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    tracing::info!(%address, "local development control API listening");
+    axum::serve(
+        listener,
+        control_plane::router(pool.clone(), browser_origins),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await?;
+    pool.close().await;
+    Ok(())
+}
+
+async fn shutdown() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("install SIGTERM handler");
+        tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}

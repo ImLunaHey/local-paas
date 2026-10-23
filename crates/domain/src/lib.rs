@@ -1,0 +1,355 @@
+//! Runtime-independent desired state. Contains references, never secret values.
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceSpec {
+    pub schema_version: u32,
+    pub project: String,
+    pub environment: String,
+    pub name: String,
+    pub source: GitSource,
+    pub resources: Resources,
+    pub distinct_nodes: bool,
+    pub domains: Vec<String>,
+    pub secrets: Vec<String>,
+    pub workload: Workload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitSource {
+    pub repository: String,
+    pub commit: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Resources {
+    pub cpu_millis: u32,
+    pub memory_mib: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum Workload {
+    OciService {
+        dockerfile: String,
+        context: String,
+        replicas: u16,
+        port: u16,
+        readiness: Readiness,
+    },
+    CelldService {
+        wrangler: String,
+        members: u16,
+        bucket_ref: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Readiness {
+    pub path: String,
+    pub interval_seconds: u16,
+    pub stabilization_seconds: u16,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ValidationIssue {
+    pub field: String,
+    pub message: String,
+}
+
+impl ServiceSpec {
+    pub fn validate(&self) -> Result<(), Vec<ValidationIssue>> {
+        let mut issues = Vec::new();
+        let mut check = |valid: bool, field: &str, message: &str| {
+            if !valid {
+                issues.push(ValidationIssue {
+                    field: field.into(),
+                    message: message.into(),
+                });
+            }
+        };
+        check(self.schema_version == 1, "schema_version", "must be 1");
+        for (field, value) in [
+            ("project", &self.project),
+            ("environment", &self.environment),
+            ("name", &self.name),
+        ] {
+            check(
+                slug(value),
+                field,
+                "use 1–63 lowercase letters, digits or interior hyphens",
+            );
+        }
+        let repo = url::Url::parse(&self.source.repository);
+        check(
+            self.source.repository.len() <= 2048
+                && repo.is_ok_and(|url| {
+                    url.scheme() == "https"
+                        && url.host_str().is_some()
+                        && url.username().is_empty()
+                        && url.password().is_none()
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                }),
+            "source.repository",
+            "use an HTTPS repository URL without credentials, query or fragment",
+        );
+        check(
+            matches!(self.source.commit.len(), 40 | 64)
+                && self
+                    .source
+                    .commit
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+            "source.commit",
+            "use a full lowercase Git commit hash (40 or 64 hex characters)",
+        );
+        check(
+            (1..=64000).contains(&self.resources.cpu_millis),
+            "resources.cpu_millis",
+            "must be between 1 and 64000 per instance",
+        );
+        check(
+            (16..=65536).contains(&self.resources.memory_mib),
+            "resources.memory_mib",
+            "must be between 16 and 65536 per instance",
+        );
+        check(self.domains.len() <= 20, "domains", "at most 20 domains");
+        let mut domains = HashSet::new();
+        for domain in &self.domains {
+            check(
+                domain.len() <= 253 && domain.contains('.') && domain.split('.').all(slug),
+                "domains",
+                "use lowercase DNS names without a scheme, port or wildcard",
+            );
+            check(domains.insert(domain), "domains", "domains must be unique");
+        }
+        check(
+            self.secrets.len() <= 100,
+            "secrets",
+            "at most 100 secret names",
+        );
+        let mut secrets = HashSet::new();
+        for secret in &self.secrets {
+            check(
+                !secret.is_empty()
+                    && secret.len() <= 128
+                    && secret.bytes().enumerate().all(|(i, c)| {
+                        c == b'_' || c.is_ascii_uppercase() || (i > 0 && c.is_ascii_digit())
+                    }),
+                "secrets",
+                "use environment-variable names only; never supply values or paths",
+            );
+            check(
+                secrets.insert(secret),
+                "secrets",
+                "secret names must be unique",
+            );
+        }
+        match &self.workload {
+            Workload::OciService {
+                dockerfile,
+                context,
+                replicas,
+                port,
+                readiness,
+            } => {
+                check(
+                    relative_path(dockerfile, false),
+                    "workload.dockerfile",
+                    "use a repository-relative file path without traversal",
+                );
+                check(
+                    relative_path(context, true),
+                    "workload.context",
+                    "use a repository-relative directory or . without traversal",
+                );
+                check(
+                    (1..=32).contains(replicas),
+                    "workload.replicas",
+                    "must be between 1 and 32",
+                );
+                check(*port != 0, "workload.port", "must be between 1 and 65535");
+                check(
+                    readiness.path.len() <= 1024
+                        && readiness.path.starts_with('/')
+                        && !readiness.path.starts_with("//")
+                        && !readiness.path.contains(['\r', '\n', '#', '\\'])
+                        && !readiness.path.chars().any(char::is_control),
+                    "workload.readiness.path",
+                    "use an absolute HTTP path beginning with a single /",
+                );
+                check(
+                    (1..=300).contains(&readiness.interval_seconds),
+                    "workload.readiness.interval_seconds",
+                    "must be between 1 and 300",
+                );
+                check(
+                    readiness.stabilization_seconds >= readiness.interval_seconds
+                        && readiness.stabilization_seconds <= 3600,
+                    "workload.readiness.stabilization_seconds",
+                    "must cover at least one check interval and be at most 3600",
+                );
+            }
+            Workload::CelldService {
+                wrangler,
+                members,
+                bucket_ref,
+            } => {
+                check(
+                    relative_path(wrangler, false),
+                    "workload.wrangler",
+                    "use a repository-relative Wrangler file path without traversal",
+                );
+                check(
+                    (2..=32).contains(members),
+                    "workload.members",
+                    "fleet durability starts with 2–32 members",
+                );
+                check(
+                    slug(bucket_ref),
+                    "workload.bucket_ref",
+                    "use a fleet-scoped bucket configuration reference, not credentials",
+                );
+            }
+        }
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(issues)
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self.workload {
+            Workload::OciService { .. } => "oci-service",
+            Workload::CelldService { .. } => "celld-service",
+        }
+    }
+}
+
+fn slug(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 63
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+}
+
+fn relative_path(value: &str, directory: bool) -> bool {
+    (directory && value == ".")
+        || (!value.is_empty()
+            && value.len() <= 1024
+            && !value.contains(['\\', ':'])
+            && !value.chars().any(char::is_control)
+            && value
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != ".."))
+}
+
+/// The only image identifier accepted by the runtime: a SHA-256 OCI digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ImageDigest(String);
+
+impl TryFrom<String> for ImageDigest {
+    type Error = &'static str;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.strip_prefix("sha256:").is_some_and(|hash| {
+            hash.len() == 64
+                && hash
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        }) {
+            Ok(Self(value))
+        } else {
+            Err("expected sha256: followed by 64 lowercase hexadecimal characters")
+        }
+    }
+}
+
+impl From<ImageDigest> for String {
+    fn from(value: ImageDigest) -> Self {
+        value.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn example() -> ServiceSpec {
+        serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap()
+    }
+
+    #[test]
+    fn both_workload_examples_validate() {
+        example().validate().unwrap();
+        serde_json::from_str::<ServiceSpec>(include_str!("../../../examples/celld-service.json"))
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+
+    #[test]
+    fn rejects_credentials_and_mutable_commits() {
+        let mut spec = example();
+        spec.source.repository = "https://user:secret@example.com/repo.git".into();
+        spec.source.commit = "main".into();
+        let issues = spec.validate().unwrap_err();
+        assert!(issues.iter().any(|i| i.field == "source.repository"));
+        assert!(issues.iter().any(|i| i.field == "source.commit"));
+    }
+
+    #[test]
+    fn rejects_paths_and_values_that_cross_boundaries() {
+        for path in [
+            "../Dockerfile",
+            "/Dockerfile",
+            "src/../../Dockerfile",
+            "a\\Dockerfile",
+            "a//Dockerfile",
+            "C:/Dockerfile",
+        ] {
+            assert!(!relative_path(path, false), "{path}");
+        }
+        let mut spec = example();
+        spec.secrets = vec!["DATABASE_URL=secret".into()];
+        spec.domains = vec!["https://example.com".into()];
+        assert_eq!(spec.validate().unwrap_err().len(), 2);
+    }
+
+    #[test]
+    fn unknown_fields_cannot_silently_disable_policy() {
+        let mut value = serde_json::to_value(example()).unwrap();
+        value["workload"]["privileged"] = true.into();
+        assert!(serde_json::from_value::<ServiceSpec>(value).is_err());
+    }
+
+    #[test]
+    fn readiness_requires_time_to_stabilize() {
+        let mut spec = example();
+        if let Workload::OciService { readiness, .. } = &mut spec.workload {
+            readiness.stabilization_seconds = 0;
+        }
+        assert!(
+            spec.validate()
+                .unwrap_err()
+                .iter()
+                .any(|i| i.field.ends_with("stabilization_seconds"))
+        );
+    }
+
+    #[test]
+    fn runtime_rejects_mutable_image_names() {
+        assert!(ImageDigest::try_from("nginx:latest".to_string()).is_err());
+        assert!(ImageDigest::try_from(format!("sha256:{}", "a".repeat(64))).is_ok());
+        assert!(serde_json::from_str::<ImageDigest>("\"sha256:abc\"").is_err());
+    }
+}

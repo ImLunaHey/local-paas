@@ -1,0 +1,63 @@
+export type Workload =
+  | {
+      kind: 'oci-service'
+      dockerfile: string
+      context: string
+      replicas: number
+      port: number
+      readiness: { path: string; interval_seconds: number; stabilization_seconds: number }
+    }
+  | { kind: 'celld-service'; wrangler: string; members: number; bucket_ref: string }
+
+export interface ServiceSpec {
+  schema_version: number
+  project: string
+  environment: string
+  name: string
+  source: { repository: string; commit: string }
+  resources: { cpu_millis: number; memory_mib: number }
+  distinct_nodes: boolean
+  domains: string[]
+  secrets: string[]
+  workload: Workload
+}
+
+export interface Service {
+  id: string
+  operation_id: string
+  spec: ServiceSpec
+  created_at: string
+}
+export interface AuditEvent {
+  id: string
+  operation_id: string
+  kind: string
+  created_at: string
+}
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api${path}`, init)
+  if (!response.ok) {
+    const text = await response.text()
+    let message = `Request failed (${response.status})`
+    try {
+      const error = JSON.parse(text) as {
+        error?: string
+        issues?: { field: string; message: string }[]
+      }
+      message =
+        error.issues?.map((issue) => `${issue.field}: ${issue.message}`).join('\n') ||
+        error.error ||
+        message
+    } catch {
+      /* Framework rejections are plain text. Don't render submitted data. */
+    }
+    throw new Error(message)
+  }
+  return response.json() as Promise<T>
+}
+
+export const serviceQuery = (id: string) => ({
+  queryKey: ['services', id],
+  queryFn: () => api<Service>(`/services/${id}`),
+})

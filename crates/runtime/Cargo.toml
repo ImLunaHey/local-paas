@@ -1,0 +1,12 @@
+[package]
+name = "platform-runtime"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+platform-domain = { path = "../domain" }
+async-trait = "0.1"
+futures-core = "0.3"
+uuid.workspace = true
+thiserror.workspace = true
