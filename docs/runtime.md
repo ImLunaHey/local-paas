@@ -31,3 +31,75 @@ registered in `preview_routes`, and supports HTTP requests up to 8 MiB with a
 60-second upstream timeout. It does not yet support WebSocket upgrades. Public
 edge routing, production authentication, backup/restore and fleet management
 remain separate release gates.
+
+## Development workers on Lake
+
+Three reproducible NixOS worker VMs use 2 GiB RAM, one vCPU and a 16 GiB NVMe
+virtual disk each. Host cgroups cap each QEMU at one CPU and 2600 MiB. Each node
+reports 1000 millicores and 1400 MiB as allocatable, leaving guest overhead.
+They are three scheduling nodes in one physical failure domain. They do not
+share the NAS filesystem or host Nix store. ZFS is not used.
+
+`infra/workers/build.sh` builds the Rust agent, packages it with explicit Nix
+runtime libraries, and builds the three VM closures in an ignored staging flake.
+`credentials.sh` creates distinct node UUIDs, random bearer credentials, a private
+CA and mutually authenticated TLS certificates (30-day development validity).
+Keys remain outside Git and the Nix store. A private credentials ISO is copied
+into each VM's tmpfs at boot. `enroll-node` stores only a token hash in PostgreSQL.
+The host's loopback Caddy gateway exposes only the agent sync route over mTLS.
+
+For this local VM stage, agents reach the gateway through QEMU's private host
+address; the controller URL is configuration, so the same protocol can move to
+NetBird and physical nodes. NetBird enrollment is not implemented by these
+scripts. The development registry is reachable only through a node-local mirror
+configuration; workloads cannot reach it or the controller. Host UID-scoped
+firewall rules permit only those two loopback ports and reject other private
+networks. Workload rules deny private destinations and allow public HTTP/HTTPS
+and explicit public DNS resolvers.
+
+The agent uses a pinned nerdctl client inside the VM to control containerd.
+It sets user-namespace remapping, UID/GID 1000, read-only roots, bounded tmpfs,
+CPU/memory/PID/I/O limits, no-new-privileges, dropped capabilities, default seccomp,
+and an AppArmor policy. No arbitrary mounts, devices, environment secrets or
+runtime sockets are accepted. Images are pulled by digest. Operation generations
+are persisted before execution; a corrupt record fails closed. Container names
+are stable instance UUIDs, so retries inspect existing containers.
+
+The first adapter deliberately rejects administrative Exec and following the
+low-level log stream. Live UI logs use the agent's bounded polling transport.
+The agent tails rotating JSON logs (2 MiB per instance), reports recent entries
+and real cgroup measurements, and the controller deduplicates observations.
+This is recent operational output, not lossless archival log delivery. Container
+images and old stopped-instance log files currently require manual GC in the
+isolated node; the VM disk remains bounded. There is no distributed volume support.
+
+Prepare and enroll after measuring host headroom:
+
+```sh
+bash infra/workers/build.sh
+bash infra/workers/credentials.sh
+# Set DATABASE_URL to this checkout's development Unix-socket database.
+for n in 1 2 3; do
+  cargo run -p control-plane --bin enroll-node -- ".local/worker-credentials/$n/config.json"
+done
+# Start the private mTLS gateway using .local/worker-tools/bin/caddy run
+# --config "$PWD/.local/worker-credentials/Caddyfile" --adapter caddyfile.
+for n in 1 2 3; do bash infra/workers/start.sh "$n"; done
+```
+
+Run the API separately. Stopping/restarting a worker unit affects that VM only;
+`start.sh` refuses to replace a running VM. Its disk and node identity persist.
+No platform component is installed into or scheduled by its own runtime.
+
+Host UIDs 61000–61003 are reserved by the scripts for the builder and three
+workers. They refuse an unexpected identity. This avoids default system-UID
+reuse if a host NixOS activation removes manually created users. These transient
+units and users are development provisioning; integrate their declarations into
+Lake's reviewed NixOS configuration before relying on host reboot recovery.
+Do not let an unrelated host service use these reserved UIDs.
+
+Start the scoped gateway with `bash infra/workers/gateway.sh`. Its Caddy state
+stays under `.local/caddy`. An initial Showcase Studio preview is registered at
+`https://lake.tail3275e2.ts.net:5201`, forwarding through the private proxy;
+port 5188 remains the dashboard and existing port 443 routes are unchanged.
+The preview is reachable only inside the tailnet and only routes ready instances.

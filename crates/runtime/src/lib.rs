@@ -61,6 +61,7 @@ pub enum Mount {
 #[derive(Debug, Clone)]
 pub struct NetworkPolicy {
     pub declared_port: u16,
+    pub published_port: u16,
     pub allowed_egress: Vec<EgressRule>,
 }
 
@@ -119,6 +120,8 @@ pub type LogStream = Pin<Box<dyn Stream<Item = Result<LogEntry, RuntimeError>> +
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error("runtime operation is not supported by this adapter")]
+    Unsupported,
     #[error("instance not found")]
     NotFound,
     #[error("operation rejected by fencing or generation check")]

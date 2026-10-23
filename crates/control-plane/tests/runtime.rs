@@ -195,7 +195,7 @@ async fn node_identity_and_generations_fence_observations(pool: PgPool) {
         .unwrap()
         .parse::<Uuid>()
         .unwrap();
-    let observation = json!({"instance_id":id,"generation":0,"state":"ready","diagnostic":null,"metrics":null,"logs":[]});
+    let observation = json!({"observed_unix_ms":chrono::Utc::now().timestamp_millis(),"instance_id":id,"generation":0,"state":"ready","diagnostic":null,"metrics":null,"logs":[]});
     call(
         &pool,
         "/api/agent/sync",
@@ -210,7 +210,7 @@ async fn node_identity_and_generations_fence_observations(pool: PgPool) {
         .unwrap();
     assert_eq!(state, "assigned");
     let log = json!({"key":"c".repeat(64),"timestamp":"2026-10-23T20:00:00Z","stream":"stdout","line":"hello\n"});
-    let observation = json!({"instance_id":id,"generation":1,"state":"ready","diagnostic":null,"metrics":{"cpu_millis":12.0,"memory_bytes":4096,"pids":3},"logs":[log]});
+    let observation = json!({"observed_unix_ms":chrono::Utc::now().timestamp_millis(),"instance_id":id,"generation":1,"state":"ready","diagnostic":null,"metrics":{"cpu_millis":12.0,"memory_bytes":4096,"pids":3},"logs":[log]});
     let req = json!({"version":1,"node_id":nodes[0],"observations":[observation]});
     for _ in 0..2 {
         assert_eq!(
@@ -225,6 +225,14 @@ async fn node_identity_and_generations_fence_observations(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(count, 1);
+    let metrics: i64 = sqlx::query_scalar("SELECT count(*) FROM runtime_metrics")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        metrics, 1,
+        "a repeated heartbeat must not create a fresh sample"
+    );
     let state: String = sqlx::query_scalar("SELECT state FROM instances WHERE id=$1")
         .bind(id)
         .fetch_one(&pool)

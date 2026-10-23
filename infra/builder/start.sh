@@ -10,11 +10,13 @@ if sudo -n systemctl is-active --quiet local-paas-builder; then
   echo 'Builder is already running; stop it before changing its configuration.' >&2
   exit 1
 fi
+if ! getent group local-paas-builder >/dev/null; then sudo -n groupadd --system local-paas-builder; fi
 if ! id local-paas-builder >/dev/null 2>&1; then
-  sudo -n useradd --system --user-group --no-create-home \
+  sudo -n useradd --system --uid 61000 --gid local-paas-builder --no-create-home \
     --home-dir /var/lib/local-paas-builder --shell /run/current-system/sw/bin/nologin local-paas-builder
 fi
 builder_uid=$(id -u local-paas-builder)
+test "$builder_uid" = 61000 || { echo 'Unexpected builder UID; refusing to reuse an isolation identity.' >&2; exit 1; }
 sudo -n install -d -m 0700 -o local-paas-builder -g local-paas-builder /var/lib/local-paas-builder
 sudo -n install -d -m 0700 -o local-paas-builder -g local-paas-builder /var/lib/local-paas-builder/tmp
 sudo -n install -m 0440 -o root -g local-paas-builder \

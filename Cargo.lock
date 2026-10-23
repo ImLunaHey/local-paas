@@ -1037,6 +1037,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "node-agent"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "platform-domain",
+ "platform-protocol",
+ "platform-runtime",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "node-semver"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

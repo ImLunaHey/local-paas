@@ -1,0 +1,20 @@
+[package]
+name = "node-agent"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+[dependencies]
+platform-domain = { path = "../domain" }
+platform-runtime = { path = "../runtime" }
+platform-protocol = { path = "../protocol" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+async-trait = "0.1"
+futures-util = "0.3"
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+[dev-dependencies]
+tempfile = "3"

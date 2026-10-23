@@ -205,7 +205,7 @@ pub async fn sync(
     headers: HeaderMap,
     Json(input): Json<SyncRequest>,
 ) -> Result<Json<SyncResponse>, NodeError> {
-    if input.version != VERSION || input.observations.len() > 4 {
+    if input.version != VERSION || input.observations.len() > 8 {
         return Err((StatusCode::BAD_REQUEST, "invalid protocol request"));
     }
     let token = headers
@@ -226,6 +226,9 @@ pub async fn sync(
         return Err((StatusCode::UNAUTHORIZED, "invalid node identity"));
     }
     for o in input.observations {
+        if o.observed_unix_ms < 0 || o.observed_unix_ms > Utc::now().timestamp_millis() + 5000 {
+            return Err((StatusCode::BAD_REQUEST, "invalid observation time"));
+        }
         if !["starting", "ready", "failed", "stopped", "unknown"].contains(&o.state.as_str())
             || o.logs.len() > 256
             || o.diagnostic.as_ref().is_some_and(|s| s.len() > 128)
@@ -241,8 +244,8 @@ pub async fn sync(
             return Err((StatusCode::BAD_REQUEST, "invalid measurement"));
         }
         let m = o.metrics.as_ref();
-        let updated=sqlx::query("UPDATE instances SET state=$4,diagnostic=$5,observed_at=now(),cpu_millis=$6,memory_bytes=$7,pids=$8 WHERE id=$1 AND node_id=$2 AND generation=$3 AND (desired_state='running' OR $4='stopped') RETURNING id")
-            .bind(o.instance_id).bind(input.node_id).bind(o.generation).bind(&o.state).bind(&o.diagnostic).bind(m.map(|m|m.cpu_millis)).bind(m.map(|m|m.memory_bytes as i64)).bind(m.map(|m|m.pids as i64)).fetch_optional(&mut *tx).await.map_err(db_error)?;
+        let updated=sqlx::query("UPDATE instances SET state=$4,diagnostic=$5,observed_at=to_timestamp($9::double precision/1000),cpu_millis=$6,memory_bytes=$7,pids=$8 WHERE id=$1 AND node_id=$2 AND generation=$3 AND (observed_at IS NULL OR observed_at<to_timestamp($9::double precision/1000)) RETURNING id")
+            .bind(o.instance_id).bind(input.node_id).bind(o.generation).bind(&o.state).bind(&o.diagnostic).bind(m.map(|m|m.cpu_millis)).bind(m.map(|m|m.memory_bytes as i64)).bind(m.map(|m|m.pids as i64)).bind(o.observed_unix_ms as f64).fetch_optional(&mut *tx).await.map_err(db_error)?;
         if updated.is_none() {
             continue;
         }
@@ -263,7 +266,7 @@ pub async fn sync(
             sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line) VALUES($1,$2,$3,$4,$5) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).execute(&mut *tx).await.map_err(db_error)?;
         }
         // Bound each instance's retained text to at most 512 KiB (plus one row).
-        sqlx::query("DELETE FROM runtime_logs WHERE sequence IN (SELECT sequence FROM (SELECT sequence,sum(octet_length(line)) OVER(ORDER BY sequence DESC) AS bytes FROM runtime_logs WHERE instance_id=$1) r WHERE bytes>524288)").bind(o.instance_id).execute(&mut *tx).await.map_err(db_error)?;
+        sqlx::query("DELETE FROM runtime_logs WHERE sequence IN (SELECT sequence FROM (SELECT sequence,row_number() OVER(ORDER BY sequence DESC) AS position,sum(octet_length(line)) OVER(ORDER BY sequence DESC) AS bytes FROM runtime_logs WHERE instance_id=$1) r WHERE bytes>524288 OR position>2048)").bind(o.instance_id).execute(&mut *tx).await.map_err(db_error)?;
     }
     let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut assignments = Vec::new();

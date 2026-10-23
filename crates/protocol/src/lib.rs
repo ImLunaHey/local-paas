@@ -36,6 +36,7 @@ pub struct SyncResponse {
 pub struct InstanceReport {
     pub instance_id: Uuid,
     pub generation: i64,
+    pub observed_unix_ms: i64,
     pub state: String,
     pub diagnostic: Option<String>,
     pub metrics: Option<Metrics>,
