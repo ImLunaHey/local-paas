@@ -1,3 +1,4 @@
+import { Select, Field } from './ui'
 import { useMemo, useState } from 'react'
 import { defineChart, lineY } from '@tanstack/charts'
 import { Chart as TanStackChart } from '@tanstack/charts/react'
@@ -63,9 +64,8 @@ export function MetricsViewer({ service }: { service: Service }) {
         </div>
         <span className="chip">{selected ? 'Instance view' : 'Combined view'}</span>
       </div>
-      <label className="field">
-        View
-        <select
+      <Field label="View">
+        <Select
           aria-label="Runtime instance"
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
@@ -76,8 +76,8 @@ export function MetricsViewer({ service }: { service: Service }) {
               {i.node_name} · {i.id.slice(0, 8)} · {i.state}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </Field>
       {(metrics.error || runtime.error) && (
         <p role="alert" className="error-notice">
           {(metrics.error || runtime.error)?.message}

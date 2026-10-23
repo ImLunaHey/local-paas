@@ -1,3 +1,4 @@
+import { Button, Input, Select } from './ui'
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -139,7 +140,7 @@ export function BuildPanel({ service }: { service: Service }) {
           <form onSubmit={submit} className="space-y-3">
             <label className="field">
               <span>Build source type</span>
-              <select
+              <Select
                 className="build-select"
                 value={sourceKind}
                 onChange={(event) => setSourceKind(event.target.value as SourceKind)}
@@ -148,7 +149,7 @@ export function BuildPanel({ service }: { service: Service }) {
                 <option value="branch">Branch</option>
                 <option value="tag">Tag</option>
                 <option value="commit">Commit</option>
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>
@@ -158,7 +159,7 @@ export function BuildPanel({ service }: { service: Service }) {
                     ? 'Build branch'
                     : 'Build tag'}
               </span>
-              <input
+              <Input
                 className="font-mono"
                 value={commit}
                 onChange={(event) => setCommit(event.target.value)}
@@ -169,7 +170,7 @@ export function BuildPanel({ service }: { service: Service }) {
             </label>
             <div className="flex flex-wrap items-center justify-between gap-4">
               <label className="flex items-center gap-2 text-xs text-muted">
-                <input
+                <Input
                   type="checkbox"
                   checked={noCache}
                   onChange={(event) => setNoCache(event.target.checked)}
@@ -177,8 +178,8 @@ export function BuildPanel({ service }: { service: Service }) {
                 />
                 Bypass build cache
               </label>
-              <button
-                className="button primary"
+              <Button
+                variant="primary"
                 type="submit"
                 disabled={busy || create.isPending || history.isPending || history.isError}
               >
@@ -188,7 +189,7 @@ export function BuildPanel({ service }: { service: Service }) {
                   <Hammer size={15} />
                 )}
                 Queue build
-              </button>
+              </Button>
             </div>
           </form>
           {!system.isPending && !system.isError && !system.data.worker_online && (
@@ -211,7 +212,7 @@ export function BuildPanel({ service }: { service: Service }) {
             <>
               <label className="field">
                 <span>Build history (latest 50)</span>
-                <select
+                <Select
                   className="build-select"
                   value={selected?.id}
                   onChange={(event) => {
@@ -225,7 +226,7 @@ export function BuildPanel({ service }: { service: Service }) {
                       {sourceLabel(build.spec.source)} · {build.status}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               {selected && (
                 <div className="space-y-4">
@@ -245,14 +246,14 @@ export function BuildPanel({ service }: { service: Service }) {
                       </span>
                     </span>
                     {active(selected) && (
-                      <button
-                        className="button secondary"
+                      <Button
+                        variant="secondary"
                         disabled={cancel.isPending || selected.cancel_requested}
                         onClick={() => cancel.mutate(selected.id)}
                       >
                         <X size={14} />
                         Cancel build
-                      </button>
+                      </Button>
                     )}
                   </div>
                   {selected.resolved_commit && (
@@ -383,7 +384,7 @@ function BuildLogs({ build }: { build: Build }) {
     <div>
       <div className="flex justify-between items-center mb-3">
         <h3>Build output</h3>
-        <button
+        <Button
           className="text-muted"
           aria-label="Refresh build logs"
           onClick={() => {
@@ -391,7 +392,7 @@ function BuildLogs({ build }: { build: Build }) {
           }}
         >
           <RefreshCw size={14} />
-        </button>
+        </Button>
       </div>
       {logs.isError && (
         <p className="error-notice mb-3" role="alert">

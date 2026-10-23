@@ -13,7 +13,10 @@
     "verbatimModuleSyntax": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "cn": ["./src/cn.ts"]
+    }
   },
   "include": ["src", "tests", "vite.config.ts", "playwright.config.ts"]
 }

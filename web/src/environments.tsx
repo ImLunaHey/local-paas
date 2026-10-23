@@ -1,3 +1,4 @@
+import { Button, Input, Field } from './ui'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
@@ -46,19 +47,17 @@ export function EnvironmentManager() {
             create.mutate()
           }}
         >
-          <label className="field">
-            Project
-            <input
+          <Field label="Project">
+            <Input
               value={project}
               onChange={(e) => setProject(e.target.value)}
               required
               pattern="[a-z0-9][a-z0-9-]*"
               maxLength={63}
             />
-          </label>
-          <label className="field">
-            Environment name
-            <input
+          </Field>
+          <Field label="Environment name">
+            <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="staging"
@@ -66,10 +65,10 @@ export function EnvironmentManager() {
               pattern="[a-z0-9][a-z0-9-]*"
               maxLength={63}
             />
-          </label>
-          <button className="button primary" disabled={create.isPending}>
+          </Field>
+          <Button variant="primary" disabled={create.isPending} type="submit">
             Create environment
-          </button>
+          </Button>
         </form>
         {(create.error || query.error) && (
           <p role="alert" className="error-notice">

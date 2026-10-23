@@ -1,3 +1,4 @@
+import { Button, Input, Select, Field } from './ui'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
@@ -94,9 +95,8 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
           save.mutate()
         }}
       >
-        <label className="field">
-          Container port
-          <input
+        <Field label="Container port">
+          <Input
             aria-label="Container port"
             type="number"
             min={1}
@@ -105,10 +105,9 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
             value={port}
             onChange={(e) => setPort(Number(e.target.value))}
           />
-        </label>
-        <label className="field">
-          HTTPS endpoint
-          <select
+        </Field>
+        <Field label="HTTPS endpoint">
+          <Select
             aria-label="HTTPS endpoint"
             value={authority}
             onChange={(e) => setAuthority(e.target.value)}
@@ -121,20 +120,20 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
                 {'https://' + a}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
         <div className="flex gap-3 items-center sm:col-span-2">
-          <button className="button primary" disabled={save.isPending}>
+          <Button variant="primary" disabled={save.isPending} type="submit">
             Save networking
-          </button>
+          </Button>
           {!authority && network.available.length > 0 && (
-            <button
+            <Button
               type="button"
               className="button"
               onClick={() => setAuthority(network.available[0])}
             >
               Choose available URL
-            </button>
+            </Button>
           )}
         </div>
       </form>

@@ -1,3 +1,4 @@
+import { Button, Select, Field } from './ui'
 import { LogViewer } from './logs'
 import { MetricsViewer } from './metrics'
 import { useRef, useState } from 'react'
@@ -100,9 +101,8 @@ export function DeploymentPanel({ service }: { service: Service }) {
         previous healthy deployment stays available until then.
       </p>
       <div className="flex flex-wrap gap-3 items-end">
-        <label className="field flex-1 min-w-0">
-          Image revision
-          <select
+        <Field label="Image revision" className="flex-1 min-w-0">
+          <Select
             aria-label="Deployment revision"
             className="build-select mt-2"
             value={revision}
@@ -114,10 +114,10 @@ export function DeploymentPanel({ service }: { service: Service }) {
                 {new Date(r.created_at).toLocaleString()} · {r.image_digest.slice(0, 19)}
               </option>
             ))}
-          </select>
-        </label>
-        <button
-          className="button primary"
+          </Select>
+        </Field>
+        <Button
+          variant="primary"
           onClick={() => deploy.mutate()}
           disabled={
             !revision ||
@@ -133,7 +133,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
             <Play size={14} />
           )}{' '}
           Deploy revision
-        </button>
+        </Button>
       </div>
       {(deploy.isError || stop.isError || runtime.isError || revisions.isError) && (
         <p role="alert" className="error-notice">
@@ -153,9 +153,9 @@ export function DeploymentPanel({ service }: { service: Service }) {
             </p>
           </div>
           {['preparing', 'active'].includes(d.status) && (
-            <button className="button" disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
+            <Button disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
               Stop deployment
-            </button>
+            </Button>
           )}
         </div>
       ))}
