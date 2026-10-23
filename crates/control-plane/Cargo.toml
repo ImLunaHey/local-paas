@@ -1,11 +1,13 @@
 [package]
 name = "control-plane"
+default-run = "control-plane"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
 platform-domain = { path = "../domain" }
+platform-build-runner = { path = "../build-runner" }
 axum = "0.8"
 serde.workspace = true
 serde_json.workspace = true

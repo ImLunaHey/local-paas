@@ -1,5 +1,27 @@
 @import 'tailwindcss';
 
+.build-select {
+  width: 100%;
+  background: #101712;
+  border: 1px solid #354235;
+  border-radius: 5px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #d5dfd0;
+}
+.build-log {
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #0c120e;
+  border: 1px solid #2e392f;
+  border-radius: 6px;
+  padding: 16px;
+  font: 11px/1.8 var(--font-mono);
+  color: #bbcdb4;
+}
+
 @theme {
   --color-muted: #8e9d94;
   --color-accent: #b7e8a2;

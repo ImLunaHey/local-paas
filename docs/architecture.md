@@ -6,10 +6,11 @@ Working name and repository directory: `local-paas`. This is independent of
 Anvil. Luna authorized starting implementation and chose Rust for the backend
 and Vite / React / Tailwind / TanStack for the frontend.
 
-The first local milestone registers a validated service specification, stores it
-with an audit event in PostgreSQL, and shows it in the UI. Registration is not a
-deployment. No builder, agent, scheduler, ingress, secret resolver, or celld
-runner is active yet. Production release criteria below remain unmet.
+The local platform registers validated specifications and executes queued OCI
+builds through an isolated BuildKit VM, retaining logs and pushed image digests.
+Registration and image building are not deployment. No workload agent, scheduler,
+ingress, secret resolver or celld runner is active. Production release criteria
+below remain unmet. See [build design and operations](builds.md).
 
 ## Reversible implementation choices
 
@@ -38,7 +39,15 @@ runner is active yet. Production release criteria below remain unmet.
   current network access boundary; application-level administrator authentication
   remains a release gate. Serve's existing port 443 routes are preserved.
 
-## Infrastructure proposals (not provisioned)
+## Infrastructure decisions and remaining proposals
+
+- Luna authorized a separate disposable builder VM on Lake. It has two vCPUs,
+  3 GiB guest RAM and a 16 GiB NVMe virtual disk, with no host filesystem shares.
+  Host UID-scoped nftables policy denies private network access. BuildKit uses
+  mTLS; a colocated, loopback-forwarded registry is development-only. Nix packages
+  are pinned. The builder unit is transient, not a Lake-wide NixOS deployment.
+  At provisioning, available RAM was approximately 15 GiB; ZFS remained degraded.
+  This sizing must be observed, not carried into production as a reservation.
 
 - Three NixOS worker VMs plus a fourth management VM on Lake, subject to a new
   capacity and host-load inspection. Initial sizing is an experiment, not a
@@ -137,8 +146,8 @@ no public celld internal/operator listener, and a written Railway rollback drill
 All three initial workers share Lake, power, disks and Internet; no hardware HA.
 
 Lake capacity and the Railway inventory in the conversation are 2026-10-23
-snapshots, not live evidence. Recheck before sizing or migration. No infrastructure
-or account inspection is implied by this local milestone.
+snapshots, not live evidence. Recheck before provisioning workers or migrating
+production state. The builder's later inspection does not establish worker capacity.
 
 ## Upstream references checked for this increment
 

@@ -1,0 +1,14 @@
+[package]
+name = "platform-build-runner"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+platform-domain = { path = "../domain" }
+tokio.workspace = true
+uuid.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tempfile = "3"
+url = "2"

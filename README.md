@@ -4,15 +4,16 @@ A personal application platform, built from scratch. Rust control plane and
 runtime contract; Vite, React, Tailwind, TanStack Router and Query frontend.
 Independent of Anvil. Working project name; no remote repository created yet.
 
-**Implemented:** register OCI or celld service specifications, validate them,
-persist them in PostgreSQL with audit events, browse services and inspect their
-configuration. Registration is retry-safe, including concurrent identical
-requests. Configuration and the registration event commit together.
+**Implemented:** register OCI or celld specifications, persist configuration and
+audit events in PostgreSQL, queue OCI builds, inspect bounded build logs, cancel
+jobs, and record immutable image revisions after successful registry pushes.
+Registration and build requests are retry-safe. A separate Rust worker drives
+BuildKit in an isolated NixOS VM on Lake.
 
-**Not implemented:** builds, registry, node enrollment, runtime adapters,
-scheduling, deployments, routes, workload secrets, or fleet execution. Nothing
-registered here runs yet. This is the first local foundation, not a deployable
-PaaS or the complete Phase 1 vertical slice.
+**Not implemented:** node enrollment, runtime adapters, scheduling, deployments,
+routes, workload secrets, or celld fleet execution. Building an image does not
+start instances. The disposable builder registry is for development; this is
+not a production PaaS or the complete Phase 1 vertical slice.
 
 See [architecture decisions and release gates](docs/architecture.md). Backend
 uses Rust; frontend uses TypeScript as explicitly requested by Luna.
@@ -108,11 +109,16 @@ Requests use JSON with a 64 KiB body limit. Semantic validation returns 422 with
 field-specific issues. Unknown fields are rejected. There is no update or delete
 API yet; configuration editing will require versioning and audit semantics.
 
+See [build execution, API endpoints and builder operations](docs/builds.md) to
+start the isolated builder and Rust worker. On a service page, **Queue build**
+builds the selected commit; successful pushes appear under **Image revisions**.
+
 Examples: [OCI](examples/oci-service.json) and [celld](examples/celld-service.json).
 These contain placeholder repositories/hashes; validation checks their shape,
-not existence. They cannot establish a reproducible build. Repository fetching,
-destination restrictions, checkout symlink safety, Wrangler validation, bucket
-qualification and secret resolution belong to subsequent execution stages.
+not existence. They cannot establish a reproducible build. The separate
+[build-only canary](examples/build-canary.json) uses a real pinned public source.
+It is not a web deployment candidate. Wrangler validation, bucket qualification
+and secret resolution belong to subsequent execution stages.
 
 ## Checks
 
@@ -136,7 +142,7 @@ missing services; host-header rebinding; and complete rollback when audit
 persistence fails. CI runs both ordinary and database tests.
 
 The browser tests use the real API and add uniquely named test services to the
-development database. With `make api` running:
+development database. With `make api` running and the build worker stopped:
 
 ```sh
 cd web
@@ -153,8 +159,8 @@ resolve the hostname normally.
 
 On NixOS, use a Nix-provided Chromium instead of the downloaded Linux binary by
 setting `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable. Browser coverage
-includes OCI registration and reload, celld validation/registration, and mobile
-layout. These tests do not deploy any workload.
+includes OCI registration, build queue/cancel/reload, celld validation/registration,
+and mobile layout. These tests do not deploy any workload.
 
 ## Layout
 
@@ -162,12 +168,14 @@ layout. These tests do not deploy any workload.
 crates/domain         service specifications, validation, immutable image digest
 crates/runtime        agent-owned OCI runtime trait; no runtime implementation
 crates/control-plane  Axum API, SQLx persistence, migrations, integration tests
+crates/build-runner    bounded mTLS buildctl client, no local Dockerfile execution
+infra/builder         pinned NixOS builder VM and explicit development setup
 web                   Vite / React / Tailwind / TanStack UI
 examples              small OCI and celld manifests
 docs                  decisions, threat boundaries, next milestones
 ```
 
-No worker VMs, DigitalOcean, NetBird, OpenBao, Railway or production database was
-changed. Lake has an additional private Tailscale Serve endpoint for this UI.
-The next executable milestone is an isolated BuildKit job that records a pushed
-OCI digest, before starting any workload.
+Lake has a development builder VM and private Tailscale Serve endpoint for this
+UI. The three workload worker VMs, DigitalOcean, NetBird, OpenBao, Railway and
+production databases remain untouched. The next milestone is authenticated node
+enrollment and the first limited containerd workload with readiness and cleanup.

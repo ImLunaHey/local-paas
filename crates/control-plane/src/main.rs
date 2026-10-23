@@ -37,12 +37,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "local development control API listening");
+    let upkeep_pool = pool.clone();
+    let upkeep = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            if control_plane::builds::expire(&upkeep_pool).await.is_err() {
+                tracing::error!("build lease reconciliation failed");
+            }
+        }
+    });
     axum::serve(
         listener,
         control_plane::router(pool.clone(), browser_origins),
     )
     .with_graceful_shutdown(shutdown())
     .await?;
+    upkeep.abort();
     pool.close().await;
     Ok(())
 }

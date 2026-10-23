@@ -1,0 +1,109 @@
+use control_plane::builds::{self, Completion};
+use platform_build_runner::{Config, Request};
+use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
+use std::{env, time::Duration};
+use tokio::sync::mpsc;
+use uuid::Uuid;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt().with_env_filter("info").init();
+    let config = Config::from_env()?;
+    let database_url = env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&database_url)
+        .await
+        .map_err(|_| "cannot connect to PostgreSQL")?;
+    control_plane::migrate(&pool)
+        .await
+        .map_err(|_| "database migration failed")?;
+    // One active build worker. This session lock is never returned to a pool.
+    let mut lock = PgConnection::connect(&database_url)
+        .await
+        .map_err(|_| "cannot acquire worker connection")?;
+    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(712184550)")
+        .fetch_one(&mut lock)
+        .await?;
+    if !acquired {
+        return Err("another build worker is already active".into());
+    }
+    let worker_id = Uuid::new_v4();
+    let work = async {
+        loop {
+            sqlx::query("SELECT 1").execute(&mut lock).await?;
+            builds::heartbeat(&pool, worker_id).await?;
+            builds::expire(&pool).await?;
+            if let Some(build) = builds::claim(&pool).await? {
+                let completion = {
+                    let (sender, mut receiver) = mpsc::channel(16);
+                    let request = Request {
+                        build_id: build.id,
+                        service_id: build.service_id,
+                        spec: build.spec.0.clone(),
+                        no_cache: build.no_cache,
+                    };
+                    let runner = platform_build_runner::run(&config, request, sender);
+                    tokio::pin!(runner);
+                    let mut interval = tokio::time::interval(Duration::from_secs(5));
+                    let mut logs_open = true;
+                    loop {
+                        tokio::select! {
+                            result = &mut runner => {
+                                while let Ok(message) = receiver.try_recv() { builds::append_log(&pool, &build, &message).await?; }
+                                break match result {
+                                    Ok(output) => Completion::Succeeded { repository: output.repository, digest: output.digest },
+                                    Err(error) => Completion::Failed(error.code()),
+                                };
+                            }
+                            message = receiver.recv(), if logs_open => {
+                                if let Some(message) = message { builds::append_log(&pool, &build, &message).await?; }
+                                else { logs_open = false; }
+                            }
+                            _ = interval.tick() => {
+                                sqlx::query("SELECT 1").execute(&mut lock).await?;
+                                builds::heartbeat(&pool, worker_id).await?;
+                                match builds::renew(&pool, &build).await? {
+                                    Some(false) => {},
+                                    Some(true) => break Completion::Cancelled,
+                                    None => break Completion::Failed("worker_lease_lost"),
+                                }
+                            }
+                        }
+                    }
+                    // Runner is dropped here before recording cancellation. That
+                    // kills buildctl and closes its remote build session.
+                };
+                builds::finish(&pool, &build, completion).await?;
+            } else {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+        #[allow(unreachable_code)]
+        Ok::<(), sqlx::Error>(())
+    };
+    tokio::select! {
+        result = work => { result.map_err(|_| "build worker lost database connectivity")?; }
+        _ = shutdown() => {}
+    }
+    sqlx::query("DELETE FROM build_workers WHERE id=$1")
+        .bind(worker_id)
+        .execute(&pool)
+        .await?;
+    // In-flight jobs expire as interrupted. They require an explicit new request.
+    Ok(())
+}
+
+async fn shutdown() {
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install signal handler");
+        tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}

@@ -35,6 +35,25 @@ export interface AuditEvent {
   created_at: string
 }
 
+export interface Build {
+  id: string
+  service_id: string
+  spec: ServiceSpec
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
+  no_cache: boolean
+  cancel_requested: boolean
+  error_code: string | null
+  created_at: string
+  logs_truncated: boolean
+}
+export interface Revision {
+  id: string
+  build_id: string
+  image_repository: string
+  image_digest: string
+  created_at: string
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init)
   if (!response.ok) {

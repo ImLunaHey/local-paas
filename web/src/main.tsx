@@ -39,6 +39,7 @@ import {
 import { api, serviceQuery } from './api'
 import type { AuditEvent, Service, ServiceSpec, Workload } from './api'
 import './styles.css'
+import { BuildPanel } from './builds'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
@@ -154,9 +155,7 @@ function Services() {
         </span>
         <div>
           <strong>The foundation is taking shape.</strong>
-          <p>
-            Register your applications here. Builds, workers, and deployments are the next step.
-          </p>
+          <p>Register applications and queue image builds. Worker deployment is the next step.</p>
         </div>
         <span className="chip ml-auto">Phase 1 · Foundation</span>
       </div>
@@ -723,6 +722,7 @@ function ServiceDetail() {
   const events = useQuery({
     queryKey: ['events', serviceId],
     queryFn: () => api<AuditEvent[]>(`/services/${serviceId}/events`),
+    refetchInterval: 3000,
   })
   if (service.isPending) return <p className="text-muted">Loading service…</p>
   if (service.isError)
@@ -765,7 +765,10 @@ function ServiceDetail() {
         </span>
         <div>
           <strong>Configuration saved.</strong>
-          <p>This service has no build, revision, running instances, or public routes yet.</p>
+          <p>
+            Builds produce image revisions. Running instances and public routing are not enabled
+            yet.
+          </p>
         </div>
       </div>
       <div className="grid sm:grid-cols-3 gap-4 my-7">
@@ -792,6 +795,7 @@ function ServiceDetail() {
           detail="Desired allocation"
         />
       </div>
+      <BuildPanel service={service.data} />
       <div className="grid lg:grid-cols-[1.4fr_1fr] gap-6">
         <section className="panel p-6 min-w-0">
           <h2 className="mb-5">Service specification</h2>
@@ -820,8 +824,12 @@ function ServiceDetail() {
                   <Check size={13} />
                 </span>
                 <div>
-                  <h3>{event.kind === 'service.registered' ? 'Service registered' : event.kind}</h3>
-                  <p>Desired configuration saved.</p>
+                  <h3>
+                    {event.kind === 'service.registered'
+                      ? 'Service registered'
+                      : event.kind.replaceAll('.', ' ').replaceAll('_', ' ')}
+                  </h3>
+                  {event.kind === 'service.registered' && <p>Desired configuration saved.</p>}
                   <time dateTime={event.created_at}>
                     {new Date(event.created_at).toLocaleString()}
                   </time>

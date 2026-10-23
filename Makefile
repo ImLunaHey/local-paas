@@ -4,7 +4,7 @@
 DATABASE_URL ?= postgresql:///local_paas?host=$(CURDIR)/.local/socket&port=55432
 export DATABASE_URL PUBLIC_ORIGIN
 
-.PHONY: db db-stop api web check test-db
+.PHONY: db db-stop api build-worker web check test-db
 db:
 	mkdir -p .local/socket
 	chmod 700 .local
@@ -16,7 +16,10 @@ db-stop:
 	pg_ctl -D .local/postgres -m fast -w stop
 
 api:
-	cargo run -p control-plane
+	cargo run -p control-plane --bin control-plane
+
+build-worker:
+	cargo run -p control-plane --bin build-worker
 
 web:
 	cd web && npm run dev
@@ -29,4 +32,4 @@ check:
 	cd web && npm run build
 
 test-db:
-	cargo test -p control-plane --test api -- --ignored
+	cargo test -p control-plane --tests -- --ignored

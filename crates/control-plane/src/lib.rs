@@ -13,6 +13,8 @@ use serde_json::json;
 use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 
+pub mod builds;
+
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
@@ -20,6 +22,15 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
         .route("/api/services/{id}", get(get_service))
         .route("/api/services/{id}/events", get(list_events))
         .route("/api/specs/validate", post(validate_spec))
+        .route("/api/build-system", get(builds::system))
+        .route(
+            "/api/services/{id}/builds",
+            get(builds::list).post(builds::create),
+        )
+        .route("/api/services/{id}/revisions", get(builds::revisions))
+        .route("/api/builds/{id}", get(builds::get))
+        .route("/api/builds/{id}/logs", get(builds::logs))
+        .route("/api/builds/{id}/cancel", post(builds::cancel))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let origins = browser_origins.clone();
@@ -64,7 +75,7 @@ pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!().run(pool).await
 }
 
-enum ApiError {
+pub(crate) enum ApiError {
     Invalid(Vec<ValidationIssue>),
     Conflict(&'static str),
     NotFound,
@@ -122,7 +133,7 @@ pub struct CreateService {
 async fn health(State(pool): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&pool).await?;
     Ok(Json(
-        json!({"status":"ok", "mode":"local-development", "capabilities":["service-registration"]}),
+        json!({"status":"ok", "mode":"local-development", "capabilities":["service-registration", "build-queue", "image-revisions"]}),
     ))
 }
 
