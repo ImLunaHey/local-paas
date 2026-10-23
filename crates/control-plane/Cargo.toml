@@ -7,6 +7,9 @@ publish.workspace = true
 
 [dependencies]
 platform-domain = { path = "../domain" }
+platform-protocol = { path = "../protocol" }
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 platform-build-runner = { path = "../build-runner" }
 axum = "0.8"
 serde.workspace = true

@@ -45,8 +45,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if control_plane::builds::expire(&upkeep_pool).await.is_err() {
                 tracing::error!("build lease reconciliation failed");
             }
+            if control_plane::runtime::reconcile(&upkeep_pool)
+                .await
+                .is_err()
+            {
+                tracing::error!("runtime reconciliation failed");
+            }
         }
     });
+    let preview = control_plane::preview::start(pool.clone()).await?;
     axum::serve(
         listener,
         control_plane::router(pool.clone(), browser_origins),
@@ -54,6 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_graceful_shutdown(shutdown())
     .await?;
     upkeep.abort();
+    preview.abort();
     pool.close().await;
     Ok(())
 }

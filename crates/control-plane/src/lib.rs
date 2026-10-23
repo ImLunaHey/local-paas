@@ -15,6 +15,8 @@ use uuid::Uuid;
 
 pub mod builds;
 mod configuration;
+pub mod preview;
+pub mod runtime;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
@@ -25,6 +27,15 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
             get(get_service).put(configuration::update),
         )
         .route("/api/services/{id}/events", get(list_events))
+        .route("/api/services/{id}/deployments", post(runtime::deploy))
+        .route("/api/deployments/{id}/stop", post(runtime::stop))
+        .route("/api/services/{id}/runtime", get(runtime::status))
+        .route("/api/services/{id}/runtime/logs", get(runtime::logs))
+        .route("/api/services/{id}/runtime/metrics", get(runtime::metrics))
+        .route(
+            "/api/agent/sync",
+            post(runtime::sync).layer(DefaultBodyLimit::max(512 * 1024)),
+        )
         .route("/api/specs/validate", post(validate_spec))
         .route("/api/build-system", get(builds::system))
         .route(

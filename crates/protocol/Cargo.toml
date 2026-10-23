@@ -1,0 +1,10 @@
+[package]
+name = "platform-protocol"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+platform-domain = { path = "../domain" }
+serde.workspace = true
+uuid.workspace = true
