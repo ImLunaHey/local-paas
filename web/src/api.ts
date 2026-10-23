@@ -1,6 +1,9 @@
 export type Workload =
   | {
       kind: 'oci-service'
+      build_mode?: 'auto' | 'dockerfile' | 'generated'
+      build_command?: string
+      start_command?: string
       dockerfile: string
       context: string
       replicas: number
@@ -36,11 +39,23 @@ export interface AuditEvent {
   created_at: string
 }
 
+export type BuildPlan =
+  | { kind: 'dockerfile'; path: string }
+  | {
+      kind: 'generated'
+      generator: string
+      runtime: string
+      package_manager: string
+      dockerfile: string
+      dockerignore: string
+    }
+
 export interface Build {
   id: string
   service_id: string
   spec: ServiceSpec
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
+  build_plan: BuildPlan | null
   resolved_commit: string | null
   no_cache: boolean
   cancel_requested: boolean

@@ -1,5 +1,6 @@
 //! Bounded buildctl client for a separately isolated BuildKit daemon.
-//! No checkout, Dockerfile execution, host filesystem sharing or daemon startup.
+//! No host checkout, Dockerfile execution or daemon startup. Generated recipes
+//! are the only local files forwarded to the isolated builder.
 use platform_domain::{ImageDigest, ServiceSpec, Workload};
 use std::{
     env,
@@ -13,6 +14,8 @@ use tokio::{
     sync::mpsc,
 };
 use uuid::Uuid;
+mod detect;
+pub use detect::{BuildPlan, plan};
 mod refs;
 pub use refs::resolve_commit;
 
@@ -34,6 +37,8 @@ pub struct Config {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("automatic build detection failed: {0}")]
+    Detection(&'static str),
     #[error("missing required builder setting: {0}")]
     Missing(&'static str),
     #[error("invalid builder setting: {0}")]
@@ -61,6 +66,7 @@ pub enum Error {
 impl Error {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Detection(code) => code,
             Self::Missing(_) | Self::Config(_) => "builder_configuration",
             Self::Repository => "repository_not_allowed",
             Self::Workload => "unsupported_workload",
@@ -273,13 +279,15 @@ pub struct Output {
 pub async fn run(
     config: &Config,
     request: Request,
+    plan: &BuildPlan,
     logs: mpsc::Sender<String>,
 ) -> Result<Output, Error> {
     config.validate()?;
     // Metadata and the scoped registry auth copy live in Linux tmpfs.
     let temp = tempfile::tempdir_in("/dev/shm").map_err(|_| Error::Client)?;
     let metadata = temp.path().join("metadata.json");
-    let args = config.arguments(&request, &metadata)?;
+    let mut args = config.arguments(&request, &metadata)?;
+    prepare_recipe(plan, temp.path(), &mut args).await?;
     // Empty HOME prevents implicit host credentials. Only one explicitly supplied
     // registry auth entry is forwarded; credential helpers are not executed.
     let docker_config = temp.path().join("docker");
@@ -350,6 +358,52 @@ pub async fn run(
         repository: config.image_repository(request.service_id),
         digest: digest.to_string().try_into().map_err(|_| Error::Metadata)?,
     })
+}
+
+async fn prepare_recipe(
+    plan: &BuildPlan,
+    temp: &Path,
+    args: &mut Vec<String>,
+) -> Result<(), Error> {
+    match plan {
+        BuildPlan::Dockerfile { path } => {
+            for arg in args.iter_mut() {
+                if arg.starts_with("filename=") {
+                    *arg = format!("filename={path}");
+                }
+            }
+        }
+        BuildPlan::Generated {
+            dockerfile,
+            dockerignore,
+            ..
+        } => {
+            let recipe = temp.join("recipe");
+            tokio::fs::create_dir(&recipe)
+                .await
+                .map_err(|_| Error::Client)?;
+            tokio::fs::write(recipe.join("Dockerfile"), dockerfile)
+                .await
+                .map_err(|_| Error::Client)?;
+            tokio::fs::write(recipe.join("Dockerfile.dockerignore"), dockerignore)
+                .await
+                .map_err(|_| Error::Client)?;
+            for arg in args.iter_mut() {
+                if arg.starts_with("filename=") {
+                    *arg = "filename=Dockerfile".into();
+                }
+            }
+            // Only platform-generated recipe files are shared, never repository
+            // files, HOME, credentials, or any NAS directory.
+            args.extend([
+                "--opt".into(),
+                "dockerfilekey=generated".into(),
+                "--local".into(),
+                format!("generated={}", recipe.display()),
+            ]);
+        }
+    }
+    Ok(())
 }
 
 async fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {

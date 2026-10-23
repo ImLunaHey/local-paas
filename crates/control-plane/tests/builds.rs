@@ -438,3 +438,50 @@ async fn cancelled_and_expired_claims_cannot_resolve_sources(pool: PgPool) {
             .unwrap();
     }
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn build_recipes_are_immutable_audited_and_fenced(pool: PgPool) {
+    let (_, _) = queued(&pool).await;
+    let build = builds::claim(&pool).await.unwrap().unwrap();
+    let plan = platform_build_runner::BuildPlan::Generated {
+        generator: "test-v1".into(),
+        runtime: "Node".into(),
+        package_manager: "npm".into(),
+        dockerfile: "FROM scratch".into(),
+        dockerignore: ".env".into(),
+    };
+    assert!(builds::record_plan(&pool, &build, &plan).await.unwrap());
+    assert!(builds::record_plan(&pool, &build, &plan).await.unwrap());
+    let changed = platform_build_runner::BuildPlan::Dockerfile {
+        path: "Dockerfile".into(),
+    };
+    assert!(!builds::record_plan(&pool, &build, &changed).await.unwrap());
+    let (_, stored) = call(
+        &pool,
+        "GET",
+        &format!("/api/builds/{}", build.id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(stored["build_plan"]["dockerfile"], "FROM scratch");
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM events WHERE kind='build.planned'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+    call(
+        &pool,
+        "POST",
+        &format!("/api/builds/{}/cancel", build.id),
+        Value::Null,
+    )
+    .await;
+    assert!(!builds::record_plan(&pool, &build, &plan).await.unwrap());
+    builds::finish(&pool, &build, Completion::Cancelled)
+        .await
+        .unwrap();
+    assert!(!builds::record_plan(&pool, &build, &plan).await.unwrap());
+}

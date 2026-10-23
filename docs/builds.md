@@ -42,7 +42,7 @@ output and add `BUILD_GIT_PATH=/absolute/path/to/.local/builder-tools/bin/git` t
 BuildKit fetches a credential-free HTTPS Git repository at the full commit SHA.
 The initial host allowlist is `github.com`. Dockerfile paths are repository-relative;
 the context can independently select a subdirectory. No host checkout, local
-directory, SSH agent, Docker socket, developer dotenv file or build secret is
+source directory, SSH agent, Docker socket, developer dotenv file or build secret is
 forwarded. Custom Dockerfile frontends and insecure entitlements are disabled.
 Cache mount namespaces are per service; **Bypass build cache** sends `--no-cache`.
 This bypasses instruction caching, not necessarily cache-mount contents or
@@ -57,6 +57,90 @@ successful push metadata, never from an assumed tag. Logs are capped at 512 KiB
 per build and streamed in bounded chunks. Timeout defaults to 30 minutes. Killing
 the client closes its session; the daemon owns remote execution cleanup, and the
 VM remains the resource/isolation boundary.
+
+## Automatic Dockerfile generation and commands
+
+OCI services now accept `workload.build_mode`: `auto` (the default),
+`dockerfile`, or `generated`. Automatic mode prefers the configured repository
+Dockerfile, including BuildKit's lowercase spelling, and generates a recipe if
+that file is absent. Generation is based on `package.json` in the build context,
+so a standalone app in a subdirectory works by setting `context` accordingly.
+An existing Dockerfile that fails to build is never replaced as a retry strategy.
+
+The Configuration tab also accepts `build_command` and `start_command`.
+Blank fields use `scripts.build` (if present) and `scripts.start` respectively.
+A custom start command allows an app without `scripts.start`. Custom commands
+select generation even in automatic mode; select `generated` to explicitly
+ignore a repository Dockerfile. Dockerfile-only mode rejects command overrides
+instead of silently ignoring them. Set a build command of `true` to explicitly
+skip an application's default build script. Commands execute through `/bin/sh -c`
+inside the builder/runtime and are JSON-encoded in the Dockerfile, never executed
+on the controller. Use `exec` in a custom start command when appropriate for
+signal forwarding. Commands are visible configuration: never put secret values
+in them. Application secret delivery remains a separate, unimplemented stage.
+
+The initial generator supports standalone Node/Bun applications with one package
+manager's committed lockfile: npm (package-lock/shrinkwrap), pnpm, Yarn, or Bun
+(bun.lock/bun.lockb). It performs a frozen install including build dependencies,
+then the selected build command, then records the startup command in the image.
+It requires a start script or explicit start command; it never guesses a dev
+server, source entrypoint, or static-site serving command. Monorepo/workspace
+packages, unsupported languages, conflicting lockfiles and missing lockfiles
+receive actionable errors. Provide a repository Dockerfile for these cases.
+
+Runtime presets are digest-pinned Node 24.22.1/22.23.4 (Debian bookworm slim) and
+Bun 1.4.4. Node selection respects `engines.node`, `.node-version` and `.nvmrc`;
+unsupported or conflicting requirements fail rather than silently choosing a
+version. Exact `packageManager` versions are honored; pnpm defaults to 12.15.0,
+Yarn to 1.22.22, npm to the pinned image's bundled version. Bun's preset currently
+requires 1.4.4 when explicitly pinned and checks `engines.bun`. Presets need
+reviewed updates; this does not guarantee every application supports them.
+The generated build stage includes native compilation tools; the runtime omits
+those tools, uses UID/GID 1000, and retains the installed app tree including dev
+dependencies for compatibility. It sets production mode, PORT and wildcard host
+variables, but the application must actually honor those settings. Database,
+secret, readiness and runtime deployment configuration are still separate.
+
+Inspection is currently public GitHub only: bounded, timed HTTPS metadata reads
+at the resolved commit from a fixed raw-content host, no redirects, credentials,
+proxy environment or host checkout. Other allowlisted Git hosts can use
+Dockerfile-only mode. Only a definitive missing-file response permits fallback;
+network errors do not. Package scripts never run during inspection.
+
+The worker persists the exact `build_plan` before invoking BuildKit, with lease
+fencing and an audit event. The build details show the saved generated Dockerfile,
+including after a failed build. Source checkout stays in the isolated VM. For a
+generated build, buildctl shares only a fresh tmpfs directory containing the
+platform-authored Dockerfile and Dockerfile-specific ignore file; it never shares
+local source, HOME or credentials. The pinned frontend's `dockerfilekey` option
+overrides the remote Dockerfile while retaining the remote Git context. Repository
+ignore rules are followed by mandatory exclusions for dotenv files, .npmrc, .git,
+node_modules and .next, so repository negations cannot reinclude these files.
+These rules are also emitted as `COPY --exclude` flags: this BuildKit frontend
+does not apply the local ignore file to an already-resolved remote Git context.
+A check before dependency installation rejects any copied dotenv or .npmrc file.
+Ignore patterns containing spaces, escapes, non-ASCII characters or Dockerfile
+interpolation syntax require a repository Dockerfile; the generator fails rather
+than silently dropping those exclusions.
+This guards those files; it is not a scanner for secrets embedded in other code.
+
+Validation includes unit tests for package managers, version constraints,
+ambiguous apps and command escaping, PostgreSQL tests for immutable/fenced build
+plans, browser save/reload checks for commands, and a real generated image build
+that runs as UID 1000 and proves synthetic dotenv/.npmrc files were excluded.
+A separate remote-Git regression uses a pinned public repository with a tracked
+dotenv file and checks its absence without reading its contents or running the
+application's scripts:
+
+```sh
+source .local/builder.env
+cargo test -p platform-build-runner --lib generated_recipe -- --ignored
+```
+
+The worker runs build preparation in an independently scheduled task. Heartbeat
+queries must not block the only task that can finish a transaction on the same
+build row. Cancellation/shutdown aborts and joins that task, dropping buildctl
+before cancellation is persisted.
 
 ## Start the disposable VM
 
@@ -164,7 +248,7 @@ loopback HTTP probe, proves host access, then executes a pinned BusyBox Dockerfi
 inside BuildKit. It requires public egress to work and private destinations to
 fail, and confirms the build never contacted the host probe. It also checks that
 an untrusted `#syntax` directive is ignored. Only this test forwards a small
-synthetic local context; the product build runner never does.
+synthetic local context; the product runner only forwards its generated recipe files.
 
 ```sh
 source .local/builder.env
@@ -204,3 +288,8 @@ it as the Railway web canary.
 
 Git ref contracts: [ls-remote](https://git-scm.com/docs/git-ls-remote),
 [check-ref-format](https://git-scm.com/docs/git-check-ref-format).
+
+Generated build references: [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/),
+[npm start](https://docs.npmjs.com/cli/v11/commands/npm-start/),
+[pnpm install](https://pnpm.io/cli/install), [Yarn install](https://yarnpkg.com/cli/install),
+[BuildKit Dockerfile selection](https://github.com/moby/buildkit/blob/v0.30.0/frontend/dockerui/config.go).

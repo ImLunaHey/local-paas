@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 pub const LOG_LIMIT: usize = 512 * 1024;
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Build {
     pub id: Uuid,
     pub service_id: Uuid,
@@ -34,6 +34,7 @@ pub struct Build {
     pub log_bytes: i32,
     pub logs_truncated: bool,
     pub resolved_commit: Option<String>,
+    pub build_plan: Option<DbJson<platform_build_runner::BuildPlan>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -305,6 +306,23 @@ pub async fn record_resolution(
     if updated {
         // Idempotent resolution retries retain one audit event.
         sqlx::query("INSERT INTO events (id,service_id,operation_id,kind,build_id) VALUES ($1,$2,$3,'build.source_resolved',$4) ON CONFLICT (operation_id,kind) DO NOTHING")
+            .bind(Uuid::new_v4()).bind(build.service_id).bind(build.operation_id).bind(build.id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(updated)
+}
+
+/// Retain the exact recipe before execution; only the live claim can write it.
+pub async fn record_plan(
+    pool: &PgPool,
+    build: &Build,
+    plan: &platform_build_runner::BuildPlan,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let updated = sqlx::query("UPDATE builds SET build_plan=$3 WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>now() AND NOT cancel_requested AND (build_plan IS NULL OR build_plan=$3)")
+        .bind(build.id).bind(build.claim_token).bind(DbJson(plan)).execute(&mut *tx).await?.rows_affected() == 1;
+    if updated {
+        sqlx::query("INSERT INTO events (id,service_id,operation_id,kind,build_id) VALUES ($1,$2,$3,'build.planned',$4) ON CONFLICT (operation_id,kind) DO NOTHING")
             .bind(Uuid::new_v4()).bind(build.service_id).bind(build.operation_id).bind(build.id).execute(&mut *tx).await?;
     }
     tx.commit().await?;

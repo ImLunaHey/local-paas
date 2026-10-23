@@ -8,7 +8,9 @@ Independent of Anvil. Working project name; no remote repository created yet.
 audit events in PostgreSQL, queue OCI builds, inspect bounded build logs, cancel
 jobs, and record immutable image revisions after successful registry pushes.
 Registration, configuration saves and build requests are retry-safe. Sources accept
-branches, tags or full commit hashes; each build pins an exact commit. A separate Rust worker drives
+branches, tags or full commit hashes; each build pins an exact commit. Missing
+Dockerfiles can be generated for supported Node/Bun apps, with editable build/start
+commands and a saved recipe visible in build details. A separate Rust worker drives
 BuildKit in an isolated NixOS VM on Lake.
 
 **Not implemented:** node enrollment, runtime adapters, scheduling, deployments,
@@ -113,7 +115,7 @@ the app; application-level administrator authentication is not implemented yet.
 
 Requests use JSON with a 64 KiB body limit. Semantic validation returns 422 with
 field-specific issues. Unknown fields are rejected. The Configuration tab edits source, build and runtime
-settings, domains and secret names. Saving affects future builds and does not
+settings, build/start command overrides, domains and secret names. Saving affects future builds and does not
 trigger a build or deployment. Secret values never belong in a specification.
 No delete API is exposed.
 

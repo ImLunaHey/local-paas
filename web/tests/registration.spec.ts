@@ -51,6 +51,9 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   await page.getByLabel('Source type', { exact: true }).selectOption('branch')
   await page.getByLabel('Branch', { exact: true }).fill('feature/forms')
   await page.getByLabel('Memory per instance (MiB)').fill('1024')
+  await page.getByLabel('Build method').selectOption('generated')
+  await page.getByLabel('Build command (optional)').fill('npm run build -- --mode production')
+  await page.getByLabel('Start command (optional)').fill('node dist/server.js')
   await page.getByLabel('Domains (optional)').fill('canary.example.com')
   await page.getByLabel('Secret names (optional)').fill('DATABASE_URL, SESSION_SECRET')
   await page.getByRole('button', { name: 'Save changes' }).click()
@@ -65,6 +68,11 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   await stale.close()
   await page.reload()
   await expect(page.getByLabel('Dockerfile path')).toHaveValue('deploy/Dockerfile')
+  await expect(page.getByLabel('Build method')).toHaveValue('generated')
+  await expect(page.getByLabel('Build command (optional)')).toHaveValue(
+    'npm run build -- --mode production',
+  )
+  await expect(page.getByLabel('Start command (optional)')).toHaveValue('node dist/server.js')
   await expect(page.getByLabel('Secret names (optional)')).toHaveValue(
     'DATABASE_URL, SESSION_SECRET',
   )

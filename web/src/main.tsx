@@ -404,6 +404,9 @@ function ServiceForm({ service }: { service?: Service }) {
   const initialRef = spec ? sourceReference(spec.source) : { kind: 'commit' as const, value: '' }
   const [sourceKind, setSourceKind] = useState<SourceKind>(initialRef.kind)
   const [sourceValue, setSourceValue] = useState(initialRef.value)
+  const [buildMode, setBuildMode] = useState<'auto' | 'dockerfile' | 'generated'>(
+    oci?.build_mode ?? 'auto',
+  )
   const [dirty, setDirty] = useState(false)
   const [formVersion, setFormVersion] = useState(0)
   const [reloading, setReloading] = useState(false)
@@ -448,6 +451,8 @@ function ServiceForm({ service }: { service?: Service }) {
     try {
       const saved = await api<Service>(`/services/${baseline.id}`)
       setBaseline(saved)
+      if (saved.spec.workload.kind === 'oci-service')
+        setBuildMode(saved.spec.workload.build_mode ?? 'auto')
       const ref = sourceReference(saved.spec.source)
       setSourceKind(ref.kind)
       setSourceValue(ref.value)
@@ -475,6 +480,11 @@ function ServiceForm({ service }: { service?: Service }) {
       kind === 'oci-service'
         ? {
             kind,
+            build_mode: buildMode,
+            build_command:
+              buildMode === 'dockerfile' ? undefined : text('build_command') || undefined,
+            start_command:
+              buildMode === 'dockerfile' ? undefined : text('start_command') || undefined,
             dockerfile: text('dockerfile'),
             context: text('context'),
             replicas: number('replicas'),
@@ -645,18 +655,61 @@ function ServiceForm({ service }: { service?: Service }) {
                   />
                 </Field>
                 {kind === 'oci-service' ? (
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Field label="Dockerfile path">
-                      <input
-                        name="dockerfile"
-                        defaultValue={oci?.dockerfile ?? 'Dockerfile'}
-                        required
-                      />
+                  <>
+                    <Field
+                      label="Build method"
+                      hint="Automatic uses your Dockerfile when present, otherwise generates one for a supported Node or Bun app with a lockfile and start script or custom start command."
+                    >
+                      <select
+                        name="build_mode"
+                        className="build-select"
+                        value={buildMode}
+                        onChange={(event) => setBuildMode(event.target.value as typeof buildMode)}
+                      >
+                        <option value="auto">Automatic (Dockerfile or language detection)</option>
+                        <option value="dockerfile">Repository Dockerfile only</option>
+                        <option value="generated">Generate Dockerfile from app</option>
+                      </select>
                     </Field>
-                    <Field label="Build context">
-                      <input name="context" defaultValue={oci?.context ?? '.'} required />
-                    </Field>
-                  </div>
+                    {buildMode !== 'dockerfile' && (
+                      <>
+                        <Field
+                          label="Build command (optional)"
+                          hint="Blank uses scripts.build when present. A custom command selects a generated Dockerfile, even if the repository has one. Commands run inside the builder; use secret references for secrets."
+                        >
+                          <input
+                            name="build_command"
+                            defaultValue={oci?.build_command}
+                            placeholder="npm run build"
+                            maxLength={4096}
+                          />
+                        </Field>
+                        <Field
+                          label="Start command (optional)"
+                          hint="Blank uses scripts.start. A custom command selects a generated Dockerfile and runs when an instance starts."
+                        >
+                          <input
+                            name="start_command"
+                            defaultValue={oci?.start_command}
+                            placeholder="npm start"
+                            maxLength={4096}
+                          />
+                        </Field>
+                      </>
+                    )}
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Field label="Dockerfile path">
+                        <input
+                          name="dockerfile"
+                          defaultValue={oci?.dockerfile ?? 'Dockerfile'}
+                          required
+                        />
+                      </Field>
+                      <Field label="Build context">
+                        <input name="context" defaultValue={oci?.context ?? '.'} required />
+                      </Field>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <Field label="Wrangler configuration">

@@ -2,7 +2,7 @@ use control_plane::builds::{self, Completion};
 use platform_build_runner::{Config, Request};
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use std::{env, time::Duration};
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinSet};
 use uuid::Uuid;
 
 #[tokio::main]
@@ -44,7 +44,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         spec: build.spec.0.clone(),
                         no_cache: build.no_cache,
                     };
-                    let runner = async {
+                    // The runner must keep progressing while lease queries await
+                    // its short transactions. Polling both inline can deadlock.
+                    // JoinSet aborts the task on every early-return/shutdown path.
+                    let mut runner = JoinSet::new();
+                    let runner_pool = pool.clone();
+                    let runner_build = build.clone();
+                    let runner_config = config.clone();
+                    runner.spawn(async move {
+                        let pool = runner_pool;
+                        let build = runner_build;
+                        let config = runner_config;
                         let commit =
                             platform_build_runner::resolve_commit(&config, &request.spec).await?;
                         if !builds::record_resolution(&pool, &build, &commit)
@@ -54,14 +64,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             return Err(platform_build_runner::Error::Lease);
                         }
                         request.spec.source.pin(commit);
-                        platform_build_runner::run(&config, request, sender).await
-                    };
-                    tokio::pin!(runner);
+                        sender
+                            .send("Inspecting build source…\n".into())
+                            .await
+                            .map_err(|_| platform_build_runner::Error::Client)?;
+                        let plan = platform_build_runner::plan(&config, &request).await?;
+                        if !builds::record_plan(&pool, &build, &plan)
+                            .await
+                            .map_err(|_| platform_build_runner::Error::Lease)?
+                        {
+                            return Err(platform_build_runner::Error::Lease);
+                        }
+                        sender.send(match &plan {
+                            platform_build_runner::BuildPlan::Dockerfile { .. } => "Using repository Dockerfile.\n".into(),
+                            platform_build_runner::BuildPlan::Generated { runtime, package_manager, .. } => format!("Generated Dockerfile: {runtime}, {package_manager}; install → build (if present) → start.\n"),
+                        }).await.map_err(|_| platform_build_runner::Error::Client)?;
+                        platform_build_runner::run(&config, request, &plan, sender).await
+                    });
                     let mut interval = tokio::time::interval(Duration::from_secs(5));
                     let mut logs_open = true;
-                    loop {
+                    let completion = loop {
                         tokio::select! {
-                            result = &mut runner => {
+                            joined = runner.join_next() => {
+                                let result = joined.and_then(Result::ok).unwrap_or(Err(platform_build_runner::Error::Client));
                                 while let Ok(message) = receiver.try_recv() { builds::append_log(&pool, &build, &message).await?; }
                                 break match result {
                                     Ok(output) => Completion::Succeeded { repository: output.repository, digest: output.digest },
@@ -82,9 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
-                    }
-                    // Runner is dropped here before recording cancellation. That
-                    // kills buildctl and closes its remote build session.
+                    };
+                    runner.abort_all();
+                    while runner.join_next().await.is_some() {}
+                    // Aborting drops buildctl before persisting cancellation.
+                    completion
                 };
                 builds::finish(&pool, &build, completion).await?;
             } else {

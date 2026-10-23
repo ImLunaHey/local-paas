@@ -72,6 +72,12 @@ pub struct Resources {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Workload {
     OciService {
+        #[serde(default)]
+        build_mode: BuildMode,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        build_command: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_command: Option<String>,
         dockerfile: String,
         context: String,
         replicas: u16,
@@ -83,6 +89,15 @@ pub enum Workload {
         members: u16,
         bucket_ref: String,
     },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuildMode {
+    #[default]
+    Auto,
+    Dockerfile,
+    Generated,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,7 +228,31 @@ impl ServiceSpec {
                 replicas,
                 port,
                 readiness,
+                build_mode,
+                build_command,
+                start_command,
             } => {
+                for (field, command) in [
+                    ("workload.build_command", build_command),
+                    ("workload.start_command", start_command),
+                ] {
+                    if let Some(command) = command {
+                        check(
+                            !command.trim().is_empty()
+                                && command.len() <= 4096
+                                && !command
+                                    .chars()
+                                    .any(|c| c.is_control() && c != '\n' && c != '\t'),
+                            field,
+                            "use a nonempty shell command up to 4096 bytes; keep secrets in secret references",
+                        );
+                        check(
+                            *build_mode != BuildMode::Dockerfile,
+                            field,
+                            "custom commands require automatic or generated build mode; repository Dockerfiles define their own commands",
+                        );
+                    }
+                }
                 check(
                     relative_path(dockerfile, false),
                     "workload.dockerfile",
@@ -415,6 +454,31 @@ mod tests {
         spec.secrets = vec!["DATABASE_URL=secret".into()];
         spec.domains = vec!["https://example.com".into()];
         assert_eq!(spec.validate().unwrap_err().len(), 2);
+    }
+
+    #[test]
+    fn custom_commands_require_a_generated_recipe_and_valid_text() {
+        for (mode, command, valid) in [
+            (BuildMode::Auto, "npm run build", true),
+            (BuildMode::Generated, "node server.js", true),
+            (BuildMode::Dockerfile, "npm start", false),
+            (BuildMode::Auto, "   ", false),
+            (BuildMode::Auto, "npm\0start", false),
+        ] {
+            let mut spec = example();
+            if let Workload::OciService {
+                build_mode,
+                build_command,
+                start_command,
+                ..
+            } = &mut spec.workload
+            {
+                *build_mode = mode;
+                *build_command = Some(command.into());
+                *start_command = Some(command.into());
+            }
+            assert_eq!(spec.validate().is_ok(), valid);
+        }
     }
 
     #[test]

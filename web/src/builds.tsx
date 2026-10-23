@@ -7,6 +7,28 @@ import type { Build, Revision, Service, SourceKind } from './api'
 
 const active = (build?: Build) => build?.status === 'queued' || build?.status === 'running'
 const errors: Record<string, string> = {
+  auto_ignore_unsupported:
+    'The .dockerignore contains patterns automatic generation cannot safely translate. Provide a Dockerfile for this app.',
+  context_exclusion_failed:
+    'This diagnostic image was invalidated after a remote-context exclusion issue. Queue a new build with the corrected generator.',
+  auto_language_unsupported:
+    'No Dockerfile or supported package.json found in the build context. Add a Dockerfile or choose the directory containing your app.',
+  auto_provider_unsupported:
+    'Automatic detection currently supports public GitHub repositories. Choose Repository Dockerfile only for other hosts.',
+  auto_source_unavailable:
+    'Could not inspect source metadata. Check repository access and retry; automatic detection does not bypass network or permission failures.',
+  auto_package_invalid:
+    'package.json or its scripts are invalid. Fix the manifest or supply a Dockerfile.',
+  auto_start_missing:
+    'Set a Start command in Configuration, add scripts.start to package.json, or provide a Dockerfile with an explicit startup command.',
+  auto_lockfile_missing:
+    'Commit a package-lock.json, npm-shrinkwrap.json, pnpm-lock.yaml, yarn.lock, bun.lock or bun.lockb for reproducible dependency installation.',
+  auto_package_manager_conflict:
+    'Lockfiles and packageManager disagree, multiple package managers were detected, or the packageManager version is not exact. Keep one package manager or provide a Dockerfile.',
+  auto_runtime_unsupported:
+    'The declared runtime version is outside the pinned Node 22/24 or Bun 1.4.4 presets. Provide a Dockerfile for another runtime version.',
+  auto_workspace_unsupported:
+    'Workspace projects need an explicit Dockerfile for now. Automatic detection supports standalone application packages.',
   source_ref_not_found: 'The requested branch or tag does not exist in the repository.',
   source_resolution_failed:
     'Could not resolve the source reference. Check repository access and retry.',
@@ -236,6 +258,26 @@ export function BuildPanel({ service }: { service: Service }) {
                   {selected.resolved_commit && (
                     <p className="text-xs text-muted break-all">
                       Resolved commit <code>{selected.resolved_commit}</code>
+                    </p>
+                  )}
+                  {selected.build_plan?.kind === 'generated' && (
+                    <details className="text-xs min-w-0">
+                      <summary className="cursor-pointer text-accent">
+                        Generated Dockerfile · {selected.build_plan.runtime} ·{' '}
+                        {selected.build_plan.package_manager}
+                      </summary>
+                      <pre className="spec-preview mt-3" aria-label="Generated Dockerfile">
+                        {selected.build_plan.dockerfile}
+                      </pre>
+                      <p className="text-muted mt-2">
+                        Saved with this build. Dotenv files, .npmrc and local dependencies are
+                        excluded when copying the app into the image.
+                      </p>
+                    </details>
+                  )}
+                  {selected.build_plan?.kind === 'dockerfile' && (
+                    <p className="text-xs text-muted">
+                      Repository Dockerfile: <code>{selected.build_plan.path}</code>
                     </p>
                   )}
                   {selected.error_code && (
