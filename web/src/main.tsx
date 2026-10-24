@@ -1,5 +1,5 @@
 import { ServiceDomains } from './service-domains'
-import { ServiceSetup } from './service-setup'
+import { CreationSecrets, type CreationSecretsHandle } from './creation-secrets'
 import { SourceUpload } from './source-upload'
 import { ContentBoundary, RouteError } from './error-boundary'
 import { FileBrowser } from './file-browser'
@@ -246,29 +246,65 @@ function ServiceRow({ service }: { service: Service }) {
 
 function NewService() {
   const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
-  const [database, setDatabase] = useState<'app' | 'database' | 'storage'>('app')
   return (
     <CreationScope key={scope.project + ':' + scope.environment}>
-      <div className="mb-6 flex gap-3">
-        <Button aria-pressed={database === 'app'} onClick={() => setDatabase('app')}>
-          Application
-        </Button>
-        <Button aria-pressed={database === 'database'} onClick={() => setDatabase('database')}>
-          Database
-        </Button>
-        <Button aria-pressed={database === 'storage'} onClick={() => setDatabase('storage')}>
-          S3 storage
-        </Button>
-      </div>
-      {database !== 'app' ? (
-        <DatabaseForm
-          key={scope.project + ':' + scope.environment + database}
-          initialEngine={database === 'storage' ? 'rustfs-service' : 'postgres-service'}
-        />
-      ) : (
-        <ServiceForm key={scope.project + ':' + scope.environment} />
-      )}
+      <CreationKind />
     </CreationScope>
+  )
+}
+
+function CreationKind() {
+  const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
+  const [kind, setKind] = useState<'app' | 'database' | 'storage' | null>(null)
+  if (!kind)
+    return (
+      <>
+        <ProjectBackLink project={scope.project} environment={scope.environment} />
+        <div className="page-heading">
+          <div>
+            <div className="eyebrow">NEW SERVICE</div>
+            <h1>What do you want to create?</h1>
+            <p>Choose what to add to this project’s environment.</p>
+          </div>
+        </div>
+        <div className="grid max-w-4xl gap-4 md:grid-cols-3">
+          {(
+            [
+              ['app', 'App', 'Deploy an application from Git, a ZIP, or local files.', Box],
+              ['database', 'Database', 'Add PostgreSQL or Redis with persistent storage.', Server],
+              [
+                'storage',
+                'Storage',
+                'Add S3-compatible object storage powered by RustFS.',
+                Layers3,
+              ],
+            ] as const
+          ).map(([value, label, description, Icon]) => (
+            <Button
+              key={value}
+              aria-label={label}
+              onClick={() => setKind(value)}
+              className="min-h-48 flex-col items-start justify-start gap-4 whitespace-normal rounded-xl p-6 text-left"
+            >
+              <Icon size={24} className="text-accent" />
+              <span className="text-base text-zinc-100">{label}</span>
+              <span className="text-sm font-normal leading-relaxed text-muted">{description}</span>
+            </Button>
+          ))}
+        </div>
+      </>
+    )
+  return (
+    <>
+      <Button variant="ghost" className="mb-4" onClick={() => setKind(null)}>
+        ← Change service type
+      </Button>
+      {kind === 'app' ? (
+        <ServiceForm />
+      ) : (
+        <DatabaseForm initialEngine={kind === 'storage' ? 'rustfs-service' : 'postgres-service'} />
+      )}
+    </>
   )
 }
 
@@ -290,6 +326,9 @@ function ServiceForm({ service }: { service?: Service }) {
   )
   const [dirty, setDirty] = useState(false)
   const [domainsReady, setDomainsReady] = useState(false)
+  const secretsDraft = useRef<CreationSecretsHandle>(null)
+  const created = useRef<Service | null>(null)
+  const [creationLocked, setCreationLocked] = useState(false)
   const [formVersion, setFormVersion] = useState(0)
   const [reloading, setReloading] = useState(false)
   const [reloadError, setReloadError] = useState<Error | null>(null)
@@ -304,29 +343,53 @@ function ServiceForm({ service }: { service?: Service }) {
   const mutation = useMutation({
     mutationFn: async (spec: ServiceSpec) => {
       const serialized = JSON.stringify({ spec, version: baseline?.version })
-      if (pending.current?.serialized !== serialized)
+      if (!created.current && pending.current?.serialized !== serialized)
         pending.current = { serialized, id: crypto.randomUUID() }
-      return api<Service>(baseline ? `/services/${baseline.id}` : '/services', {
-        method: baseline ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          operation_id: pending.current.id,
-          expected_version: baseline?.version,
-          spec,
-          ...(!baseline ? { build_on_create: false } : {}),
-        }),
-      })
+      // Read inside the mutation; secret values never become mutation variables.
+      const entries = baseline ? [] : secretsDraft.current!.read()
+      const saved =
+        created.current ??
+        (await api<Service>(baseline ? `/services/${baseline.id}` : '/services', {
+          method: baseline ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            operation_id: pending.current!.id,
+            expected_version: baseline?.version,
+            spec,
+            ...(!baseline ? { build_on_create: false } : {}),
+          }),
+        }))
+      if (baseline) return saved
+      created.current = saved
+      setCreationLocked(true)
+      for (const entry of entries) {
+        const { version } = await api<{ version: number }>(`/services/${saved.id}/secrets`)
+        await api(`/services/${saved.id}/secrets`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: entry.name, value: entry.value, expected_version: version }),
+        })
+        entry.value = ''
+        secretsDraft.current!.saved(entry.id)
+      }
+      if (saved.spec.workload.kind === 'oci-service')
+        await api(`/services/${saved.id}/builds`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ operation_id: pending.current!.id }),
+        })
+      return saved
     },
     onSuccess: async (service) => {
-      pending.current = null
       await client.invalidateQueries({ queryKey: ['services'] })
       if (baseline) {
+        pending.current = null
         setBaseline(service)
         setDirty(false)
         await client.invalidateQueries({ queryKey: ['events', service.id] })
         return
       }
-      await navigate({ to: '/services/$serviceId/setup', params: { serviceId: service.id } })
+      await navigate({ to: '/services/$serviceId/builds', params: { serviceId: service.id } })
     },
   })
   async function reloadSaved() {
@@ -356,6 +419,10 @@ function ServiceForm({ service }: { service?: Service }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (mutation.isPending) return
+    if (created.current) {
+      mutation.mutate(created.current.spec)
+      return
+    }
     const data = new FormData(event.currentTarget)
     const text = (key: string) => String(data.get(key) ?? '').trim()
     const number = (key: string) => Number(text(key))
@@ -427,327 +494,340 @@ function ServiceForm({ service }: { service?: Service }) {
           aria-label={baseline ? 'Service configuration' : 'Register service'}
         >
           <fieldset disabled={mutation.isPending || reloading} className="space-y-5">
-            <section className="panel form-section">
-              <h2>
-                <span className="step">01</span> Application
-              </h2>
-              <div className="grid sm:grid-cols-2 gap-3 mb-6">
-                {(['oci-service', 'celld-service'] as const).map((type) => (
-                  <Button
-                    type="button"
-                    disabled={!!baseline}
-                    aria-pressed={kind === type}
-                    className={cn('kind-option', { selected: kind === type })}
-                    key={type}
-                    onClick={() => {
-                      setKind(type)
-                      mutation.reset()
-                    }}
-                  >
-                    {type === 'oci-service' ? <Box size={20} /> : <Workflow size={20} />}
-                    <span>
-                      <strong>
-                        {type === 'oci-service' ? 'Dockerfile service' : 'celld application'}
-                      </strong>
-                      <small>
-                        {type === 'oci-service' ? 'Web apps & APIs' : 'Workers & Durable Objects'}
-                      </small>
-                    </span>
-                    {kind === type && <Check size={15} className="ml-auto text-accent" />}
-                  </Button>
-                ))}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <input type="hidden" name="project" value={spec?.project ?? scope.project ?? ''} />
-                <input
-                  type="hidden"
-                  name="environment"
-                  value={spec?.environment ?? scope.environment ?? ''}
-                />
-                <div className="sm:col-span-2">
-                  <Field label="Service name">
-                    <Input
-                      name="name"
-                      defaultValue={spec?.name}
-                      placeholder={kind === 'oci-service' ? 'my-web-app' : 'my-durable-app'}
-                      required
-                      pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                      maxLength={63}
-                    />
-                  </Field>
-                </div>
-              </div>
-            </section>
-            <section className="panel form-section">
-              <h2>
-                <span className="step">02</span> Source
-              </h2>
-              <div className="space-y-4">
-                {kind === 'oci-service' && (
-                  <Field label="Deployment source">
-                    <Select
-                      value={sourceMode}
-                      onChange={(e) => {
-                        setSourceMode(e.target.value as 'git' | 'upload')
-                        setDirty(true)
+            <fieldset disabled={creationLocked} className="space-y-5">
+              <section className="panel form-section">
+                <h2>
+                  <span className="step">01</span> Application
+                </h2>
+                <div className="grid sm:grid-cols-2 gap-3 mb-6">
+                  {(['oci-service', 'celld-service'] as const).map((type) => (
+                    <Button
+                      type="button"
+                      disabled={!!baseline}
+                      aria-pressed={kind === type}
+                      className={cn('kind-option', { selected: kind === type })}
+                      key={type}
+                      onClick={() => {
+                        setKind(type)
+                        mutation.reset()
                       }}
                     >
-                      <option value="git">Git repository</option>
-                      <option value="upload">ZIP or local files</option>
-                    </Select>
-                  </Field>
-                )}
-                {kind === 'oci-service' && sourceMode === 'upload' ? (
-                  <SourceUpload
-                    project={spec?.project ?? scope.project ?? ''}
-                    digest={uploadDigest}
-                    onChange={(digest) => {
-                      setUploadDigest(digest)
-                      setDirty(true)
-                    }}
+                      {type === 'oci-service' ? <Box size={20} /> : <Workflow size={20} />}
+                      <span>
+                        <strong>
+                          {type === 'oci-service' ? 'Dockerfile service' : 'celld application'}
+                        </strong>
+                        <small>
+                          {type === 'oci-service' ? 'Web apps & APIs' : 'Workers & Durable Objects'}
+                        </small>
+                      </span>
+                      {kind === type && <Check size={15} className="ml-auto text-accent" />}
+                    </Button>
+                  ))}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <input
+                    type="hidden"
+                    name="project"
+                    value={spec?.project ?? scope.project ?? ''}
                   />
-                ) : (
-                  <>
-                    <Field
-                      label="Git repository"
-                      hint="An HTTPS URL without a token or embedded credentials."
-                    >
+                  <input
+                    type="hidden"
+                    name="environment"
+                    value={spec?.environment ?? scope.environment ?? ''}
+                  />
+                  <div className="sm:col-span-2">
+                    <Field label="Service name">
                       <Input
-                        name="repository"
-                        defaultValue={spec?.source?.repository}
-                        type="url"
-                        placeholder="https://github.com/you/your-app.git"
+                        name="name"
+                        defaultValue={spec?.name}
+                        placeholder={kind === 'oci-service' ? 'my-web-app' : 'my-durable-app'}
                         required
-                        maxLength={2048}
+                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                        maxLength={63}
                       />
                     </Field>
-                    <Field label="Source type">
+                  </div>
+                </div>
+              </section>
+              <section className="panel form-section">
+                <h2>
+                  <span className="step">02</span> Source
+                </h2>
+                <div className="space-y-4">
+                  {kind === 'oci-service' && (
+                    <Field label="Deployment source">
                       <Select
-                        className="build-select"
-                        value={sourceKind}
-                        onChange={(event) => setSourceKind(event.target.value as SourceKind)}
+                        value={sourceMode}
+                        onChange={(e) => {
+                          setSourceMode(e.target.value as 'git' | 'upload')
+                          setDirty(true)
+                        }}
                       >
-                        <option value="branch">Branch</option>
-                        <option value="tag">Tag</option>
-                        <option value="commit">Commit</option>
+                        <option value="git">Git repository</option>
+                        <option value="upload">ZIP or local files</option>
                       </Select>
                     </Field>
-                    <Field
-                      label={
-                        sourceKind === 'commit'
-                          ? 'Commit SHA'
-                          : sourceKind === 'branch'
-                            ? 'Branch'
-                            : 'Tag'
-                      }
-                      hint="Branches and tags are resolved to an exact commit for each build."
-                    >
-                      <Input
-                        name="source_ref"
-                        className="font-mono"
-                        value={sourceValue}
-                        onChange={(event) => setSourceValue(event.target.value)}
-                        required
-                        pattern={
-                          sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined
-                        }
-                      />
-                    </Field>
-                  </>
-                )}
-                {kind === 'oci-service' ? (
-                  <>
-                    <Field
-                      label="Build method"
-                      hint="Automatic uses your Dockerfile when present, otherwise generates one for a supported Node or Bun app with a lockfile and start script or custom start command."
-                    >
-                      <Select
-                        name="build_mode"
-                        className="build-select"
-                        value={buildMode}
-                        onChange={(event) => setBuildMode(event.target.value as typeof buildMode)}
+                  )}
+                  {kind === 'oci-service' && sourceMode === 'upload' ? (
+                    <SourceUpload
+                      project={spec?.project ?? scope.project ?? ''}
+                      digest={uploadDigest}
+                      onChange={(digest) => {
+                        setUploadDigest(digest)
+                        setDirty(true)
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <Field
+                        label="Git repository"
+                        hint="An HTTPS URL without a token or embedded credentials."
                       >
-                        <option value="auto">Automatic (Dockerfile or language detection)</option>
-                        <option value="dockerfile">Repository Dockerfile only</option>
-                        <option value="generated">Generate Dockerfile from app</option>
-                      </Select>
-                    </Field>
-                    {buildMode !== 'dockerfile' && (
-                      <>
-                        <Field
-                          label="Build command (optional)"
-                          hint="Blank uses scripts.build when present. A custom command selects a generated Dockerfile, even if the repository has one. Commands run inside the builder; use secret references for secrets."
-                        >
-                          <Input
-                            name="build_command"
-                            defaultValue={oci?.build_command}
-                            placeholder="npm run build"
-                            maxLength={4096}
-                          />
-                        </Field>
-                        <Field
-                          label="Start command (optional)"
-                          hint="Blank uses scripts.start. A custom command selects a generated Dockerfile and runs when an instance starts."
-                        >
-                          <Input
-                            name="start_command"
-                            defaultValue={oci?.start_command}
-                            placeholder="npm start"
-                            maxLength={4096}
-                          />
-                        </Field>
-                      </>
-                    )}
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <Field label="Dockerfile path">
                         <Input
-                          name="dockerfile"
-                          defaultValue={oci?.dockerfile ?? 'Dockerfile'}
+                          name="repository"
+                          defaultValue={spec?.source?.repository}
+                          type="url"
+                          placeholder="https://github.com/you/your-app.git"
+                          required
+                          maxLength={2048}
+                        />
+                      </Field>
+                      <Field label="Source type">
+                        <Select
+                          className="build-select"
+                          value={sourceKind}
+                          onChange={(event) => setSourceKind(event.target.value as SourceKind)}
+                        >
+                          <option value="branch">Branch</option>
+                          <option value="tag">Tag</option>
+                          <option value="commit">Commit</option>
+                        </Select>
+                      </Field>
+                      <Field
+                        label={
+                          sourceKind === 'commit'
+                            ? 'Commit SHA'
+                            : sourceKind === 'branch'
+                              ? 'Branch'
+                              : 'Tag'
+                        }
+                        hint="Branches and tags are resolved to an exact commit for each build."
+                      >
+                        <Input
+                          name="source_ref"
+                          className="font-mono"
+                          value={sourceValue}
+                          onChange={(event) => setSourceValue(event.target.value)}
+                          required
+                          pattern={
+                            sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined
+                          }
+                        />
+                      </Field>
+                    </>
+                  )}
+                  {kind === 'oci-service' ? (
+                    <>
+                      <Field
+                        label="Build method"
+                        hint="Automatic uses your Dockerfile when present, otherwise generates one for a supported Node or Bun app with a lockfile and start script or custom start command."
+                      >
+                        <Select
+                          name="build_mode"
+                          className="build-select"
+                          value={buildMode}
+                          onChange={(event) => setBuildMode(event.target.value as typeof buildMode)}
+                        >
+                          <option value="auto">Automatic (Dockerfile or language detection)</option>
+                          <option value="dockerfile">Repository Dockerfile only</option>
+                          <option value="generated">Generate Dockerfile from app</option>
+                        </Select>
+                      </Field>
+                      {buildMode !== 'dockerfile' && (
+                        <>
+                          <Field
+                            label="Build command (optional)"
+                            hint="Blank uses scripts.build when present. A custom command selects a generated Dockerfile, even if the repository has one. Commands run inside the builder; use secret references for secrets."
+                          >
+                            <Input
+                              name="build_command"
+                              defaultValue={oci?.build_command}
+                              placeholder="npm run build"
+                              maxLength={4096}
+                            />
+                          </Field>
+                          <Field
+                            label="Start command (optional)"
+                            hint="Blank uses scripts.start. A custom command selects a generated Dockerfile and runs when an instance starts."
+                          >
+                            <Input
+                              name="start_command"
+                              defaultValue={oci?.start_command}
+                              placeholder="npm start"
+                              maxLength={4096}
+                            />
+                          </Field>
+                        </>
+                      )}
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <Field label="Dockerfile path">
+                          <Input
+                            name="dockerfile"
+                            defaultValue={oci?.dockerfile ?? 'Dockerfile'}
+                            required
+                          />
+                        </Field>
+                        <Field label="Build context">
+                          <Input name="context" defaultValue={oci?.context ?? '.'} required />
+                        </Field>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Field label="Wrangler configuration">
+                        <Input
+                          name="wrangler"
+                          defaultValue={celld?.wrangler ?? 'wrangler.jsonc'}
                           required
                         />
                       </Field>
-                      <Field label="Build context">
-                        <Input name="context" defaultValue={oci?.context ?? '.'} required />
+                      <Field
+                        label="Bucket configuration reference"
+                        hint="A dedicated fleet's storage reference. Do not enter credentials."
+                      >
+                        <Input
+                          name="bucket"
+                          defaultValue={celld?.bucket_ref}
+                          placeholder="my-durable-app-bucket"
+                          required
+                          pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                        />
                       </Field>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Field label="Wrangler configuration">
+                    </>
+                  )}
+                </div>
+              </section>
+              <section className="panel form-section">
+                <h2>
+                  <span className="step">03</span> Runtime requirements
+                </h2>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="CPU per instance (millicores)">
+                    <Input
+                      name="cpu"
+                      type="number"
+                      defaultValue={spec?.resources.cpu_millis ?? 500}
+                      min={1}
+                      max={64000}
+                      required
+                    />
+                  </Field>
+                  <Field label="Memory per instance (MiB)">
+                    <Input
+                      name="memory"
+                      type="number"
+                      defaultValue={spec?.resources.memory_mib ?? 512}
+                      min={16}
+                      max={65536}
+                      required
+                    />
+                  </Field>
+                  {kind === 'oci-service' ? (
+                    <>
+                      <Field label="Replicas">
+                        <Input
+                          name="replicas"
+                          type="number"
+                          defaultValue={oci?.replicas ?? 2}
+                          min={1}
+                          max={32}
+                          required
+                        />
+                      </Field>
+                      <Field label="HTTP port">
+                        <Input
+                          name="port"
+                          type="number"
+                          defaultValue={oci?.port ?? 3000}
+                          min={1}
+                          max={65535}
+                          required
+                        />
+                      </Field>
+                      <div className="sm:col-span-2">
+                        <Field label="Readiness path">
+                          <Input
+                            name="readiness"
+                            defaultValue={oci?.readiness.path ?? '/health'}
+                            required
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Check interval (seconds)">
+                        <Input
+                          name="interval"
+                          type="number"
+                          defaultValue={oci?.readiness.interval_seconds ?? 10}
+                          min={1}
+                          max={300}
+                          required
+                        />
+                      </Field>
+                      <Field label="Stabilization period (seconds)">
+                        <Input
+                          name="stabilization"
+                          type="number"
+                          defaultValue={oci?.readiness.stabilization_seconds ?? 30}
+                          min={1}
+                          max={3600}
+                          required
+                        />
+                      </Field>
+                    </>
+                  ) : (
+                    <Field label="Fleet members">
                       <Input
-                        name="wrangler"
-                        defaultValue={celld?.wrangler ?? 'wrangler.jsonc'}
-                        required
-                      />
-                    </Field>
-                    <Field
-                      label="Bucket configuration reference"
-                      hint="A dedicated fleet's storage reference. Do not enter credentials."
-                    >
-                      <Input
-                        name="bucket"
-                        defaultValue={celld?.bucket_ref}
-                        placeholder="my-durable-app-bucket"
-                        required
-                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                      />
-                    </Field>
-                  </>
-                )}
-              </div>
-            </section>
-            <section className="panel form-section">
-              <h2>
-                <span className="step">03</span> Runtime requirements
-              </h2>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Field label="CPU per instance (millicores)">
-                  <Input
-                    name="cpu"
-                    type="number"
-                    defaultValue={spec?.resources.cpu_millis ?? 500}
-                    min={1}
-                    max={64000}
-                    required
-                  />
-                </Field>
-                <Field label="Memory per instance (MiB)">
-                  <Input
-                    name="memory"
-                    type="number"
-                    defaultValue={spec?.resources.memory_mib ?? 512}
-                    min={16}
-                    max={65536}
-                    required
-                  />
-                </Field>
-                {kind === 'oci-service' ? (
-                  <>
-                    <Field label="Replicas">
-                      <Input
-                        name="replicas"
+                        name="members"
                         type="number"
-                        defaultValue={oci?.replicas ?? 2}
-                        min={1}
+                        defaultValue={celld?.members ?? 3}
+                        min={2}
                         max={32}
                         required
                       />
                     </Field>
-                    <Field label="HTTP port">
-                      <Input
-                        name="port"
-                        type="number"
-                        defaultValue={oci?.port ?? 3000}
-                        min={1}
-                        max={65535}
-                        required
-                      />
-                    </Field>
-                    <div className="sm:col-span-2">
-                      <Field label="Readiness path">
-                        <Input
-                          name="readiness"
-                          defaultValue={oci?.readiness.path ?? '/health'}
-                          required
-                        />
-                      </Field>
-                    </div>
-                    <Field label="Check interval (seconds)">
-                      <Input
-                        name="interval"
-                        type="number"
-                        defaultValue={oci?.readiness.interval_seconds ?? 10}
-                        min={1}
-                        max={300}
-                        required
-                      />
-                    </Field>
-                    <Field label="Stabilization period (seconds)">
-                      <Input
-                        name="stabilization"
-                        type="number"
-                        defaultValue={oci?.readiness.stabilization_seconds ?? 30}
-                        min={1}
-                        max={3600}
-                        required
-                      />
-                    </Field>
-                  </>
-                ) : (
-                  <Field label="Fleet members">
-                    <Input
-                      name="members"
-                      type="number"
-                      defaultValue={celld?.members ?? 3}
-                      min={2}
-                      max={32}
-                      required
-                    />
-                  </Field>
-                )}
-              </div>
-              <label className="checkbox-field">
-                <Input
-                  type="checkbox"
-                  name="distinct"
-                  defaultChecked={spec?.distinct_nodes ?? true}
-                />
-                <span>
-                  Spread across distinct nodes
-                  <small>Different VMs on Lake still share one physical failure domain.</small>
-                </span>
-              </label>
-            </section>
+                  )}
+                </div>
+                <label className="checkbox-field">
+                  <Input
+                    type="checkbox"
+                    name="distinct"
+                    defaultChecked={spec?.distinct_nodes ?? true}
+                  />
+                  <span>
+                    Spread across distinct nodes
+                    <small>Different VMs on Lake still share one physical failure domain.</small>
+                  </span>
+                </label>
+              </section>
+              <section className="panel form-section">
+                <h2>
+                  <span className="step">04</span> Domains
+                </h2>
+                <div className="space-y-4">
+                  <ServiceDomains
+                    serviceId={baseline?.id}
+                    onChange={() => setDirty(true)}
+                    onReadyChange={setDomainsReady}
+                  />
+                </div>
+              </section>
+            </fieldset>
             <section className="panel form-section">
               <h2>
-                <span className="step">04</span> Domains & secrets
+                <span className="step">05</span> Secrets
               </h2>
               <div className="space-y-4">
-                <ServiceDomains
-                  serviceId={baseline?.id}
-                  onChange={() => setDirty(true)}
-                  onReadyChange={setDomainsReady}
-                />
                 {baseline ? (
                   <Link
                     to="/services/$serviceId/secrets"
@@ -757,15 +837,18 @@ function ServiceForm({ service }: { service?: Service }) {
                     Manage secrets in OpenBao
                   </Link>
                 ) : (
-                  <p className="text-xs text-muted">
-                    Next, add secret names and values securely in OpenBao before your first build.
-                  </p>
+                  <CreationSecrets ref={secretsDraft} locked={creationLocked} />
                 )}
               </div>
             </section>
             {baseline && mutation.isSuccess && !dirty && (
               <p role="status" className="text-sm text-accent">
                 Configuration saved.
+              </p>
+            )}
+            {creationLocked && mutation.isError && (
+              <p role="status" className="text-sm text-muted">
+                Your service is saved. Retry to finish saving secrets and start its build.
               </p>
             )}
             {reloadError && <ErrorNotice error={reloadError} />}
@@ -809,7 +892,11 @@ function ServiceForm({ service }: { service?: Service }) {
                     : 'Registering…'
                   : baseline
                     ? 'Save changes'
-                    : 'Continue to secrets'}
+                    : creationLocked
+                      ? 'Retry creation'
+                      : kind === 'oci-service'
+                        ? 'Create and build'
+                        : 'Create service'}
               </Button>
             </div>
           </fieldset>
@@ -820,8 +907,9 @@ function ServiceForm({ service }: { service?: Service }) {
           </span>
           <h3>{baseline ? 'Configure your service.' : 'A specification, then a deployment.'}</h3>
           <p>
-            Changes apply to future builds. Existing builds and image revisions keep their recorded
-            configuration. Saving does not start a build or deploy a workload.
+            {baseline
+              ? 'Changes apply to future builds. Existing builds and image revisions keep their recorded configuration. Saving does not start a build or deploy a workload.'
+              : 'Create your service, save its secrets in OpenBao, and start its first build.'}
           </p>
           <div className="aside-divider" />
           <h4>What happens next?</h4>
@@ -1153,7 +1241,9 @@ const serviceIndexRoute = createRoute({
 const serviceSetupRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'setup',
-  component: () => <ServiceSetup service={useCurrentService()} />,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/services/$serviceId/secrets', params, replace: true })
+  },
 })
 const serviceBuildsRoute = createRoute({
   getParentRoute: () => detailRoute,

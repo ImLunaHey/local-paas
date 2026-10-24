@@ -58,9 +58,15 @@ export function DatabaseForm({
           <ProjectBackLink project={scope.project} environment={scope.environment} />
           <div className="page-heading">
             <div>
-              <div className="eyebrow">NEW DATABASE</div>
+              <div className="eyebrow">
+                {engine === 'rustfs-service' ? 'NEW STORAGE' : 'NEW DATABASE'}
+              </div>
               <h1>{engine === 'rustfs-service' ? 'Create S3 storage' : 'Create a database'}</h1>
-              <p>A private database with a persistent volume on one worker.</p>
+              <p>
+                {engine === 'rustfs-service'
+                  ? 'Private S3-compatible storage with buckets and scoped access.'
+                  : 'A private database with a persistent volume on one worker.'}
+              </p>
             </div>
           </div>
         </>
@@ -98,15 +104,20 @@ export function DatabaseForm({
               : 'Choose an engine'}
           </h2>
         </div>
-        <Field label="Database engine">
+        <Field label={engine === 'rustfs-service' ? 'Storage engine' : 'Database engine'}>
           <Select
             value={engine}
             disabled={!!service}
             onChange={(e) => setEngine(e.target.value as typeof engine)}
           >
-            <option value="postgres-service">PostgreSQL 18 · relational database</option>
-            <option value="redis-service">Redis 8 · cache and key-value store</option>
-            <option value="rustfs-service">RustFS · S3 object storage</option>
+            {initialEngine !== 'rustfs-service' && engine !== 'rustfs-service' ? (
+              <>
+                <option value="postgres-service">PostgreSQL 18 · relational database</option>
+                <option value="redis-service">Redis 8 · cache and key-value store</option>
+              </>
+            ) : (
+              <option value="rustfs-service">RustFS · S3 object storage</option>
+            )}
           </Select>
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
