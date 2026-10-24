@@ -59,3 +59,22 @@ test('direct exports and separate declarations pass the same policy', () => {
   expect(result.output).not.toContain('Failed')
   expect(result.status).toBe(0)
 })
+
+test('React Doctor rejects complex and oversized components through the normal lint command', () => {
+  const branches = Array.from(
+    { length: 20 },
+    (_, index) => `<span>{count > ${index} ? 'Above ${index}' : 'Below ${index}'}</span>`,
+  ).join('\n')
+  const rows = Array.from({ length: 310 }, (_, index) => `<span>Row ${index}</span>`).join('\n')
+  const result = lint(`
+    export function Complex({ count }: { count: number }) {
+      return <section>${branches}</section>
+    }
+    export function Oversized() {
+      return <section>${rows}</section>
+    }
+  `)
+  expect(result.status).not.toBe(0)
+  expect(result.output).toContain('no-high-complexity-react-function')
+  expect(result.output).toContain('no-giant-component')
+})
