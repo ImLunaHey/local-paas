@@ -2767,7 +2767,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 [[package]]
 name = "lucid-auth"
 version = "0.1.0"
-source = "git+https://github.com/lucid-softworks/auth.git?rev=d16c16bfa2050e5ac08cf7e18521576f41a214f0#d16c16bfa2050e5ac08cf7e18521576f41a214f0"
+source = "git+https://github.com/ImLunaHey/auth.git?rev=3bd3d3637ffcec3f899993bc781149100ef8a343#3bd3d3637ffcec3f899993bc781149100ef8a343"
 dependencies = [
  "aes 0.8.4",
  "argon2",
@@ -4083,7 +4083,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5649,7 +5649,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
