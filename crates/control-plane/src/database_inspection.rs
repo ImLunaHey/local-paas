@@ -41,10 +41,7 @@ pub async fn get(
         return Err(ApiError::Conflict("inspection requires a database service"));
     }
     let port: i32 = sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM volumes v JOIN nodes n ON n.id=v.node_id WHERE v.id=$1 AND n.last_seen>now()-interval '30 seconds' AND EXISTS(SELECT 1 FROM deployments d JOIN instances i ON i.deployment_id=d.id WHERE d.service_id=v.id AND d.status='active' AND i.state='ready' AND i.observed_at>now()-interval '30 seconds')").bind(id).fetch_optional(&pool).await?.ok_or(ApiError::Conflict("deploy the database and wait for readiness to inspect it"))?;
-    if ![21000..21004, 21100..21104, 21200..21204]
-        .iter()
-        .any(|r| r.contains(&port))
-    {
+    if !u16::try_from(port).is_ok_and(platform_protocol::valid_node_port) {
         return Err(ApiError::Conflict("invalid database endpoint"));
     }
     // Reading metadata never creates or rotates a database credential.

@@ -30,6 +30,10 @@
         worker1 = worker 1;
         worker2 = worker 2;
         worker3 = worker 3;
+        worker4 = worker 4;
+        worker5 = worker 5;
+        worker6 = worker 6;
+        worker7 = worker 7;
         tools = pkgs.symlinkJoin {
           name = "local-paas-worker-tools";
           paths = with pkgs; [ caddy nftables openssl cdrkit qemu_kvm ];

@@ -14,9 +14,7 @@ fn failure() -> RuntimeError {
     RuntimeError::Rejected("database_network_policy_failed")
 }
 pub fn valid_port(port: u16) -> bool {
-    (21000..=21003).contains(&port)
-        || (21100..=21103).contains(&port)
-        || (21200..=21203).contains(&port)
+    platform_protocol::valid_node_port(port)
 }
 pub fn address(slot: u16) -> Result<Ipv4Addr, RuntimeError> {
     if slot > 3 {
@@ -115,10 +113,10 @@ mod tests {
     use super::*;
     #[test]
     fn only_worker_slot_ports_are_allowed() {
-        for port in [21000, 21003, 21102, 21203] {
+        for port in [21000, 21003, 21102, 21203, 21300, 21603] {
             assert!(valid_port(port));
         }
-        for port in [5432, 15000, 18443, 21004, 21199] {
+        for port in [5432, 15000, 18443, 21004, 21199, 21604, 21700] {
             assert!(!valid_port(port));
         }
     }

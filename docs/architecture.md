@@ -61,9 +61,11 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
   contract later, preferably on physical KVM. Evaluate firecracker-containerd.
 - The initial outbound protocol uses versioned HTTPS JSON sync requests with
   per-node client certificates and hashed bearer credentials. Local VMs reach a
-  private mTLS gateway through QEMU networking. NetBird transport, one-use
-  enrollment, automated certificate rotation and explicit revocation remain
-  future work. Assignments carry stable identities and generations; the agent
+  private mTLS gateway through QEMU networking. Remote worker VMs use fixed,
+  mutually authenticated TLS links over an operator-provided private network.
+  Enrollment and revocation are audited operator commands; one-use self-enrollment
+  and automated certificate rotation remain future work. See [remote workers](remote-workers.md).
+  Assignments carry stable identities and generations; the agent
   durably fences stale generations and reconciles after restart. No SSH or raw
   runtime socket is exposed as the operating protocol.
 - CNCF Distribution runs beside BuildKit as the private development registry.
@@ -195,8 +197,9 @@ and environment. The first implementation uses workload-local host aliases and
 agent TCP proxies across the existing VM forwards. Only active, fresh, ready
 backends are advertised. Short route leases fence slot reuse; connection grants
 are enforced per source workload. Shadow environments remap target references.
-This private VM transport does not implement the future NetBird/physical-node or
-public ingress design. See the execution and networking limits in runtime.md.
+Remote TLS links preserve those forwarded endpoints on other physical hosts.
+Private traffic traverses the controller; VPN provisioning and public edge routing
+remain separate work. See the execution and networking limits in runtime.md.
 
 ## Portable installation
 

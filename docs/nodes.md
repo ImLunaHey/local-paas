@@ -4,6 +4,10 @@ The Nodes page reports configured allocatable CPU/memory, occupied slots, reserv
 persistent storage, heartbeat age and per-instance observations. It does not claim
 these are physical host totals. The initial three VMs remain one physical failure domain.
 
+Additional physical hosts can join through [remote worker setup](remote-workers.md).
+Remote workers enroll cordoned. Physical-host labels are operator-provided metadata;
+distinct-node scheduling does not enforce distinct physical failure domains.
+
 Cordon prevents placement without stopping applications. Drain also requests
 replacement of eligible instances. A node is shown as drained only after all its
 instances have acknowledged cleanup. Persistent databases, shared-volume apps,

@@ -57,6 +57,8 @@ host are three scheduling nodes, not three physical failure domains.
 - Structured log columns/search, retained instance logs, metrics and audit events.
 - Managed PostgreSQL, Redis and RustFS; shared node-pinned volumes and file browsing.
 - Encrypted local backups and restore drills for the documented subset of state.
+- Remote Linux worker VMs over authenticated private links; see
+  [remote setup and validation limits](docs/remote-workers.md).
 
 Public VPS/NetBird integration has configuration templates but is not an automated
 installation feature. celld declarations are modeled separately, but fleet
