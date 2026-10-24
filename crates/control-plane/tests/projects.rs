@@ -4,6 +4,71 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn service_configuration_assigns_only_registered_available_domains(pool: PgPool) {
+    let (_, _, id) = fixture(&pool).await;
+    let (_, current) = request(&pool, "GET", &format!("/api/services/{id}"), json!(null)).await;
+    let mut spec = current["spec"].clone();
+    spec["domains"] = json!(["canary.example.com"]);
+    let change = json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec});
+    assert_eq!(
+        request(&pool, "PUT", &format!("/api/services/{id}"), change.clone())
+            .await
+            .0,
+        409
+    );
+    assert_eq!(
+        request(
+            &pool,
+            "POST",
+            "/api/domains",
+            json!({"hostname":"canary.example.com"})
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        request(&pool, "PUT", &format!("/api/services/{id}"), change)
+            .await
+            .0,
+        200
+    );
+    let assigned: Uuid =
+        sqlx::query_scalar("SELECT service_id FROM domains WHERE hostname='canary.example.com'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(assigned, id);
+    spec["name"] = json!("another-service");
+    assert_eq!(
+        request(
+            &pool,
+            "POST",
+            "/api/services",
+            json!({"operation_id":Uuid::new_v4(),"build_on_create":false,"spec":spec})
+        )
+        .await
+        .0,
+        409
+    );
+    assert_eq!(
+        request(
+            &pool,
+            "PUT",
+            "/api/domains/canary.example.com",
+            json!({"service_id":null,"expected_version":2})
+        )
+        .await
+        .0,
+        200
+    );
+    let (_, saved) = request(&pool, "GET", &format!("/api/services/{id}"), json!(null)).await;
+    assert_eq!(saved["spec"]["domains"], json!([]));
+    assert_eq!(saved["version"], 3);
+}
 async fn request(pool: &PgPool, method: &str, path: &str, body: Value) -> (u16, Value) {
     let response = control_plane::router(pool.clone(), vec![])
         .oneshot(

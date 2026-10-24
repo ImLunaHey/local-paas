@@ -23,6 +23,7 @@ pub(crate) async fn update(
 ) -> Result<Json<Service>, ApiError> {
     request.spec.validate().map_err(ApiError::Invalid)?;
     let mut tx = pool.begin().await?;
+    crate::domains::lock(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(request.operation_id.to_string())
         .execute(&mut *tx)
@@ -76,6 +77,7 @@ pub(crate) async fn update(
     }
     let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
         .bind(Uuid::new_v4()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
+    crate::domains::assign_service(&mut tx, id, &request.spec.domains).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
         .bind(Uuid::new_v4()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
     let service = sqlx::query_as::<_, Service>("UPDATE services SET environment_id = $2, name = $3, spec = $4, version = version + 1 WHERE id = $1 RETURNING *")

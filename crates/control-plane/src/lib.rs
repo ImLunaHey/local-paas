@@ -344,6 +344,7 @@ async fn create_service(
 ) -> Result<(StatusCode, Json<Service>), ApiError> {
     request.spec.validate().map_err(ApiError::Invalid)?;
     let mut tx = pool.begin().await?;
+    domains::lock(&mut tx).await?;
     volumes::validate_scope(&mut tx, &request.spec).await?;
     source_uploads::validate_scope(&mut tx, &request.spec).await?;
     // Concurrent retries of the same operation must observe the first commit.
@@ -379,6 +380,7 @@ async fn create_service(
     let service = sqlx::query_as::<_, Service>("INSERT INTO services (id, environment_id, name, kind, operation_id, spec, registered_spec) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, operation_id, spec, created_at, version")
         .bind(Uuid::new_v4()).bind(environment_id).bind(&request.spec.name).bind(request.spec.kind())
         .bind(request.operation_id).bind(DbJson(&request.spec)).fetch_one(&mut *tx).await?;
+    domains::assign_service(&mut tx, service.id, &request.spec.domains).await?;
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind) VALUES ($1, $2, $3, 'service.registered')")
         .bind(Uuid::new_v4()).bind(service.id).bind(request.operation_id).execute(&mut *tx).await?;
     if request.build_on_create && service.spec.kind() != "celld-service" {

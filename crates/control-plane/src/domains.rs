@@ -6,8 +6,43 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sqlx::{PgPool, types::Json as DbJson};
+use sqlx::{PgPool, Postgres, Transaction, types::Json as DbJson};
 use uuid::Uuid;
+pub async fn lock(tx: &mut Transaction<'_, Postgres>) -> Result<(), ApiError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(712184563)")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+pub async fn assign_service(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    names: &[String],
+) -> Result<(), ApiError> {
+    let rows:Vec<(String,Option<Uuid>)>=sqlx::query_as("SELECT hostname,service_id FROM domains WHERE hostname=ANY($1) OR service_id=$2 ORDER BY hostname FOR UPDATE")
+        .bind(names).bind(id).fetch_all(&mut **tx).await?;
+    if names
+        .iter()
+        .any(|name| !rows.iter().any(|(host, _)| host == name))
+    {
+        return Err(ApiError::Conflict(
+            "choose domains registered on the Domains page",
+        ));
+    }
+    for (host, owner) in rows {
+        let desired = names.contains(&host).then_some(id);
+        if desired.is_some() && owner.is_some_and(|owner| owner != id) {
+            return Err(ApiError::Conflict(
+                "domain is assigned to another service; reassign it from Domains",
+            ));
+        }
+        if owner != desired {
+            sqlx::query("UPDATE domains SET service_id=$2,version=version+1,updated_at=now() WHERE hostname=$1")
+                .bind(host).bind(desired).execute(&mut **tx).await?;
+        }
+    }
+    Ok(())
+}
 fn normalize(host: &str) -> Option<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
     if host.len() > 253 || !host.contains('.') || host.parse::<std::net::IpAddr>().is_ok() {
@@ -64,6 +99,7 @@ pub async fn update(
     Json(input): Json<Update>,
 ) -> Result<Json<Value>, ApiError> {
     let mut tx = pool.begin().await?;
+    lock(&mut tx).await?;
     let version: Option<i32> =
         sqlx::query_scalar("SELECT version FROM domains WHERE hostname=$1 FOR UPDATE")
             .bind(&hostname)
@@ -91,6 +127,11 @@ pub async fn update(
             None => return Err(ApiError::NotFound),
         }
     }
+    let previous: Option<Uuid> =
+        sqlx::query_scalar("SELECT service_id FROM domains WHERE hostname=$1")
+            .bind(&hostname)
+            .fetch_one(&mut *tx)
+            .await?;
     sqlx::query(
         "UPDATE domains SET service_id=$2,version=version+1,updated_at=now() WHERE hostname=$1",
     )
@@ -98,6 +139,15 @@ pub async fn update(
     .bind(input.service_id)
     .execute(&mut *tx)
     .await?;
+    // Keep the editable service declaration aligned with the domain registry.
+    for id in [previous, input.service_id]
+        .into_iter()
+        .flatten()
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        sqlx::query("UPDATE services SET spec=jsonb_set(spec,'{domains}',(SELECT coalesce(jsonb_agg(hostname ORDER BY hostname),'[]'::jsonb) FROM domains WHERE service_id=$1)),version=version+1 WHERE id=$1")
+            .bind(id).execute(&mut *tx).await?;
+    }
     tx.commit().await?;
     Ok(Json(json!({"saved":true,"status":"pending-edge"})))
 }

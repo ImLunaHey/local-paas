@@ -1,5 +1,5 @@
 import { Button, Input, Field } from './ui'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Service } from './api'
 interface SecretSet {
@@ -11,10 +11,17 @@ interface SecretSet {
   references: string[]
   path: string
 }
-export function SecretManager({ service }: { service: Service }) {
+export function SecretManager({
+  service,
+  onReadyChange,
+}: {
+  service: Service
+  onReadyChange?: (ready: boolean) => void
+}) {
   const client = useQueryClient()
   const form = useRef<HTMLFormElement>(null)
   const [notice, setNotice] = useState('')
+  const [dirty, setDirty] = useState(false)
   const secrets = useQuery({
     queryKey: ['secrets', service.id],
     queryFn: () => api<SecretSet>('/services/' + service.id + '/secrets'),
@@ -25,6 +32,7 @@ export function SecretManager({ service }: { service: Service }) {
       client.invalidateQueries({ queryKey: ['services', service.id] }),
     ])
     setNotice('Saved. Deploy a revision to apply the new secret version.')
+    setDirty(false)
   }
   // Never place secret values in React state, mutation variables or Query/devtools caches.
   const save = useMutation({
@@ -54,6 +62,9 @@ export function SecretManager({ service }: { service: Service }) {
     onSuccess: changed,
   })
   const busy = save.isPending || remove.isPending
+  useEffect(() => {
+    onReadyChange?.(!busy && !dirty && !save.isError && !remove.isError)
+  }, [busy, dirty, save.isError, remove.isError, onReadyChange])
   return (
     <section className="panel p-6 space-y-5" aria-label="Service secrets">
       <div className="section-heading">
@@ -81,6 +92,7 @@ export function SecretManager({ service }: { service: Service }) {
       )}
       <form
         ref={form}
+        onChange={() => setDirty(true)}
         autoComplete="off"
         className="grid sm:grid-cols-2 gap-4"
         onSubmit={(e) => {
@@ -92,6 +104,7 @@ export function SecretManager({ service }: { service: Service }) {
         <Field label="Name">
           <Input
             name="name"
+            disabled={busy}
             required
             pattern="[A-Z_][A-Z0-9_]*"
             maxLength={128}
@@ -102,6 +115,7 @@ export function SecretManager({ service }: { service: Service }) {
         <Field label="Value">
           <Input
             name="value"
+            disabled={busy}
             type="password"
             required
             maxLength={32768}
@@ -109,10 +123,23 @@ export function SecretManager({ service }: { service: Service }) {
             placeholder="New secret value"
           />
         </Field>
-        <div>
+        <div className="flex flex-wrap gap-3 sm:col-span-2">
           <Button variant="primary" disabled={busy || !secrets.data?.configured} type="submit">
             Save secret
           </Button>
+          {(dirty || save.isError) && (
+            <Button
+              disabled={busy}
+              onClick={() => {
+                form.current?.reset()
+                setDirty(false)
+                save.reset()
+                setNotice('')
+              }}
+            >
+              Discard unsaved secret
+            </Button>
+          )}
         </div>
       </form>
       <div className="space-y-2">

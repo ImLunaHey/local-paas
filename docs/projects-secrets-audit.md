@@ -103,3 +103,20 @@ checks older snapshots remain unchanged, and checks values never enter audit/API
 metadata. A real Showcase Studio deployment reached readiness on two workers
 using a pinned secret bundle. Browser checks cover header filtering, detail
 expansion, retained logs, project controls and desktop/mobile layouts.
+# Service creation and domains
+
+New application creation has a configuration step followed by an OpenBao secrets
+step at `/services/<id>/setup`. Registration saves the service without starting a
+build. Save the required name/value pairs, then choose **Finish and build**. Secrets
+are optional; unfinished setup remains a saved service and can be resumed at that URL.
+Unsaved or failed secret edits block finishing until saved or discarded. Secret
+values stay out of specifications, React state and TanStack mutation/query caches.
+Existing applications edit values through the Secrets tab; configuration retains
+their references automatically.
+
+Service domain controls select from the global Domains registry. Saving configuration
+assigns/detaches those domains in the same database transaction. A domain owned by
+another service cannot be taken by this control; use explicit reassignment on Domains.
+Global reassignment also updates the affected service declarations and versions, so
+stale configuration forms cannot overwrite the assignment silently. No public routing
+or DNS changes happen until the edge implementation is ready.

@@ -1,3 +1,5 @@
+import { ServiceDomains } from './service-domains'
+import { ServiceSetup } from './service-setup'
 import { SourceUpload } from './source-upload'
 import { ContentBoundary, RouteError } from './error-boundary'
 import { FileBrowser } from './file-browser'
@@ -287,6 +289,7 @@ function ServiceForm({ service }: { service?: Service }) {
     oci?.build_mode ?? 'auto',
   )
   const [dirty, setDirty] = useState(false)
+  const [domainsReady, setDomainsReady] = useState(false)
   const [formVersion, setFormVersion] = useState(0)
   const [reloading, setReloading] = useState(false)
   const [reloadError, setReloadError] = useState<Error | null>(null)
@@ -310,6 +313,7 @@ function ServiceForm({ service }: { service?: Service }) {
           operation_id: pending.current.id,
           expected_version: baseline?.version,
           spec,
+          ...(!baseline ? { build_on_create: false } : {}),
         }),
       })
     },
@@ -322,7 +326,7 @@ function ServiceForm({ service }: { service?: Service }) {
         await client.invalidateQueries({ queryKey: ['events', service.id] })
         return
       }
-      await navigate({ to: '/services/$serviceId', params: { serviceId: service.id } })
+      await navigate({ to: '/services/$serviceId/setup', params: { serviceId: service.id } })
     },
   })
   async function reloadSaved() {
@@ -355,10 +359,6 @@ function ServiceForm({ service }: { service?: Service }) {
     const data = new FormData(event.currentTarget)
     const text = (key: string) => String(data.get(key) ?? '').trim()
     const number = (key: string) => Number(text(key))
-    const list = (key: string) =>
-      text(key)
-        .split(/[\s,]+/)
-        .filter(Boolean)
     const workload: Workload =
       kind === 'oci-service'
         ? {
@@ -395,8 +395,8 @@ function ServiceForm({ service }: { service?: Service }) {
           : { repository: text('repository'), [sourceKind]: sourceValue.trim() },
       resources: { cpu_millis: number('cpu'), memory_mib: number('memory') },
       distinct_nodes: data.has('distinct'),
-      domains: list('domains'),
-      secrets: list('secrets'),
+      domains: data.getAll('domains').map(String),
+      secrets: spec?.secrets ?? [],
       workload,
       volume: spec?.volume,
     })
@@ -743,26 +743,24 @@ function ServiceForm({ service }: { service?: Service }) {
                 <span className="step">04</span> Domains & secrets
               </h2>
               <div className="space-y-4">
-                <Field
-                  label="Domains (optional)"
-                  hint="Separate with commas. Domains will not be routed or verified yet."
-                >
-                  <Input
-                    name="domains"
-                    defaultValue={spec?.domains.join(', ')}
-                    placeholder="api.example.com"
-                  />
-                </Field>
-                <Field
-                  label="Secret names (optional)"
-                  hint="Names only, separated by commas. Values belong in OpenBao."
-                >
-                  <Input
-                    name="secrets"
-                    defaultValue={spec?.secrets.join(', ')}
-                    placeholder="DATABASE_URL, SESSION_SECRET"
-                  />
-                </Field>
+                <ServiceDomains
+                  serviceId={baseline?.id}
+                  onChange={() => setDirty(true)}
+                  onReadyChange={setDomainsReady}
+                />
+                {baseline ? (
+                  <Link
+                    to="/services/$serviceId/secrets"
+                    params={{ serviceId: baseline.id }}
+                    className="button secondary"
+                  >
+                    Manage secrets in OpenBao
+                  </Link>
+                ) : (
+                  <p className="text-xs text-muted">
+                    Next, add secret names and values securely in OpenBao before your first build.
+                  </p>
+                )}
               </div>
             </section>
             {baseline && mutation.isSuccess && !dirty && (
@@ -792,6 +790,7 @@ function ServiceForm({ service }: { service?: Service }) {
                 type="submit"
                 className="button primary"
                 disabled={
+                  !domainsReady ||
                   mutation.isPending ||
                   (!!baseline && !dirty) ||
                   (kind === 'oci-service' && sourceMode === 'upload' && !uploadDigest)
@@ -810,7 +809,7 @@ function ServiceForm({ service }: { service?: Service }) {
                     : 'Registering…'
                   : baseline
                     ? 'Save changes'
-                    : 'Register service'}
+                    : 'Continue to secrets'}
               </Button>
             </div>
           </fieldset>
@@ -1151,6 +1150,11 @@ const serviceIndexRoute = createRoute({
     throw redirect({ to, params, replace: true, hash: '' })
   },
 })
+const serviceSetupRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'setup',
+  component: () => <ServiceSetup service={useCurrentService()} />,
+})
 const serviceBuildsRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'builds',
@@ -1223,6 +1227,7 @@ const router = createRouter({
     newRoute,
     detailRoute.addChildren([
       serviceIndexRoute,
+      serviceSetupRoute,
       networkingRoute,
       serviceBuildsRoute,
       serviceDatabaseRoute,
