@@ -90,8 +90,11 @@ pub async fn run(
     Ok(Json(json!({"id":id})))
 }
 
-async fn occupied(tx: &mut Transaction<'_, Postgres>, service: Uuid) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM deployments d WHERE service_id=$1 AND job_options IS NOT NULL AND (status='job' OR EXISTS(SELECT 1 FROM instances i WHERE i.deployment_id=d.id AND i.state<>'stopped')))").bind(service).fetch_one(&mut **tx).await
+pub(crate) async fn occupied(
+    tx: &mut Transaction<'_, Postgres>,
+    service: Uuid,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM deployments d WHERE service_id=$1 AND (status='releasing' OR (job_options IS NOT NULL AND (status='job' OR EXISTS(SELECT 1 FROM instances i WHERE i.deployment_id=d.id AND i.state<>'stopped')))))").bind(service).fetch_one(&mut **tx).await
 }
 
 async fn enqueue(
@@ -113,6 +116,7 @@ async fn enqueue(
         replicas,
         port,
         readiness,
+        pre_deploy,
         ..
     } = &mut spec.workload
     else {
@@ -120,6 +124,7 @@ async fn enqueue(
             "jobs require an OCI application revision",
         ));
     };
+    *pre_deploy = None;
     *execution = Execution::Worker;
     *replicas = 1;
     *port = None;

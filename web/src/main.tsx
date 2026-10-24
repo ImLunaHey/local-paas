@@ -461,6 +461,15 @@ function ServiceForm({ service }: { service?: Service }) {
               }),
             ),
             build_target: text('build_target') || undefined,
+            pre_deploy: text('pre_deploy_executable')
+              ? {
+                  command: [
+                    text('pre_deploy_executable'),
+                    ...text('pre_deploy_arguments').split('\n').filter(Boolean),
+                  ],
+                  timeout_seconds: number('pre_deploy_timeout'),
+                }
+              : undefined,
             dockerfile: text('dockerfile'),
             context: text('context'),
             execution: worker ? 'worker' : undefined,
@@ -792,6 +801,48 @@ function ServiceForm({ service }: { service?: Service }) {
                   </Field>
                   {kind === 'oci-service' ? (
                     <>
+                      <div className="sm:col-span-2 rounded-md border border-zinc-800 p-4 space-y-4">
+                        <h3 className="text-sm">Pre-deploy command</h3>
+                        <p className="text-xs text-muted">
+                          Run a migration or release task from the candidate image before starting
+                          new instances. A failed task leaves the current app running. Database
+                          changes must remain compatible with the old app; they are not
+                          automatically rolled back.
+                        </p>
+                        <Field
+                          label="Pre-deploy executable (optional)"
+                          hint="An executable inside your image. Leave blank to disable. Arguments are passed literally, without shell parsing."
+                        >
+                          <Input
+                            name="pre_deploy_executable"
+                            defaultValue={oci?.pre_deploy?.command[0]}
+                            placeholder="bun"
+                            maxLength={4096}
+                          />
+                        </Field>
+                        <Field
+                          label="Pre-deploy arguments"
+                          hint="One argument per line. For bun run db:migrate, enter run and db:migrate on separate lines. Use OpenBao for secrets."
+                        >
+                          <Textarea
+                            name="pre_deploy_arguments"
+                            defaultValue={oci?.pre_deploy?.command.slice(1).join('\n')}
+                            placeholder={'run\ndb:migrate'}
+                            maxLength={16384}
+                            rows={3}
+                          />
+                        </Field>
+                        <Field label="Pre-deploy time limit (seconds)">
+                          <Input
+                            name="pre_deploy_timeout"
+                            type="number"
+                            min={10}
+                            max={86400}
+                            defaultValue={oci?.pre_deploy?.timeout_seconds ?? 300}
+                            required
+                          />
+                        </Field>
+                      </div>
                       <Field
                         label="Process type"
                         hint={

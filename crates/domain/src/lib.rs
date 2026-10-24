@@ -142,6 +142,8 @@ pub enum Workload {
         build_args: BTreeMap<String, String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         build_target: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_deploy: Option<PreDeploy>,
         dockerfile: String,
         context: String,
         replicas: u16,
@@ -155,6 +157,26 @@ pub enum Workload {
         members: u16,
         bucket_ref: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreDeploy {
+    pub command: Vec<String>,
+    pub timeout_seconds: u32,
+}
+impl PreDeploy {
+    pub fn valid(&self) -> bool {
+        (10..=86400).contains(&self.timeout_seconds)
+            && !self.command.is_empty()
+            && self.command.len() <= 64
+            && !self.command[0].is_empty()
+            && self
+                .command
+                .iter()
+                .all(|v| v.len() <= 4096 && !v.contains('\0'))
+            && self.command.iter().map(String::len).sum::<usize>() <= 16384
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -468,7 +490,15 @@ impl ServiceSpec {
                 start_command,
                 build_args,
                 build_target,
+                pre_deploy,
             } => {
+                if let Some(job) = pre_deploy {
+                    check(
+                        job.valid(),
+                        "workload.pre_deploy",
+                        "use a nonempty argv command (up to 64 arguments, 16 KiB total) and a 10–86400 second timeout",
+                    );
+                }
                 check(
                     build_args.len() <= 32
                         && build_args.iter().all(|(key, value)| {

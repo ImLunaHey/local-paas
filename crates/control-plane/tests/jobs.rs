@@ -387,3 +387,182 @@ async fn singleton_replacement_does_not_cancel_or_wait_for_an_independent_job(po
     .await;
     assert_eq!(status(&pool, job).await, "job");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn release_gate_is_durable_and_requires_success_and_cleanup(pool: PgPool) {
+    let (service, revision, _) = fixture(&pool).await;
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['workers-v1','jobs-v1']")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let path = format!("/api/services/{service}/deployments");
+    let (_, old) = call(
+        &pool,
+        &path,
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let old: Uuid = old["id"].as_str().unwrap().parse().unwrap();
+    sqlx::query("UPDATE deployments SET status='active' WHERE id=$1")
+        .bind(old)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE services SET spec=jsonb_set(spec,'{workload,pre_deploy}',$2) WHERE id=$1")
+        .bind(service)
+        .bind(json!({"command":["/migrate"],"timeout_seconds":60}))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let request = json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
+    let (a, b) = tokio::join!(
+        call(&pool, &path, request.clone(), None),
+        call(&pool, &path, request.clone(), None)
+    );
+    assert_eq!(a.0, StatusCode::OK, "{a:?}");
+    assert_eq!(a, b);
+    let parent: Uuid = a.1["id"].as_str().unwrap().parse().unwrap();
+    let child: Uuid =
+        sqlx::query_scalar("SELECT id FROM deployments WHERE parent_deployment_id=$1")
+            .bind(parent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status(&pool, parent).await, "releasing");
+    assert_eq!(status(&pool, old).await, "active");
+    let snapshot: bool=sqlx::query_scalar("SELECT j.revision_id=d.revision_id AND j.secret_version IS NOT DISTINCT FROM d.secret_version AND j.database_ports=d.database_ports AND j.spec->'workload'->'pre_deploy' IS NULL FROM deployments j JOIN deployments d ON d.id=j.parent_deployment_id WHERE j.id=$1").bind(child).fetch_one(&pool).await.unwrap();
+    assert!(snapshot);
+    let manual=call(&pool,&format!("/api/services/{service}/jobs"),json!({"operation_id":Uuid::new_v4(),"revision_id":revision,"options":{"command":[],"timeout_seconds":60}}),None).await;
+    assert_eq!(manual.0, StatusCode::CONFLICT);
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM instances WHERE deployment_id=$1")
+        .bind(parent)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    sqlx::query("UPDATE deployments SET status='succeeded',job_result='{\"outcome\":\"succeeded\",\"exit_code\":0}' WHERE id=$1").bind(child).execute(&pool).await.unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    assert_eq!(
+        status(&pool, parent).await,
+        "releasing",
+        "success without confirmed cleanup cannot proceed"
+    );
+    sqlx::query(
+        "UPDATE instances SET state='stopped',desired_state='stopped' WHERE deployment_id=$1",
+    )
+    .bind(child)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (a, b) = tokio::join!(
+        control_plane::runtime::reconcile(&pool),
+        control_plane::runtime::reconcile(&pool)
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(status(&pool, parent).await, "preparing");
+    assert_eq!(status(&pool, old).await, "active");
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM deployments WHERE parent_deployment_id=$1")
+            .bind(parent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    sqlx::query("UPDATE instances SET state='ready',observed_at=now() WHERE deployment_id=$1")
+        .bind(parent)
+        .execute(&pool)
+        .await
+        .unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    assert_eq!(status(&pool, parent).await, "active");
+    assert_eq!(status(&pool, old).await, "superseded");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn failed_and_cancelled_release_jobs_preserve_the_old_worker(pool: PgPool) {
+    let (service, revision, _) = fixture(&pool).await;
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['workers-v1','jobs-v1']")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE services SET spec=jsonb_set(jsonb_set(spec,'{workload}',((spec->'workload')-'port'-'readiness')||'{\"execution\":\"worker\",\"replicas\":1}'::jsonb),'{domains}','[]'::jsonb) WHERE id=$1").bind(service).execute(&pool).await.unwrap();
+    let path = format!("/api/services/{service}/deployments");
+    let (_, old) = call(
+        &pool,
+        &path,
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let old: Uuid = old["id"].as_str().unwrap().parse().unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    sqlx::query("UPDATE deployments SET status='active' WHERE id=$1")
+        .bind(old)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE services SET spec=jsonb_set(spec,'{workload,pre_deploy}',$2) WHERE id=$1")
+        .bind(service)
+        .bind(json!({"command":["/migrate"],"timeout_seconds":60}))
+        .execute(&pool)
+        .await
+        .unwrap();
+    for result in ["failed", "timed_out", "uncertain", "cancelled"] {
+        let (code, p) = call(
+            &pool,
+            &path,
+            json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+            None,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{p:?}");
+        let parent: Uuid = p["id"].as_str().unwrap().parse().unwrap();
+        sqlx::query("UPDATE deployments SET status=$2 WHERE parent_deployment_id=$1")
+            .bind(parent)
+            .bind(result)
+            .execute(&pool)
+            .await
+            .unwrap();
+        control_plane::runtime::reconcile(&pool).await.unwrap();
+        assert_eq!(status(&pool, parent).await, "failed");
+        assert_eq!(status(&pool, old).await, "active");
+        let desired: String =
+            sqlx::query_scalar("SELECT desired_state FROM instances WHERE deployment_id=$1")
+                .bind(old)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(desired, "running");
+    }
+    let (_, p) = call(
+        &pool,
+        &path,
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let parent: Uuid = p["id"].as_str().unwrap().parse().unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    call(
+        &pool,
+        &format!("/api/deployments/{parent}/stop"),
+        json!({}),
+        None,
+    )
+    .await;
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    assert_eq!(status(&pool, parent).await, "stopped");
+    assert_eq!(status(&pool, old).await, "active");
+    let child: String =
+        sqlx::query_scalar("SELECT status FROM deployments WHERE parent_deployment_id=$1")
+            .bind(parent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(child, "cancelled");
+}

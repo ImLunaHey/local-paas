@@ -10,6 +10,7 @@ export type Workload =
       start_command?: string
       build_args?: Record<string, string>
       build_target?: string
+      pre_deploy?: { command: string[]; timeout_seconds: number }
       dockerfile: string
       context: string
       replicas: number

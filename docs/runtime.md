@@ -67,7 +67,7 @@ compatible with older agents. Do not downgrade an agent while it owns a worker.
 Singleton ownership is per service identity, not across environments or separate
 services. It prevents platform-managed overlapping replacements, but does not
 provide exactly-once external effects or replace application idempotency/fencing.
-One-off jobs, schedules and release/migration jobs remain separate future work.
+One-off jobs, interval schedules and pre-deploy migration gates are supported below.
 
 The private `examples/worker-canary` fixture emits structured heartbeat logs and
 delays SIGTERM shutdown by eight seconds without opening a socket. After building
@@ -320,3 +320,27 @@ The strengthened reboot check confirmed all seven existing application instances
 recovered. Playwright exercised running a job, opening retained logs, saving and
 pausing a schedule, and the desktop/mobile forms. The disposable schedule was
 left paused and its instances stopped.
+
+## Pre-deploy commands
+
+OCI applications can set `workload.pre_deploy` with an explicit `command` argv
+and `timeout_seconds` (10–86400). Configure the executable and one argument per
+line in Configuration. The command runs once from the candidate image before app
+placement. It inherits the deployment's exact resource, connection, volume and
+versioned secret snapshot. A deployment owns one durable child job; API retries
+and controller restarts do not enqueue another attempt. Existing manual/scheduled
+jobs block a migration until cleanup, and schedules skip while the gate is active.
+
+Only exit success plus confirmed cleanup opens the gate. Nonzero exits, timeouts,
+unknown outcomes and cancellations fail the rollout without stopping the old app.
+Cancelling the rollout cancels its child. Retained task logs and exit codes are
+linked in Deployments and Activity; the run also appears in Jobs. After success,
+normal readiness gating applies; singleton workers first pass their shutdown
+barrier. Capacity waits never repeat the migration. Local-volume HTTP services
+retain their existing explicit stop-first restriction.
+
+This cannot undo database changes. Use migrations compatible with the old app,
+application-level database migration locks, and inspect database state before
+retrying an uncertain result. There is no automatic retry or exactly-once external
+side-effect guarantee. Job time limits begin at allocation and require a working
+agent to enforce; an unreachable worker blocks until its outcome is established.

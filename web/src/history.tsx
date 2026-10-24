@@ -1,9 +1,11 @@
+import { PreDeployResult, type ReleaseJob } from './release-job'
 import { Diagnostic } from './diagnostic'
 import { Button } from './ui'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api } from './api'
 interface Deployment {
+  pre_deploy?: ReleaseJob | null
   id: string
   revision_id: string
   created_at: string
@@ -57,6 +59,11 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
               <code>{d.id.slice(0, 8)}</code>
               <time dateTime={d.created_at}>{new Date(d.created_at).toLocaleString()}</time>
             </summary>
+            {d.pre_deploy && (
+              <div className="px-4 py-3">
+                <PreDeployResult job={d.pre_deploy} serviceId={serviceId} />
+              </div>
+            )}
             {d.instances.map((i) => (
               <div
                 className="border-t border-zinc-800 px-4 py-3"

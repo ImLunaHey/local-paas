@@ -31,6 +31,7 @@ mod object_storage;
 mod overview;
 pub mod preview;
 mod projects;
+mod releases;
 pub mod runtime;
 mod s3;
 pub mod secrets;

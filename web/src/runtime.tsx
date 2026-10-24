@@ -1,3 +1,4 @@
+import { PreDeployResult, type ReleaseJob } from './release-job'
 import { Button, Select, Field } from './ui'
 import { LogViewer } from './logs'
 import { MetricsViewer } from './metrics'
@@ -25,6 +26,7 @@ export interface Instance {
   network_tx_bytes_per_second: number | null
 }
 interface Deployment {
+  pre_deploy?: ReleaseJob | null
   id: string
   revision_id: string
   status: string
@@ -57,6 +59,7 @@ export function runtimeLabel(data?: RuntimeStatus): string {
     return waiting.error_code === 'waiting_for_capacity'
       ? 'Waiting for capacity'
       : 'Waiting for shutdown'
+  if (data.deployments.some((d) => d.status === 'releasing')) return 'Pre-deploy task'
   if (data.deployments.some((d) => d.status === 'preparing')) return 'Deploying'
   if (data.deployments[0]?.status === 'failed') return 'Deployment failed'
   return data.deployments.length ? 'Stopped' : 'Not deployed'
@@ -97,7 +100,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
   const worker =
     service.spec.workload.kind === 'oci-service' && service.spec.workload.execution === 'worker'
   const preparing = runtime.data?.deployments.some((d) =>
-    ['waiting', 'preparing'].includes(d.status),
+    ['releasing', 'waiting', 'preparing'].includes(d.status),
   )
   return (
     <section className="panel p-6 mb-7 space-y-4" aria-label="Deployments">
@@ -161,8 +164,9 @@ export function DeploymentPanel({ service }: { service: Service }) {
               {new Date(d.created_at).toLocaleString()}
               {d.error_code && ` · ${d.error_code.replaceAll('_', ' ')}`}
             </p>
+            {d.pre_deploy && <PreDeployResult job={d.pre_deploy} serviceId={service.id} />}
           </div>
-          {['waiting', 'preparing', 'active'].includes(d.status) && (
+          {['releasing', 'waiting', 'preparing', 'active'].includes(d.status) && (
             <Button disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
               {d.status === 'waiting' ? 'Cancel replacement' : 'Stop deployment'}
             </Button>
