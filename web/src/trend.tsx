@@ -12,17 +12,21 @@ export function Trend({
   label,
   unit,
   compact = false,
+  gapMs = 20000,
+  showDate = false,
 }: {
   points: Point[]
   label: string
   unit: string
   compact?: boolean
+  gapMs?: number
+  showDate?: boolean
 }) {
   const definition = useMemo(() => {
     const data: Point[] = []
     for (const point of points) {
       const previous = data.at(-1)
-      if (previous && point.time - previous.time > 20000)
+      if (previous && point.time - previous.time > gapMs)
         data.push({ time: previous.time + 1, value: null })
       data.push(point)
     }
@@ -37,7 +41,17 @@ export function Trend({
                 ticks: {
                   count: 3,
                   format: (value) =>
-                    new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    showDate
+                      ? new Date(value).toLocaleString([], {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : new Date(value).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }),
                 },
               },
         },
@@ -60,10 +74,10 @@ export function Trend({
         use: tooltip,
         className: 'metric-tooltip',
         format: (p) =>
-          `${new Date(p.datum.time).toLocaleTimeString()}\n${label}: ${p.datum.value == null ? 'Unavailable' : p.datum.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' ' + unit}`,
+          `${showDate ? new Date(p.datum.time).toLocaleString() : new Date(p.datum.time).toLocaleTimeString()}\n${label}: ${p.datum.value == null ? 'Unavailable' : p.datum.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' ' + unit}`,
       },
     })
-  }, [points, label, unit, compact])
+  }, [points, label, unit, compact, gapMs, showDate])
   return (
     <Chart definition={definition} height={compact ? 36 : 150} ariaLabel={label + ' history'} />
   )

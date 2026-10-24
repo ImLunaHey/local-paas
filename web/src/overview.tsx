@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Activity, ArrowUpRight, Box, Layers3, Server, GitBranch } from 'lucide-react'
 import { cn } from 'cn'
 import { api } from './api'
 import { Trend } from './trend'
+import { Select } from './ui'
 interface Recent {
   id: string
   service_id: string
@@ -201,7 +203,12 @@ interface Node {
   reserved_memory_mib: number
 }
 interface HostsData {
-  host: { name: string | null; samples: HostSample[] }
+  host: {
+    name: string | null
+    samples: HostSample[]
+    bucket_seconds: number
+    retention_days: number
+  }
   nodes: Node[]
 }
 const fields: {
@@ -224,9 +231,10 @@ const fields: {
 ]
 const gib = (n: number | null | undefined) => (n == null ? '—' : (n / 2 ** 30).toFixed(1) + ' GiB')
 export function Hosts() {
+  const [range, setRange] = useState('15m')
   const query = useQuery({
-    queryKey: ['hosts'],
-    queryFn: () => api<HostsData>('/hosts'),
+    queryKey: ['hosts', range],
+    queryFn: () => api<HostsData>(`/hosts?range=${range}`),
     refetchInterval: 5000,
   })
   const samples = query.data?.host.samples ?? [],
@@ -242,7 +250,20 @@ export function Hosts() {
           </h1>
           <p>Controller host measurements · updates every 5 seconds</p>
         </div>
-        <Status value={fresh ? 'Healthy' : query.isPending ? 'Connecting' : 'Unavailable'} />
+        <div className="flex items-center gap-3">
+          <Select
+            aria-label="Host history range"
+            value={range}
+            onChange={(event) => setRange(event.target.value)}
+          >
+            <option value="15m">Last 15 minutes</option>
+            <option value="1h">Last hour</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </Select>
+          <Status value={fresh ? 'Healthy' : query.isPending ? 'Connecting' : 'Unavailable'} />
+        </div>
       </div>
       {query.error && (
         <p role="alert" className="error-notice">
@@ -288,26 +309,31 @@ export function Hosts() {
                   : '—'}
               </span>
             </div>
-            {samples.some((s) => s[field] != null) ? (
+            {samples.filter((s) => s[field] != null).length > 1 ? (
               <Trend
                 label={label}
                 unit={unit}
+                gapMs={Math.max(20000, (query.data?.host.bucket_seconds ?? 5) * 2000)}
+                showDate={['24h', '7d', '30d'].includes(range)}
                 points={samples.map((s) => ({
                   time: Date.parse(s.timestamp),
                   value: s[field] == null ? null : s[field]! / scale,
                 }))}
               />
             ) : (
-              <p className="py-14 text-center text-xs text-muted">Waiting for measurements</p>
+              <p className="py-14 text-center text-xs text-muted">
+                Collecting history for this range
+              </p>
             )}
           </section>
         ))}
       </div>
       <p className="my-4 text-xs leading-relaxed text-muted">
-        Recent 15 minutes, retained in memory until the API restarts. These are whole-host
-        measurements, including other applications and VMs. Disk rates sum physical block devices;
-        network rates sum non-loopback interfaces and may count tunnel traffic twice. ZFS health and
-        ARC are not measured here.
+        History is saved in PostgreSQL for 30 days and survives API and host restarts. Longer ranges
+        show the latest measurement per time bucket. Collection pauses leave gaps. These are
+        whole-host measurements, including other applications and VMs. Disk rates sum physical block
+        devices; network rates sum non-loopback interfaces and may count tunnel traffic twice. ZFS
+        health and ARC are not measured here.
       </p>
       <section className="panel mt-7 overflow-hidden">
         <div className="border-b border-zinc-800 p-5">
