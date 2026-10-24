@@ -574,3 +574,56 @@ async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: 
         .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn recovery_is_only_authorized_after_promotion_and_for_capable_agents(pool: PgPool) {
+    let (service, revision, nodes) = fixture(&pool).await;
+    let (_, deployed) = call(
+        &pool,
+        &format!("/api/services/{service}/deployments"),
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let id = deployed["id"].as_str().unwrap().parse::<Uuid>().unwrap();
+    let request =
+        json!({"version":1,"node_id":nodes[0],"observations":[],"capabilities":["recovery-v1"]});
+    let token = "a".repeat(64);
+    let (status, preparing) = call(&pool, "/api/agent/sync", request.clone(), Some(&token)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        preparing["assignments"][0]
+            .get("recovery_allowed")
+            .is_none()
+    );
+    sqlx::query("UPDATE instances SET state='ready',observed_at=now() WHERE deployment_id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let (_, active) = call(&pool, "/api/agent/sync", request.clone(), Some(&token)).await;
+    assert_eq!(active["assignments"][0]["recovery_allowed"], true);
+    let (_, legacy) = call(
+        &pool,
+        "/api/agent/sync",
+        json!({"version":1,"node_id":nodes[0],"observations":[]}),
+        Some(&token),
+    )
+    .await;
+    assert!(
+        legacy["assignments"][0].get("recovery_allowed").is_none(),
+        "old agents reject unknown fields"
+    );
+    call(
+        &pool,
+        &format!("/api/deployments/{id}/stop"),
+        json!({}),
+        None,
+    )
+    .await;
+    let (_, stopped) = call(&pool, "/api/agent/sync", request, Some(&token)).await;
+    assert_eq!(stopped["assignments"][0]["desired_state"], "stopped");
+    assert!(stopped["assignments"][0].get("recovery_allowed").is_none());
+}

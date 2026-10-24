@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const VERSION: u32 = 1;
+fn is_false(value: &bool) -> bool {
+    !value
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Assignment {
@@ -13,6 +16,8 @@ pub struct Assignment {
     pub service_id: Uuid,
     pub generation: i64,
     pub desired_state: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub recovery_allowed: bool,
     pub image_repository: String,
     pub image_digest: ImageDigest,
     pub spec: ServiceSpec,

@@ -19,6 +19,23 @@ selects only fresh ready instances in the active deployment. Promotion changes
 that set transactionally, then asks agents to stop the old instances gracefully.
 A failed candidate is stopped while the previous active deployment remains.
 Explicit stop removes routing immediately and increments assignment generations.
+Active deployments on agents advertising `recovery-v1` recover locally from an
+exited process, including a clean exit from a continuously running service. The
+agent waits 5, 10, 20, 40, then 60 seconds before its five restart attempts. Polling
+adds up to one reconciliation interval. Reservations are fsynced before starting;
+agent/VM restarts do not refund attempts. Ten minutes of continuously successful
+readiness observations resets the budget. Exhaustion reports `crash_loop` and
+requires a new deployment to retry. Unreadable restart state fails closed.
+
+Recovery is authorized only after promotion, and only for capable agents. A
+candidate that exits still fails its deployment, preserving the previous revision.
+Stop takes precedence over pending recovery. Restarted processes must stabilize
+readiness again before receiving traffic. An active process losing readiness is
+removed from routing and may recover without being killed; readiness is not a
+liveness probe. The candidate startup deadline remains 120 seconds. Configurable
+restart policies and separate startup/liveness probe definitions are still pending.
+Process starts are retained in audit history and as restart markers in runtime logs.
+
 Slots remain reserved until cleanup is acknowledged. This initial scheduler does
 not automatically move allocations from lost nodes; they recover on that node.
 

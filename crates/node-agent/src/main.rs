@@ -1,5 +1,6 @@
 mod containerd;
 mod network;
+mod recovery;
 mod secrets;
 mod volume_files;
 mod volumes;
@@ -81,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "shared-volumes-v1".into(),
                 "rustfs-v1".into(),
                 "volume-files-v1".into(),
+                "recovery-v1".into(),
             ],
         };
         match client
@@ -238,7 +240,14 @@ async fn instance_loop(
     let mut started = None;
     let mut stable = None;
     let mut previous = None;
-    let mut failed: Option<String> = None;
+    let (mut recovery, mut failed) = match recovery::Recovery::load(&runtime.root, id).await {
+        Ok(state) => (state, None),
+        Err(_) => (
+            recovery::Recovery::default(),
+            Some("recovery_state_unavailable".to_owned()),
+        ),
+    };
+    let mut prepared = false;
     let mut last_generation = 0;
     let mut stopped = false;
     // A spawned task may run before the watch sender publishes its first assignment.
@@ -290,6 +299,15 @@ async fn instance_loop(
                 report.diagnostic = Some("cleanup_failed".into());
             }
         } else if a.desired_state == "running" {
+            // Promotion can arrive one heartbeat after a process exit observation.
+            if a.recovery_allowed
+                && matches!(
+                    failed.as_deref(),
+                    Some("process_exited" | "readiness_failed")
+                )
+            {
+                failed = None;
+            }
             if started.is_none() && failed.is_none() {
                 reports.write().await.insert(id, report.clone());
                 if !a.spec.secrets.is_empty() && values.is_empty() {
@@ -301,15 +319,9 @@ async fn instance_loop(
                         Err(()) => failed = Some("secret_delivery_failed".into()),
                     }
                 }
-                if failed.is_none() {
+                if failed.is_none() && !prepared {
                     match runtime.prepare(&op, &spec).await {
-                        Ok(()) => {
-                            if runtime.start(&op).await.is_ok() {
-                                started = Some(Instant::now());
-                            } else {
-                                failed = Some("start_failed".into());
-                            }
-                        }
+                        Ok(()) => prepared = true,
                         Err(platform_runtime::RuntimeError::Diagnostic(code)) => {
                             failed = Some(code)
                         }
@@ -319,14 +331,52 @@ async fn instance_loop(
                         Err(_) => failed = Some("prepare_failed".into()),
                     }
                 }
+                if failed.is_none() {
+                    let gate = match runtime.info(id).await {
+                        Ok(info) if a.recovery_allowed && info["State"]["Running"] != true => {
+                            recovery.before_start(&runtime.root, id, now_millis()).await
+                        }
+                        Ok(_) => Ok(recovery::Gate::Start),
+                        Err(_) => {
+                            failed = Some("inspect_failed".into());
+                            Ok(recovery::Gate::Wait)
+                        }
+                    };
+                    match gate {
+                        Ok(recovery::Gate::Start) => {
+                            if runtime.start(&op).await.is_ok() {
+                                started = Some(Instant::now());
+                                stable = None;
+                                previous = None;
+                            } else if !a.recovery_allowed {
+                                failed = Some("start_failed".into());
+                            } else {
+                                report.diagnostic = Some("restart_backoff".into());
+                            }
+                        }
+                        Ok(recovery::Gate::Wait) => {
+                            report.diagnostic = Some("restart_backoff".into())
+                        }
+                        Ok(recovery::Gate::Exhausted) => failed = Some("crash_loop".into()),
+                        Err(_) => failed = Some("recovery_state_unavailable".into()),
+                    }
+                }
             }
             if let Some(code) = &failed {
                 report.state = "failed".into();
                 report.diagnostic = Some(code.clone());
+            } else if started.is_none() {
+                // A backoff reservation is pending; do not classify it as another exit.
             } else if let Ok(info) = runtime.info(id).await {
+                report.process_started_at = info["State"]["StartedAt"].as_str().map(str::to_string);
                 if info["State"]["Running"] != true {
-                    failed = Some("process_exited".into());
-                    report.state = "failed".into();
+                    started = None;
+                    stable = None;
+                    previous = None;
+                    if !a.recovery_allowed {
+                        failed = Some("process_exited".into());
+                        report.state = "failed".into();
+                    }
                     report.diagnostic = Some("process_exited".into());
                 } else {
                     let default_readiness = platform_domain::Readiness {
@@ -375,18 +425,27 @@ async fn instance_loop(
                         let since = stable.get_or_insert_with(Instant::now);
                         if since.elapsed().as_secs() >= readiness.stabilization_seconds as u64 {
                             report.state = "ready".into();
+                            if recovery
+                                .healthy(&runtime.root, id, since.elapsed())
+                                .await
+                                .is_err()
+                            {
+                                failed = Some("recovery_state_unavailable".into());
+                                report.state = "failed".into();
+                                report.diagnostic = failed.clone();
+                            }
                         }
                     } else {
                         stable = None;
                         report.diagnostic = Some("readiness_pending".into());
-                        if started.is_some_and(|t| t.elapsed() > Duration::from_secs(120)) {
+                        if !a.recovery_allowed
+                            && started.is_some_and(|t| t.elapsed() > Duration::from_secs(120))
+                        {
                             failed = Some("readiness_failed".into());
                             report.state = "failed".into();
                             report.diagnostic = Some("readiness_failed".into());
                         }
                     }
-                    report.process_started_at =
-                        info["State"]["StartedAt"].as_str().map(str::to_string);
                     if let Some(pid) = info["State"]["Pid"].as_u64() {
                         report.metrics = measure(pid, &mut previous).await;
                     }

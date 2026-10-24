@@ -413,7 +413,7 @@ pub async fn sync(
             sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line,level,message,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).bind(level).bind(message).bind(fields.map(DbJson)).execute(&mut *tx).await.map_err(db_error)?;
         }
     }
-    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
+    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.status AS deployment_status,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut assignments = Vec::new();
     for r in rows {
         let digest = r
@@ -427,6 +427,8 @@ pub async fn sync(
             service_id: r.get("service_id"),
             generation: r.get("generation"),
             desired_state: r.get("desired_state"),
+            recovery_allowed: r.get::<String, _>("deployment_status") == "active"
+                && input.capabilities.iter().any(|c| c == "recovery-v1"),
             image_repository: r.get("image_repository"),
             image_digest: digest,
             spec: r.get::<DbJson<ServiceSpec>, _>("spec").0,

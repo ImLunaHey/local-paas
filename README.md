@@ -8,7 +8,8 @@ Independent of Anvil. Working project name; no remote repository created yet.
 images, deploy OCI revisions across three isolated worker VMs, gate traffic on
 readiness, stop deployments, and view application logs and CPU/memory/PID metrics.
 Rust node agents authenticate through a private mTLS gateway and reconcile durable
-assignments. Healthy containers survive controller restarts. Failed candidates
+assignments. Healthy containers survive controller restarts. Active services use
+a persisted, bounded retry budget to recover locally from process exits. Failed candidates
 leave the previous active deployment intact. Sources support branches, tags,
 commits, and validated ZIP/local file uploads; supported Node/Bun apps can
 generate Dockerfiles with command overrides.
