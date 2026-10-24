@@ -128,9 +128,7 @@ pub async fn step(
 
 fn exited(info: &serde_json::Value) -> JobResult {
     // A created-but-never-started container also has ExitCode=0. It is not success.
-    let started = info["State"]["StartedAt"]
-        .as_str()
-        .is_some_and(|s| !s.is_empty() && !s.starts_with("0001-"));
+    let started = crate::process_started_at(info).is_some();
     let exit_code = info["State"]["ExitCode"]
         .as_i64()
         .and_then(|n| i32::try_from(n).ok())
@@ -183,11 +181,11 @@ mod tests {
             JobOutcome::Unknown
         );
         assert_eq!(
-            exited(&json!({"State":{"StartedAt":"2026-10-24T00:00:00Z","ExitCode":0}})).outcome,
+            exited(&json!({"State":{"StartedAt":"2020-01-01T00:00:00Z","ExitCode":0}})).outcome,
             JobOutcome::Succeeded
         );
         assert_eq!(
-            exited(&json!({"State":{"StartedAt":"2026-10-24T00:00:00Z","ExitCode":9}})).exit_code,
+            exited(&json!({"State":{"StartedAt":"2020-01-01T00:00:00Z","ExitCode":9}})).exit_code,
             Some(9)
         );
     }

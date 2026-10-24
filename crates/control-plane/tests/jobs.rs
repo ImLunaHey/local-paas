@@ -343,3 +343,47 @@ async fn schedules_are_versioned_deduplicated_and_skip_overlap_and_missed_ticks(
         "job snapshots cannot change the app's execution type"
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn singleton_replacement_does_not_cancel_or_wait_for_an_independent_job(pool: PgPool) {
+    let (service, revision, _) = fixture(&pool).await;
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['workers-v1','jobs-v1']")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (code,job)=call(&pool,&format!("/api/services/{service}/jobs"),json!({"operation_id":Uuid::new_v4(),"revision_id":revision,"options":{"command":[],"timeout_seconds":60}}),None).await;
+    assert_eq!(code, StatusCode::OK);
+    let job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    sqlx::query("UPDATE services SET spec=jsonb_set(jsonb_set(spec,'{workload}',((spec->'workload')-'port'-'readiness')||'{\"execution\":\"worker\",\"replicas\":1}'::jsonb),'{domains}','[]'::jsonb) WHERE id=$1").bind(service).execute(&pool).await.unwrap();
+    let (code, worker) = call(
+        &pool,
+        &format!("/api/services/{service}/deployments"),
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    let worker: Uuid = worker["id"].as_str().unwrap().parse().unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    assert_eq!(status(&pool, worker).await, "preparing");
+    let desired: String =
+        sqlx::query_scalar("SELECT desired_state FROM instances WHERE deployment_id=$1")
+            .bind(job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        desired, "running",
+        "worker replacement must not stop an independent job"
+    );
+    call(
+        &pool,
+        &format!("/api/deployments/{worker}/stop"),
+        json!({}),
+        None,
+    )
+    .await;
+    assert_eq!(status(&pool, job).await, "job");
+}

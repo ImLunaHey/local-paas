@@ -347,10 +347,7 @@ async fn instance_loop(
                     }
                 }
                 if let Ok(info) = runtime.info(id).await {
-                    report.process_started_at = info["State"]["StartedAt"]
-                        .as_str()
-                        .filter(|s| !s.starts_with("0001-"))
-                        .map(str::to_string);
+                    report.process_started_at = process_started_at(&info);
                     if info["State"]["Running"] == true {
                         report.metrics =
                             measure(info["State"]["Pid"].as_u64().unwrap_or(0), &mut previous)
@@ -434,7 +431,7 @@ async fn instance_loop(
             } else if started.is_none() {
                 // A backoff reservation is pending; do not classify it as another exit.
             } else if let Ok(info) = runtime.info(id).await {
-                report.process_started_at = info["State"]["StartedAt"].as_str().map(str::to_string);
+                report.process_started_at = process_started_at(&info);
                 if info["State"]["Running"] != true {
                     started = None;
                     stable = None;
@@ -548,6 +545,35 @@ fn now_millis() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+fn process_started_at(info: &serde_json::Value) -> Option<String> {
+    let text = info["State"]["StartedAt"].as_str()?;
+    let started = text.parse::<chrono::DateTime<chrono::Utc>>().ok()?;
+    (started.timestamp() > 0 && started.timestamp_millis() <= now_millis() + 5000)
+        .then(|| text.to_owned())
+}
+
+#[cfg(test)]
+mod observation_tests {
+    #[test]
+    fn absent_runtime_start_times_do_not_poison_the_node_heartbeat() {
+        for started in [
+            "",
+            "0001-01-01T00:00:00Z",
+            "0001-01-01 00:00:00 +0000 UTC",
+            "invalid",
+        ] {
+            assert!(
+                super::process_started_at(&serde_json::json!({"State":{"StartedAt":started}}))
+                    .is_none()
+            );
+        }
+        let info = serde_json::json!({"State":{"StartedAt":"2020-01-01T00:00:00Z"}});
+        assert_eq!(
+            super::process_started_at(&info).as_deref(),
+            Some("2020-01-01T00:00:00Z")
+        );
+    }
 }
 struct Counters {
     time: Instant,

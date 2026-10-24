@@ -234,7 +234,7 @@ pub async fn schedule(
             "schedule changed; refresh before saving",
         ));
     }
-    sqlx::query("INSERT INTO job_schedules(id,service_id,operation_id,revision_id,options,interval_minutes,status,next_run_at) VALUES($1,$1,$2,$3,$4,$5,$6,now()+make_interval(mins=>$5)) ON CONFLICT(id) DO UPDATE SET operation_id=excluded.operation_id,version=job_schedules.version+1,revision_id=excluded.revision_id,options=excluded.options,interval_minutes=excluded.interval_minutes,status=excluded.status,next_run_at=excluded.next_run_at,updated_at=now()").bind(service).bind(input.operation_id).bind(input.revision_id).bind(DbJson(input.options)).bind(input.interval_minutes).bind(status).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO job_schedules(id,service_id,operation_id,revision_id,options,interval_minutes,status,next_run_at) VALUES($1,$1,$2,$3,$4,$5,$6,clock_timestamp()+make_interval(mins=>$5)) ON CONFLICT(id) DO UPDATE SET operation_id=excluded.operation_id,version=job_schedules.version+1,revision_id=excluded.revision_id,options=excluded.options,interval_minutes=excluded.interval_minutes,status=excluded.status,next_run_at=excluded.next_run_at,updated_at=clock_timestamp()").bind(service).bind(input.operation_id).bind(input.revision_id).bind(DbJson(input.options)).bind(input.interval_minutes).bind(status).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(json!({"id":service,"version":input.version+1})))
 }
@@ -242,13 +242,13 @@ pub async fn schedule(
 /// Called outside runtime reconciliation: OpenBao snapshot failures cannot prevent
 /// healthy applications or already-running jobs from being reconciled.
 pub async fn tick(pool: &PgPool) -> Result<(), ApiError> {
-    let due: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM job_schedules WHERE status='enabled' AND next_run_at<=now() ORDER BY next_run_at LIMIT 32").fetch_all(pool).await?;
+    let due: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM job_schedules WHERE status='enabled' AND next_run_at<=clock_timestamp() ORDER BY next_run_at LIMIT 32").fetch_all(pool).await?;
     for id in due {
         let mut tx = pool.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
             .execute(&mut *tx)
             .await?;
-        let Some(row) = sqlx::query("SELECT *,now() AS clock FROM job_schedules WHERE id=$1 AND status='enabled' AND next_run_at<=now() FOR UPDATE").bind(id).fetch_optional(&mut *tx).await? else { continue; };
+        let Some(row) = sqlx::query("SELECT *,clock_timestamp() AS clock FROM job_schedules WHERE id=$1 AND status='enabled' AND next_run_at<=clock_timestamp() FOR UPDATE").bind(id).fetch_optional(&mut *tx).await? else { continue; };
         let scheduled: DateTime<Utc> = row.get("next_run_at");
         let now: DateTime<Utc> = row.get("clock");
         let interval = i64::from(row.get::<i32, _>("interval_minutes")) * 60;
@@ -343,7 +343,7 @@ pub async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::E
         }
         sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(id).bind(node).bind(slot).execute(&mut **tx).await?;
         let options = row.get::<DbJson<Options>, _>("job_options").0;
-        sqlx::query("UPDATE deployments SET error_code=NULL,deadline=now()+make_interval(secs=>$2) WHERE id=$1").bind(id).bind(f64::from(options.timeout_seconds)).execute(&mut **tx).await?;
+        sqlx::query("UPDATE deployments SET error_code=NULL,deadline=clock_timestamp()+make_interval(secs=>$2) WHERE id=$1").bind(id).bind(f64::from(options.timeout_seconds)).execute(&mut **tx).await?;
     }
     Ok(())
 }

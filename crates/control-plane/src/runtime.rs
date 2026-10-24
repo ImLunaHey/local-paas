@@ -432,6 +432,22 @@ fn db_error(_: sqlx::Error) -> NodeError {
     (StatusCode::SERVICE_UNAVAILABLE, "runtime state unavailable")
 }
 pub async fn sync(
+    state: State<PgPool>,
+    headers: HeaderMap,
+    input: Json<SyncRequest>,
+) -> Result<Json<SyncResponse>, NodeError> {
+    let result = sync_inner(state, headers, input).await;
+    if let Err((status, reason)) = &result {
+        // Reasons are fixed protocol strings: never log requests or credentials.
+        tracing::warn!(
+            status = status.as_u16(),
+            reason,
+            "node synchronization rejected"
+        );
+    }
+    result
+}
+async fn sync_inner(
     State(pool): State<PgPool>,
     headers: HeaderMap,
     Json(input): Json<SyncRequest>,
