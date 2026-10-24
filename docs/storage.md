@@ -61,3 +61,23 @@ PostgreSQL's pinned entrypoint directs its initialization client to the explicit
 
 References: https://docs.rustfs.com/en/security-compliance/iam and
 https://docs.rustfs.com/en/operations/status-check.
+
+## Database inspection
+
+PostgreSQL and Redis services open in a dedicated database workspace. PostgreSQL reports
+database size, connections, cumulative transaction counters and buffer cache hits.
+Its TanStack tables list application relations and expose columns, types,
+nullability, primary keys and index metadata. Row counts are catalog estimates;
+partition sizes are per relation, not recursive. Inspection returns at most 200
+tables, 1,600 columns for a selected table and 100 indexes, with truncation notices.
+
+Redis reports memory, clients, command rate, cache hits, keyspaces, eviction and
+persistence counters through fixed INFO sections. No key scan or value read runs.
+The browser polls every 15 seconds and retains a visibly dated snapshot on error.
+
+Inspection reads the existing managed credential from OpenBao, connects only to
+an allocated healthy worker endpoint, and never exposes the password or raw engine
+errors. PostgreSQL connections default to read-only transactions with a catalog-only
+search path, two-second statement timeout and 500 ms lock timeout. Both engines
+have an eight-second overall deadline and share a four-request concurrency cap.
+There is no arbitrary SQL or database editing API in this increment.

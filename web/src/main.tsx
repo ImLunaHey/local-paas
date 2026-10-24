@@ -3,6 +3,8 @@ import { BucketPanel } from './object-storage'
 import { StoragePanel } from './storage'
 import { CreationScope, WorkspaceBreadcrumbs } from './workspace-context'
 import { DatabaseForm, DatabasePanel } from './databases'
+import { DatabaseInspector } from './database-inspection'
+import { DatabaseWorkspace } from './database-workspace'
 import { Domains } from './domains'
 import { Overview, Hosts } from './overview'
 import { ServiceTrends } from './metrics'
@@ -839,6 +841,19 @@ function ServiceDetail() {
       />
     )
   const { spec } = service.data
+  const database =
+    spec.workload.kind === 'postgres-service' || spec.workload.kind === 'redis-service'
+  if (database)
+    return (
+      <CurrentService.Provider value={service.data}>
+        <DatabaseWorkspace
+          service={service.data}
+          status={runtime.isError ? 'Status unavailable' : runtimeLabel(runtime.data)}
+        >
+          <Outlet />
+        </DatabaseWorkspace>
+      </CurrentService.Provider>
+    )
   const count =
     spec.workload.kind === 'oci-service'
       ? spec.workload.replicas
@@ -1164,13 +1179,18 @@ const detailRoute = createRoute({
 const serviceIndexRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: '/',
-  beforeLoad: ({ params, location }) => {
+  beforeLoad: async ({ params, location }) => {
+    const service = await queryClient.ensureQueryData(serviceQuery(params.serviceId))
     const to =
       location.hash === 'configuration'
         ? '/services/$serviceId/configuration'
         : location.hash === 'activity'
           ? '/services/$serviceId/activity'
-          : '/services/$serviceId/builds'
+          : !location.hash &&
+              (service.spec.workload.kind === 'postgres-service' ||
+                service.spec.workload.kind === 'redis-service')
+            ? '/services/$serviceId/overview'
+            : '/services/$serviceId/builds'
     throw redirect({ to, params, replace: true, hash: '' })
   },
 })
@@ -1178,6 +1198,17 @@ const serviceBuildsRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'builds',
   component: ServiceBuilds,
+})
+const serviceDatabaseRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'overview',
+  validateSearch: (s: Record<string, unknown>): { table?: number } => ({
+    table:
+      Number.isSafeInteger(Number(s.table)) && Number(s.table) > 0 && Number(s.table) <= 4294967295
+        ? Number(s.table)
+        : undefined,
+  }),
+  component: () => <DatabaseInspector service={useCurrentService()} />,
 })
 const serviceConfigurationRoute = createRoute({
   getParentRoute: () => detailRoute,
@@ -1236,6 +1267,7 @@ const router = createRouter({
       serviceIndexRoute,
       networkingRoute,
       serviceBuildsRoute,
+      serviceDatabaseRoute,
       serviceLogsRoute,
       serviceSecretsRoute,
       serviceStorageRoute,

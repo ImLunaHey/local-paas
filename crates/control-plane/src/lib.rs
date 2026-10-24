@@ -16,6 +16,7 @@ use uuid::Uuid;
 mod audit;
 pub mod builds;
 mod configuration;
+mod database_inspection;
 mod databases;
 mod domains;
 mod environments;
@@ -36,6 +37,10 @@ mod volumes;
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route(
+            "/api/services/{id}/database/inspect",
+            get(database_inspection::get),
+        )
         .route(
             "/api/services/{id}/storage/files",
             get(storage_files::get)
@@ -147,6 +152,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                         .into_response();
                 }
                 let secrets = request.uri().path().ends_with("/secrets")
+                    || request.uri().path().ends_with("/database/inspect")
                     || request.uri().path().ends_with("/files");
                 let mut response = next.run(request).await;
                 if secrets {

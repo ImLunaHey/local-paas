@@ -219,7 +219,7 @@ export function DatabaseForm({
     </>
   )
 }
-interface DatabaseState {
+export interface DatabaseState {
   volume: { node: string; size_gib: number; host: string; port: number } | null
   applications: { id: string; name: string; connected: boolean | null }[]
 }
