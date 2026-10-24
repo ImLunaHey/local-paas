@@ -235,3 +235,12 @@ OCI applications also have a **Jobs** page for one-off commands and interval
 schedules against built revisions, with time limits, cancellation, retained logs
 and exit results. Schedules prevent overlapping jobs and skip missed ticks. See
 [the execution guarantees](docs/runtime.md#one-off-jobs-and-interval-schedules).
+
+Dockerfile builds accept **build arguments and named targets** in Configuration.
+Applications can also configure a **pre-deploy command** that gates rollout on a
+successful job and retains its logs/results. Failed migrations leave the old app
+running. Database changes must remain compatible with that app; they cannot be
+undone automatically. **Networking → Private service connections** injects URLs
+for explicitly selected apps in the same environment, following healthy instances
+across deployments. See [builds](docs/builds.md) and
+[runtime guarantees](docs/runtime.md#pre-deploy-commands).

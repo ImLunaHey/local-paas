@@ -180,3 +180,19 @@ snapshots. Nodes reserve each start durably, report exit outcomes, and require
 confirmed cleanup before another job for that service. Unknown outcomes never retry
 automatically. Interval schedules persist due times and unique occurrences in
 PostgreSQL, forbid overlap, and skip missed ticks. See [runtime.md](runtime.md#one-off-jobs-and-interval-schedules).
+
+### Release gates and private connections
+
+Pre-deploy commands run as durable child jobs against the candidate revision and
+the parent's configuration/secret snapshot. Exit success and confirmed cleanup
+precede app placement; failures preserve the old active deployment. No automatic
+migration retry or schema rollback is promised. Named Dockerfile targets and
+non-secret build arguments are part of immutable build specifications.
+
+Private connections are explicit references to HTTP services in the same project
+and environment. The first implementation uses workload-local host aliases and
+agent TCP proxies across the existing VM forwards. Only active, fresh, ready
+backends are advertised. Short route leases fence slot reuse; connection grants
+are enforced per source workload. Shadow environments remap target references.
+This private VM transport does not implement the future NetBird/physical-node or
+public ingress design. See the execution and networking limits in runtime.md.

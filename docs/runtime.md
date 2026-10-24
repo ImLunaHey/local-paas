@@ -380,3 +380,39 @@ Pre-deploy tasks and one-off jobs inherit the same private connections. Environm
 shadowing remaps references to the new environment's copied services, never the
 original live instances. Connection configuration rejects secret-variable name
 collisions; only non-secret URLs are injected by this feature.
+
+### Release and discovery verification (2026-10-24)
+
+The disposable `examples/release-network-canary` image has a named `app` stage,
+a deliberately unsuitable final stage, and a build-time label returned over HTTP.
+The opt-in Rust test `release_network_canary` builds it through the real isolated
+builder, then checks nonzero/timeout migration failure without disrupting the old
+app, controller restart without a duplicate migration, cross-worker private calls
+from both a migration and an app, backend replacement without a client restart,
+and rejection of a workload without a declared connection. It stops its workloads
+and retains deployment/job diagnostics. The full drill passed in 286.95 seconds;
+all seven pre-existing instances remained healthy after cleanup.
+
+Prepare `.local/release-network-source.zip` with the fixture's Dockerfile and
+main.rs at the archive root. With the private development services and all three
+updated agents running, execute:
+
+```sh
+RUN_RELEASE_NETWORK_CANARY=1 \
+DATABASE_URL="postgresql:///local_paas?host=$PWD/.local/socket&port=55432" \
+cargo test -p control-plane --test release_network_canary -- --ignored --nocapture
+```
+
+The test creates only `platform-release-canary` services, but deliberately restarts
+the development controller. Database integration coverage separately exercises
+concurrent requests/reconcilers, failed and cancelled release gates, slot leases,
+legacy-agent exclusion, environment scope and shadow remapping. Shared forms were
+checked in the collaborative browser at desktop and 390px mobile widths, including
+retained migration logs.
+
+One initial live run hit a CNI address-allocation conflict on worker-2 after the
+agent rollout. Restarting that worker cleared the condition; subsequent repeated
+slot reuse and the full drill passed. The intermittent allocation issue is not
+proven permanently fixed. Runtime diagnostics now preserve the relevant CNI address
+instead of truncating it behind nested error wrappers. Further CNI fault testing
+remains a production qualification requirement.

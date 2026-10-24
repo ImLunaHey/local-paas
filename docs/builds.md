@@ -299,7 +299,7 @@ Generated build references: [npm ci](https://docs.npmjs.com/cli/v11/commands/npm
 ## Dockerfile arguments and stages
 
 OCI configuration accepts `workload.build_args` (a map of non-secret strings)
- and `workload.build_target` (a named Dockerfile stage). Both are editable in the
+and `workload.build_target` (a named Dockerfile stage). Both are editable in the
 configuration form and captured in each immutable build specification. Arguments
 are passed literally to BuildKit, without host shell evaluation. `BUILDKIT_`
 names are reserved. At most 32 arguments and 16 KiB of values are accepted.
