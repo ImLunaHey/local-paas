@@ -252,7 +252,7 @@ impl Runtime for Containerd {
             }
             ports.push(rule.port);
         }
-        crate::network::apply(&self.root, op.instance_id, Some(ip), &ports).await?;
+        crate::network::apply(op.instance_id, Some(ip), &ports).await?;
         // Container metadata survives a VM reboot; loop mounts do not. Restore
         // every volume before the existing-container shortcut or start can run.
         for mount in &spec.mounts {

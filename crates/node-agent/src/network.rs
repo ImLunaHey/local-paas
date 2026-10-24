@@ -31,18 +31,16 @@ pub fn address(slot: u16) -> Result<Ipv4Addr, RuntimeError> {
     }
     Ok(ip)
 }
-pub async fn apply(
-    root: &Path,
-    id: Uuid,
-    ip: Option<Ipv4Addr>,
-    ports: &[u16],
-) -> Result<(), RuntimeError> {
+pub async fn apply(id: Uuid, ip: Option<Ipv4Addr>, ports: &[u16]) -> Result<(), RuntimeError> {
     let _guard = LOCK.lock().await;
     if ports.iter().any(|p| !valid_port(*p)) {
         return Err(failure());
     }
-    let directory = root.join("network-grants");
-    tokio::fs::create_dir_all(&directory)
+    // Grants describe this boot's network namespaces. /run survives an agent
+    // restart, but never resurrects stale or partially persisted grants after a
+    // VM power loss. Every assignment rebuilds its grant before it can start.
+    let directory = Path::new("/run/local-paas-network-grants");
+    tokio::fs::create_dir_all(directory)
         .await
         .map_err(|_| failure())?;
     let path = directory.join(format!("{id}.json"));

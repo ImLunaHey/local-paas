@@ -312,7 +312,7 @@ async fn instance_loop(
                 Err(platform_runtime::RuntimeError::NotFound) => Ok(()),
                 Err(e) => Err(e),
             };
-            let network_cleanup = network::apply(&runtime.root, id, None, &[]).await;
+            let network_cleanup = network::apply(id, None, &[]).await;
             if result.is_ok() && network_cleanup.is_ok() {
                 report.state = "stopped".into();
                 stopped = true;
@@ -360,7 +360,7 @@ async fn instance_loop(
             if a.recovery_allowed
                 && matches!(
                     failed.as_deref(),
-                    Some("process_exited" | "readiness_failed")
+                    Some("process_exited" | "readiness_failed" | "database_network_policy_failed")
                 )
             {
                 failed = None;
