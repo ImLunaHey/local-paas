@@ -31,7 +31,8 @@ file browsing with upload/download and read-only access enforcement. See
 
 Node maintenance supports cordon, drain and opt-in relocation of stateless HTTP
 services after node loss. Pinned storage and singleton workers block relocation.
-See [node maintenance](docs/nodes.md).
+See [node maintenance](docs/nodes.md). Independent Rust ingress keeps healthy
+previews available while the controller restarts. See [ingress and edge integration](docs/ingress.md).
 
 **Not implemented:** public DigitalOcean ingress, NetBird provisioning, production authentication and
 complete off-site disaster recovery, and celld fleet

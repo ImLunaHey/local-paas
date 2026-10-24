@@ -73,7 +73,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
-    let preview = control_plane::preview::start(pool.clone()).await?;
     let archive_pool = pool.clone();
     let archive = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
@@ -98,7 +97,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     schedules.abort();
     archive.abort();
     renewal.abort();
-    preview.abort();
     pool.close().await;
     Ok(())
 }

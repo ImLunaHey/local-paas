@@ -328,7 +328,7 @@ pub(crate) async fn place_excluding(
                 .bind(service_id)
                 .fetch_all(&mut **tx)
                 .await?;
-        let used = sqlx::query("SELECT i.slot,d.spec FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE i.node_id=$1 AND (i.state<>'stopped' OR EXISTS(SELECT 1 FROM private_route_leases l WHERE l.instance_id=i.id AND l.expires_at+interval '5 seconds'>clock_timestamp()))").bind(id).fetch_all(&mut **tx).await?;
+        let used = sqlx::query("SELECT i.slot,d.spec FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE i.node_id=$1 AND (i.state<>'stopped' OR EXISTS(SELECT 1 FROM private_route_leases l WHERE l.instance_id=i.id AND l.expires_at+interval '5 seconds'>clock_timestamp()) OR EXISTS(SELECT 1 FROM ingress_route_leases l WHERE l.instance_id=i.id AND l.expires_at+interval '5 seconds'>clock_timestamp()))").bind(id).fetch_all(&mut **tx).await?;
         let mut cpu = 0;
         let mut memory = 0;
         let mut slots = Vec::new();

@@ -14,6 +14,7 @@ the API launches. Vite keeps its usual hot reload.
 | --- | --- | --- |
 | Control-plane PostgreSQL | User | `local-paas-postgres` |
 | API and reconcilers | User | `local-paas-api` |
+| Independent preview ingress | User | `local-paas-ingress` |
 | Vite frontend | User | `local-paas-web` |
 | Build queue worker | User | `local-paas-build-worker` |
 | Agent gateway | User | `local-paas-agent-gateway` |
@@ -26,7 +27,9 @@ Inspect user services with `systemctl --user status 'local-paas-*'`, and system
 services with `systemctl status 'local-paas-*'`. Follow API output using
 `journalctl --user -u local-paas-api -f`; substitute another unit for its logs.
 
-`make api` rebuilds and restarts the API. `make web` is an idempotent start;
+`make api` rebuilds and restarts the API and ensures independent ingress is running.
+An already-running ingress is left alone; after an ingress code change use
+`bash infra/services/ingress.sh --restart`. `make web` is an idempotent start;
 `bash infra/services/web.sh --restart` recreates its unit when launcher settings
 change. `systemctl --user restart local-paas-web` restarts the existing unit.
 `make db-stop` gracefully stops PostgreSQL without deleting data. To start it

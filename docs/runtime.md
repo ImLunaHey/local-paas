@@ -106,10 +106,10 @@ cleanup and a real 65-second SSE stream. Public
 edge routing, production authentication, backup/restore and fleet management
 remain separate release gates.
 
-The development preview runs inside the API process and depends on fresh database
-observations. Controller downtime therefore interrupts this preview even though
-healthy containers continue running. An independent edge with local health checks
-is still needed for ingress that survives controller downtime.
+The preview now runs in the independent `local-paas-ingress` service. Local health
+checks keep healthy applications reachable during controller downtime; bounded
+database route leases fence stale endpoints and slot reuse. Public VPS/NetBird
+activation remains pending. See [independent ingress](ingress.md).
 
 ## Development workers on Lake
 

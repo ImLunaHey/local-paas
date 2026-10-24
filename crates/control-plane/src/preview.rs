@@ -1,4 +1,4 @@
-//! Private preview ingress. Database promotion switches the entire backend set.
+//! Independently supervised ingress with bounded route leases and local health checks.
 use axum::{
     Router,
     body::Body,
@@ -6,38 +6,122 @@ use axum::{
     http::{HeaderMap, HeaderName, StatusCode},
     response::{IntoResponse, Response},
 };
+use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use uuid::Uuid;
 #[derive(Clone)]
 struct Proxy {
-    pool: PgPool,
+    routes: Arc<RwLock<HashMap<String, Vec<Backend>>>>,
     client: reqwest::Client,
     next: Arc<AtomicUsize>,
     connections: Arc<Semaphore>,
 }
-pub async fn start(
-    pool: PgPool,
-) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
-    let client = client()?;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8090").await?;
-    Ok(tokio::spawn(async move {
-        let _ = axum::serve(
-            listener,
-            Router::new().fallback(proxy).with_state(Proxy {
-                pool,
-                client,
-                next: Arc::new(AtomicUsize::new(0)),
-                connections: Arc::new(Semaphore::new(256)),
-            }),
-        )
-        .await;
+#[derive(Clone)]
+struct Backend {
+    port: i32,
+    expires: DateTime<Utc>,
+}
+struct RefreshGuard(tokio::task::JoinHandle<()>);
+impl Drop for RefreshGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn refresh(
+    pool: &PgPool,
+    health: &reqwest::Client,
+) -> Result<HashMap<String, Vec<Backend>>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
+        .execute(&mut *tx)
+        .await?;
+    // Readiness is initially certified by the agent. Local probes keep checking it
+    // while the controller is offline. Desired state, route membership and leases
+    // remain authoritative; stale observations alone do not kill healthy traffic.
+    let rows=sqlx::query("SELECT r.authority,i.id,n.endpoint_base+i.slot AS port,coalesce(d.spec->'workload'->'readiness'->>'path','/') AS path,clock_timestamp()+interval '10 seconds' AS expires FROM (SELECT authority,service_id FROM preview_routes UNION SELECT hostname AS authority,service_id FROM domains WHERE service_id IS NOT NULL) r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE i.state='ready' AND i.routing_enabled AND i.desired_state='running' AND d.spec->'workload'->>'kind'='oci-service' AND coalesce(d.spec->'workload'->>'execution','http')='http' ORDER BY i.id").fetch_all(&mut *tx).await?;
+    for r in &rows {
+        sqlx::query("INSERT INTO ingress_route_leases(instance_id,expires_at) VALUES($1,$2) ON CONFLICT(instance_id) DO UPDATE SET expires_at=greatest(ingress_route_leases.expires_at,EXCLUDED.expires_at)").bind(r.get::<Uuid,_>("id")).bind(r.get::<DateTime<Utc>,_>("expires")).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    let mut checks = futures_util::stream::iter(rows.into_iter().map(|r| {
+        let health = health.clone();
+        async move {
+            let authority: String = r.get("authority");
+            let port: i32 = r.get("port");
+            let path: String = r.get("path");
+            let healthy = health
+                .get(format!("http://127.0.0.1:{port}{path}"))
+                .header("host", &authority)
+                .send()
+                .await
+                .is_ok_and(|response| response.status().is_success());
+            (
+                authority,
+                Backend {
+                    port,
+                    expires: r.get("expires"),
+                },
+                healthy,
+            )
+        }
     }))
+    .buffer_unordered(16);
+    let mut routes: HashMap<String, Vec<Backend>> = HashMap::new();
+    while let Some((authority, backend, healthy)) = checks.next().await {
+        if healthy {
+            routes.entry(authority).or_default().push(backend);
+        }
+    }
+    Ok(routes)
+}
+
+pub async fn serve(
+    pool: PgPool,
+    listener: tokio::net::TcpListener,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let routes = Arc::new(RwLock::new(HashMap::new()));
+    let health = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(2))
+        .build()?;
+    let refresh_routes = routes.clone();
+    let updater = RefreshGuard(tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            match tokio::time::timeout(Duration::from_secs(5), refresh(&pool, &health)).await {
+                Ok(Ok(snapshot)) => *refresh_routes.write().await = snapshot,
+                _ => tracing::warn!(
+                    "ingress refresh failed; cached routes expire within ten seconds"
+                ),
+            }
+        }
+    }));
+    let result = axum::serve(
+        listener,
+        Router::new().fallback(proxy).with_state(Proxy {
+            routes,
+            client: client()?,
+            next: Arc::new(AtomicUsize::new(0)),
+            connections: Arc::new(Semaphore::new(256)),
+        }),
+    )
+    .await;
+    drop(updater);
+    result?;
+    Ok(())
 }
 fn client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
@@ -73,9 +157,32 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_lowercase();
-    let rows=match sqlx::query("SELECT n.endpoint_base+i.slot AS port FROM preview_routes r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE r.authority=$1 AND i.state='ready' AND i.routing_enabled AND i.desired_state='running' AND i.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds' ORDER BY i.id").bind(&authority).fetch_all(&p.pool).await{Ok(r) if !r.is_empty()=>r,_=>return(StatusCode::SERVICE_UNAVAILABLE,"No healthy application instances are ready.\n").into_response()};
-    let port = rows[p.next.fetch_add(1, Ordering::Relaxed) % rows.len()].get::<i32, _>("port");
-    forward(&p.client, request, port, authority, permit).await
+    let backend = {
+        let routes = p.routes.read().await;
+        let ready: Vec<_> = routes
+            .get(&authority)
+            .into_iter()
+            .flatten()
+            .filter(|b| b.expires > Utc::now())
+            .collect();
+        if ready.is_empty() {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "No healthy application instances are ready.\n",
+            )
+                .into_response();
+        }
+        ready[p.next.fetch_add(1, Ordering::Relaxed) % ready.len()].clone()
+    };
+    forward(
+        &p.client,
+        request,
+        backend.port,
+        authority,
+        permit,
+        Some(backend.expires),
+    )
+    .await
 }
 fn connection_tokens(headers: &HeaderMap) -> Vec<HeaderName> {
     headers
@@ -109,6 +216,7 @@ async fn forward(
     port: i32,
     authority: String,
     permit: OwnedSemaphorePermit,
+    expires: Option<DateTime<Utc>>,
 ) -> Response {
     let upgrade = websocket(request.headers()) && request.method() == axum::http::Method::GET;
     let downstream = upgrade.then(|| hyper::upgrade::on(&mut request));
@@ -129,6 +237,10 @@ async fn forward(
         Ok(Err(_)) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
         Err(_) => return StatusCode::REQUEST_TIMEOUT.into_response(),
     };
+    // A slow upload must not connect to a slot whose lease expired while reading.
+    if expires.is_some_and(|deadline| deadline <= Utc::now()) {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     let mut headers = parts.headers;
     strip_hop(&mut headers);
     let remove: Vec<_> = headers
@@ -203,6 +315,29 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    #[tokio::test]
+    async fn slow_upload_cannot_connect_after_its_route_lease_expires() {
+        let stream = futures_util::stream::once(async {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            Ok::<_, std::io::Error>("upload")
+        });
+        let request = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .body(Body::from_stream(stream))
+            .unwrap();
+        let response = forward(
+            &client().unwrap(),
+            request,
+            1,
+            "canary.test".into(),
+            Arc::new(Semaphore::new(1)).acquire_owned().await.unwrap(),
+            Some(Utc::now() + chrono::Duration::milliseconds(50)),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
     async fn serve(router: Router) -> (i32, tokio::task::JoinHandle<()>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = i32::from(listener.local_addr().unwrap().port());
@@ -223,6 +358,7 @@ mod tests {
                     port,
                     "app.example.test".into(),
                     permits.acquire_owned().await.unwrap(),
+                    None,
                 )
                 .await
             }
