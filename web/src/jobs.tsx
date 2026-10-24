@@ -96,6 +96,9 @@ function JobFields({
           onChange={(e) => setDraft({ ...draft, revision: e.target.value })}
         >
           {!draft.revision && <option value="">Build an image first</option>}
+          {draft.revision && !revisions.some((r) => r.id === draft.revision) && (
+            <option value={draft.revision}>{draft.revision.slice(0, 8)} · retained revision</option>
+          )}
           {revisions.map((r) => (
             <option key={r.id} value={r.id}>
               {r.id.slice(0, 8)} · {new Date(r.created_at).toLocaleString()}
