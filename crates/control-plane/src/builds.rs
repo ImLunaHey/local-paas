@@ -106,6 +106,7 @@ pub(crate) async fn create(
         spec.source.tag = request.tag;
     }
     spec.validate().map_err(ApiError::Invalid)?;
+    crate::source_uploads::validate_scope(&mut tx, &spec).await?;
     if !matches!(
         spec.workload,
         Workload::OciService { .. }
@@ -399,7 +400,7 @@ pub async fn finish(
     };
     if let Completion::Succeeded { repository, digest } = completion {
         let mut pinned = current.spec.0;
-        if !pinned.workload.is_managed() {
+        if !pinned.workload.is_managed() && pinned.source.upload.is_none() {
             let commit = current.resolved_commit.ok_or_else(|| {
                 sqlx::Error::Protocol("successful build has no resolved commit".into())
             })?;

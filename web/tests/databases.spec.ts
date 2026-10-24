@@ -1,5 +1,22 @@
 import { expect, test } from '@playwright/test'
 
+for (const variable of [
+  'E2E_POSTGRES_SERVICE_ID',
+  'E2E_REDIS_SERVICE_ID',
+  'E2E_RUSTFS_SERVICE_ID',
+]) {
+  test(`managed deployment view handles absent Git source: ${variable}`, async ({ page }) => {
+    const id = process.env[variable]
+    test.skip(!id, 'Requires an existing managed development service')
+    await page.goto(`/services/${id}/builds`)
+    await expect(page.getByRole('heading', { name: 'Builds & revisions' })).toBeVisible()
+    await expect(page.getByLabel('Build source type')).toBeHidden()
+    await expect(page.getByRole('heading', { name: 'This tab couldn’t be displayed' })).toHaveCount(
+      0,
+    )
+  })
+}
+
 test('PostgreSQL opens its inspector with schemas, columns and indexes', async ({ page }) => {
   const id = process.env.E2E_POSTGRES_SERVICE_ID
   test.skip(!id, 'requires a disposable PostgreSQL service with the inspection canary table')

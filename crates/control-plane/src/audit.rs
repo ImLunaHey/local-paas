@@ -52,6 +52,7 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
         .unwrap_or("unmatched")
         .to_string();
     let action = match (method.as_str(), route.as_str()) {
+        ("POST", "/api/source-uploads") => "source.upload",
         ("GET", "/api/services/{id}/storage/files" | "/api/services/{id}/volume/files")
             if request
                 .uri()

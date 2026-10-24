@@ -9,6 +9,66 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn uploaded_sources_are_project_scoped_and_revisions_keep_the_archive_digest(pool: PgPool) {
+    let id = service(&pool, false).await;
+    let (_, registered) = call(&pool, "GET", &format!("/api/services/{id}"), json!(null)).await;
+    let mut spec = registered["spec"].clone();
+    let digest = "a".repeat(64);
+    spec["source"] = json!({"upload":digest});
+    let update = json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec});
+    let (status, _) = call(&pool, "PUT", &format!("/api/services/{id}"), update.clone()).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    sqlx::query("INSERT INTO source_uploads(project_id,digest,archive_bytes,expanded_bytes,file_count) SELECT id,$1,100,10,1 FROM projects WHERE name='sandbox'")
+        .bind(&digest).execute(&pool).await.unwrap();
+    let (status, _) = call(&pool, "PUT", &format!("/api/services/{id}"), update).await;
+    assert_eq!(status, StatusCode::OK);
+    spec["project"] = json!("another-project");
+    let (status, _) = call(
+        &pool,
+        "POST",
+        "/api/services",
+        json!({"operation_id":Uuid::new_v4(),"spec":spec,"build_on_create":false}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = call(
+        &pool,
+        "POST",
+        &format!("/api/services/{id}/builds"),
+        json!({"operation_id":Uuid::new_v4(),"branch":"main"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _) = call(
+        &pool,
+        "POST",
+        &format!("/api/services/{id}/builds"),
+        json!({"operation_id":Uuid::new_v4()}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let build = builds::claim(&pool).await.unwrap().unwrap();
+    builds::finish(
+        &pool,
+        &build,
+        Completion::Succeeded {
+            repository: format!("registry.example/platform/{id}"),
+            digest: format!("sha256:{}", "b".repeat(64)).try_into().unwrap(),
+        },
+    )
+    .await
+    .unwrap();
+    let saved: Value = sqlx::query_scalar("SELECT spec FROM revisions WHERE service_id=$1")
+        .bind(id.parse::<Uuid>().unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(saved["source"]["upload"], digest);
+    assert!(saved["source"]["commit"].is_null());
+}
+
 async fn call(pool: &PgPool, method: &str, path: &str, value: Value) -> (StatusCode, Value) {
     let response = control_plane::router(pool.clone(), vec!["http://localhost:5188".into()])
         .oneshot(

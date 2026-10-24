@@ -20,13 +20,20 @@ export interface ServiceSpec {
   project: string
   environment: string
   name: string
-  source: { repository: string; commit?: string; branch?: string; tag?: string }
+  source?: Source
   resources: { cpu_millis: number; memory_mib: number }
   distinct_nodes: boolean
   domains: string[]
   secrets: string[]
   workload: Workload
   volume?: { id: string; mount_path: string; read_only: boolean }
+}
+export interface Source {
+  repository: string
+  commit?: string
+  branch?: string
+  tag?: string
+  upload?: string
 }
 
 export interface Service {
@@ -103,7 +110,7 @@ export const serviceQuery = (id: string) => ({
 })
 
 export type SourceKind = 'commit' | 'branch' | 'tag'
-export function sourceReference(source: ServiceSpec['source'] = { repository: '' }): {
+export function sourceReference(source: Source = { repository: '' }): {
   kind: SourceKind
   value: string
 } {
@@ -111,7 +118,9 @@ export function sourceReference(source: ServiceSpec['source'] = { repository: ''
   if (source.tag !== undefined) return { kind: 'tag', value: source.tag }
   return { kind: 'commit', value: source.commit ?? '' }
 }
-export function sourceLabel(source: ServiceSpec['source']): string {
+export function sourceLabel(source?: Source): string {
+  if (!source) return 'Managed image'
+  if (source.upload) return 'Upload ' + source.upload.slice(0, 8)
   const ref = sourceReference(source)
   return ref.kind === 'commit' ? ref.value.slice(0, 8) : ref.value
 }

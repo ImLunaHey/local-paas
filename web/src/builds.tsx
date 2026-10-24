@@ -30,6 +30,8 @@ const errors: Record<string, string> = {
     'The declared runtime version is outside the pinned Node 22/24 or Bun 1.4.4 presets. Provide a Dockerfile for another runtime version.',
   auto_workspace_unsupported:
     'Workspace projects need an explicit Dockerfile for now. Automatic detection supports standalone application packages.',
+  uploaded_source_invalid:
+    'The uploaded source is missing, corrupt or exceeds archive limits. Upload it again in Configuration.',
   source_ref_not_found: 'The requested branch or tag does not exist in the repository.',
   source_resolution_failed:
     'Could not resolve the source reference. Check repository access and retry.',
@@ -47,6 +49,7 @@ const errors: Record<string, string> = {
 export function BuildPanel({ service }: { service: Service }) {
   const client = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const uploaded = !!service.spec.source?.upload
   const initialRef = sourceReference(service.spec.source)
   const [sourceKind, setSourceKind] = useState<SourceKind>(initialRef.kind)
   const [commit, setCommit] = useState(initialRef.value)
@@ -85,7 +88,7 @@ export function BuildPanel({ service }: { service: Service }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(database ? {} : { [sourceKind]: commit.trim() }),
+          ...(database || uploaded ? {} : { [sourceKind]: commit.trim() }),
           no_cache: noCache,
           operation_id: operation.current.id,
         }),
@@ -136,13 +139,17 @@ export function BuildPanel({ service }: { service: Service }) {
         </span>
       </div>
       <p className="text-xs text-muted">
-        Build an immutable image from a branch, tag, or commit. Building does not deploy or change
+        Build an immutable image from Git or uploaded source. Building does not deploy or change
         traffic.
       </p>
       <div className="build-workspace">
         <div className="build-controls space-y-4">
           <form onSubmit={submit} className="space-y-3">
-            <fieldset disabled={database} hidden={database} className="space-y-3">
+            <fieldset
+              disabled={database || uploaded}
+              hidden={database || uploaded}
+              className="space-y-3"
+            >
               <label className="field">
                 <span>Build source type</span>
                 <Select

@@ -1,3 +1,4 @@
+import { SourceUpload } from './source-upload'
 import { ContentBoundary, RouteError } from './error-boundary'
 import { FileBrowser } from './file-browser'
 import { BucketPanel } from './object-storage'
@@ -276,6 +277,10 @@ function ServiceForm({ service }: { service?: Service }) {
   const oci = spec?.workload.kind === 'oci-service' ? spec.workload : undefined
   const celld = spec?.workload.kind === 'celld-service' ? spec.workload : undefined
   const initialRef = spec ? sourceReference(spec.source) : { kind: 'commit' as const, value: '' }
+  const [sourceMode, setSourceMode] = useState<'git' | 'upload'>(
+    spec?.source?.upload ? 'upload' : 'git',
+  )
+  const [uploadDigest, setUploadDigest] = useState(spec?.source?.upload)
   const [sourceKind, setSourceKind] = useState<SourceKind>(initialRef.kind)
   const [sourceValue, setSourceValue] = useState(initialRef.value)
   const [buildMode, setBuildMode] = useState<'auto' | 'dockerfile' | 'generated'>(
@@ -332,6 +337,8 @@ function ServiceForm({ service }: { service?: Service }) {
       const ref = sourceReference(saved.spec.source)
       setSourceKind(ref.kind)
       setSourceValue(ref.value)
+      setSourceMode(saved.spec.source?.upload ? 'upload' : 'git')
+      setUploadDigest(saved.spec.source?.upload)
       setFormVersion((value) => value + 1)
       setDirty(false)
       pending.current = null
@@ -382,7 +389,10 @@ function ServiceForm({ service }: { service?: Service }) {
       project: text('project'),
       environment: text('environment'),
       name: text('name'),
-      source: { repository: text('repository'), [sourceKind]: sourceValue.trim() },
+      source:
+        kind === 'oci-service' && sourceMode === 'upload'
+          ? { repository: '', upload: uploadDigest }
+          : { repository: text('repository'), [sourceKind]: sourceValue.trim() },
       resources: { cpu_millis: number('cpu'), memory_mib: number('memory') },
       distinct_nodes: data.has('distinct'),
       domains: list('domains'),
@@ -473,49 +483,78 @@ function ServiceForm({ service }: { service?: Service }) {
                 <span className="step">02</span> Source
               </h2>
               <div className="space-y-4">
-                <Field
-                  label="Git repository"
-                  hint="An HTTPS URL without a token or embedded credentials."
-                >
-                  <Input
-                    name="repository"
-                    defaultValue={spec?.source.repository}
-                    type="url"
-                    placeholder="https://github.com/you/your-app.git"
-                    required
-                    maxLength={2048}
+                {kind === 'oci-service' && (
+                  <Field label="Deployment source">
+                    <Select
+                      value={sourceMode}
+                      onChange={(e) => {
+                        setSourceMode(e.target.value as 'git' | 'upload')
+                        setDirty(true)
+                      }}
+                    >
+                      <option value="git">Git repository</option>
+                      <option value="upload">ZIP or local files</option>
+                    </Select>
+                  </Field>
+                )}
+                {kind === 'oci-service' && sourceMode === 'upload' ? (
+                  <SourceUpload
+                    project={spec?.project ?? scope.project ?? ''}
+                    digest={uploadDigest}
+                    onChange={(digest) => {
+                      setUploadDigest(digest)
+                      setDirty(true)
+                    }}
                   />
-                </Field>
-                <Field label="Source type">
-                  <Select
-                    className="build-select"
-                    value={sourceKind}
-                    onChange={(event) => setSourceKind(event.target.value as SourceKind)}
-                  >
-                    <option value="branch">Branch</option>
-                    <option value="tag">Tag</option>
-                    <option value="commit">Commit</option>
-                  </Select>
-                </Field>
-                <Field
-                  label={
-                    sourceKind === 'commit'
-                      ? 'Commit SHA'
-                      : sourceKind === 'branch'
-                        ? 'Branch'
-                        : 'Tag'
-                  }
-                  hint="Branches and tags are resolved to an exact commit for each build."
-                >
-                  <Input
-                    name="source_ref"
-                    className="font-mono"
-                    value={sourceValue}
-                    onChange={(event) => setSourceValue(event.target.value)}
-                    required
-                    pattern={sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined}
-                  />
-                </Field>
+                ) : (
+                  <>
+                    <Field
+                      label="Git repository"
+                      hint="An HTTPS URL without a token or embedded credentials."
+                    >
+                      <Input
+                        name="repository"
+                        defaultValue={spec?.source?.repository}
+                        type="url"
+                        placeholder="https://github.com/you/your-app.git"
+                        required
+                        maxLength={2048}
+                      />
+                    </Field>
+                    <Field label="Source type">
+                      <Select
+                        className="build-select"
+                        value={sourceKind}
+                        onChange={(event) => setSourceKind(event.target.value as SourceKind)}
+                      >
+                        <option value="branch">Branch</option>
+                        <option value="tag">Tag</option>
+                        <option value="commit">Commit</option>
+                      </Select>
+                    </Field>
+                    <Field
+                      label={
+                        sourceKind === 'commit'
+                          ? 'Commit SHA'
+                          : sourceKind === 'branch'
+                            ? 'Branch'
+                            : 'Tag'
+                      }
+                      hint="Branches and tags are resolved to an exact commit for each build."
+                    >
+                      <Input
+                        name="source_ref"
+                        className="font-mono"
+                        value={sourceValue}
+                        onChange={(event) => setSourceValue(event.target.value)}
+                        required
+                        pattern={
+                          sourceKind === 'commit' ? '([a-f0-9]{40}|[a-f0-9]{64})' : undefined
+                        }
+                      />
+                    </Field>
+                  </>
+                )}
                 {kind === 'oci-service' ? (
                   <>
                     <Field
@@ -752,7 +791,11 @@ function ServiceForm({ service }: { service?: Service }) {
               <Button
                 type="submit"
                 className="button primary"
-                disabled={mutation.isPending || (!!baseline && !dirty)}
+                disabled={
+                  mutation.isPending ||
+                  (!!baseline && !dirty) ||
+                  (kind === 'oci-service' && sourceMode === 'upload' && !uploadDigest)
+                }
               >
                 {mutation.isPending ? (
                   <LoaderCircle className="animate-spin" size={16} />

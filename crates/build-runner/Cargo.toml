@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+platform-sources = { path = "../sources" }
 platform-domain = { path = "../domain" }
 tokio.workspace = true
 uuid.workspace = true

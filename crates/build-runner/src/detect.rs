@@ -93,13 +93,20 @@ CMD ["/data"]
     else {
         return Err(Error::Workload);
     };
-    config.repository(&request.spec)?;
+    request.spec.validate().map_err(|_| Error::Workload)?;
+    if request.spec.source.upload.is_none() {
+        config.repository(&request.spec)?;
+    }
     if *build_mode == BuildMode::Dockerfile {
         return Ok(BuildPlan::Dockerfile {
             path: dockerfile.clone(),
         });
     }
-    let source = PublicSource::new(config, request)?;
+    let source = if request.spec.source.upload.is_some() {
+        Source::Local(request.local_context.clone().ok_or(Error::UploadedSource)?)
+    } else {
+        Source::Remote(PublicSource::new(config, request)?)
+    };
     tokio::time::timeout(Duration::from_secs(90), async {
         if *build_mode == BuildMode::Auto
             && build_command.is_none()
@@ -169,6 +176,33 @@ CMD ["/data"]
     .map_err(|_| Error::Detection("auto_source_unavailable"))?
 }
 
+enum Source {
+    Local(std::path::PathBuf),
+    Remote(PublicSource),
+}
+impl Source {
+    async fn exists(&self, path: &str) -> Result<bool, Error> {
+        match self {
+            Self::Local(root) => Ok(root.join(path).is_file()),
+            Self::Remote(source) => source.exists(path).await,
+        }
+    }
+    async fn read(&self, path: &str, limit: usize) -> Result<Option<Vec<u8>>, Error> {
+        match self {
+            Self::Local(root) => {
+                let path = root.join(path);
+                if !path.exists() {
+                    return Ok(None);
+                }
+                crate::read_bounded(&path, limit)
+                    .await
+                    .map(Some)
+                    .map_err(|_| Error::UploadedSource)
+            }
+            Self::Remote(source) => source.read(path, limit).await,
+        }
+    }
+}
 struct PublicSource {
     client: Client,
     base: url::Url,
@@ -683,6 +717,7 @@ mod tests {
             service_id: uuid::Uuid::new_v4(),
             spec,
             no_cache: true,
+            local_context: None,
         };
         let mut plan = generate(&npm(), &locks("npm"), &[], "!.env", 3000).unwrap();
         if let BuildPlan::Generated { dockerfile, .. } = &mut plan {
@@ -763,6 +798,7 @@ mod tests {
             spec: serde_json::from_str(include_str!("../../../examples/build-canary.json"))
                 .unwrap(),
             no_cache: true,
+            local_context: None,
         };
         let metadata = temp.path().join("metadata.json");
         let mut args = config.arguments(&request, &metadata).unwrap();

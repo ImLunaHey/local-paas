@@ -43,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         service_id: build.service_id,
                         spec: build.spec.0.clone(),
                         no_cache: build.no_cache,
+                        local_context: None,
                     };
                     // The runner must keep progressing while lease queries await
                     // its short transactions. Polling both inline can deadlock.
@@ -55,7 +56,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let pool = runner_pool;
                         let build = runner_build;
                         let config = runner_config;
-                        if !request.spec.workload.is_managed() {
+                        let uploaded = if let Some(digest) = &request.spec.source.upload {
+                            Some(platform_build_runner::uploaded_context(digest).await?)
+                        } else { None };
+                        request.local_context = uploaded.as_ref().map(|dir|dir.path().to_owned());
+                        if !request.spec.workload.is_managed() && uploaded.is_none() {
                         let commit =
                             platform_build_runner::resolve_commit(&config, &request.spec).await?;
                         if !builds::record_resolution(&pool, &build, &commit)

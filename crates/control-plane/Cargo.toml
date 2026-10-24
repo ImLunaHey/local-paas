@@ -6,6 +6,8 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+platform-sources = { path = "../sources" }
+tempfile = "3"
 libc = "0.2"
 base64 = "0.22"
 platform-domain = { path = "../domain" }

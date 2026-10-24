@@ -1,6 +1,6 @@
 //! Bounded buildctl client for a separately isolated BuildKit daemon.
-//! No host checkout, Dockerfile execution or daemon startup. Generated recipes
-//! are the only local files forwarded to the isolated builder.
+//! No host execution of source or Dockerfiles. Uploaded archives are validated
+//! into private temporary contexts; execution stays inside the isolated builder.
 use platform_domain::{ImageDigest, ServiceSpec, Workload};
 use std::{
     env,
@@ -47,6 +47,8 @@ pub enum Error {
     Repository,
     #[error("only OCI services support BuildKit builds")]
     Workload,
+    #[error("uploaded source is unavailable, corrupted or exceeds archive limits")]
+    UploadedSource,
     #[error("build client could not start or read output")]
     Client,
     #[error("BuildKit returned a failed build; see build logs")]
@@ -70,6 +72,7 @@ impl Error {
             Self::Missing(_) | Self::Config(_) => "builder_configuration",
             Self::Repository => "repository_not_allowed",
             Self::Workload => "unsupported_workload",
+            Self::UploadedSource => "uploaded_source_invalid",
             Self::Client => "build_client_failed",
             Self::BuildFailed => "build_failed",
             Self::Timeout => "build_timeout",
@@ -205,19 +208,23 @@ impl Config {
                 context,
                 ..
             } => {
-                let mut repository = self.repository(&request.spec)?;
-                let commit = request
-                    .spec
-                    .source
-                    .commit
-                    .as_deref()
-                    .ok_or(Error::Config("source must be resolved before building"))?;
-                repository.set_fragment(Some(commit));
-                (
-                    repository.to_string(),
-                    context.as_str(),
-                    dockerfile.as_str(),
-                )
+                if request.spec.source.upload.is_some() {
+                    (String::new(), context.as_str(), dockerfile.as_str())
+                } else {
+                    let mut repository = self.repository(&request.spec)?;
+                    let commit = request
+                        .spec
+                        .source
+                        .commit
+                        .as_deref()
+                        .ok_or(Error::Config("source must be resolved before building"))?;
+                    repository.set_fragment(Some(commit));
+                    (
+                        repository.to_string(),
+                        context.as_str(),
+                        dockerfile.as_str(),
+                    )
+                }
             }
             Workload::PostgresService { .. }
             | Workload::RedisService { .. }
@@ -270,6 +277,26 @@ impl Config {
         if request.no_cache {
             args.push("--no-cache".into());
         }
+        if request.spec.source.upload.is_some() {
+            for prefix in ["context=", "contextsubdir="] {
+                if let Some(i) = args.iter().position(|s| s.starts_with(prefix)) {
+                    args.drain(i - 1..=i);
+                }
+            }
+            let root = request
+                .local_context
+                .as_ref()
+                .ok_or(Error::UploadedSource)?;
+            if !root.join(context).is_dir() {
+                return Err(Error::UploadedSource);
+            }
+            args.extend([
+                "--local".into(),
+                format!("context={}", root.join(context).display()),
+                "--local".into(),
+                format!("dockerfile={}", root.display()),
+            ]);
+        }
         Ok(args)
     }
 }
@@ -279,6 +306,29 @@ pub struct Request {
     pub service_id: Uuid,
     pub spec: ServiceSpec,
     pub no_cache: bool,
+    pub local_context: Option<PathBuf>,
+}
+
+pub async fn uploaded_context(digest: &str) -> Result<tempfile::TempDir, Error> {
+    let path = platform_sources::path(digest).map_err(|_| Error::UploadedSource)?;
+    let bytes = read_bounded(&path, platform_sources::ARCHIVE_LIMIT)
+        .await
+        .map_err(|_| Error::UploadedSource)?;
+    let digest = digest.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let dir = tempfile::tempdir_in(
+            std::fs::canonicalize(platform_sources::root()).map_err(|_| Error::UploadedSource)?,
+        )
+        .map_err(|_| Error::UploadedSource)?;
+        let summary = platform_sources::inspect(&bytes, Some(dir.path()))
+            .map_err(|_| Error::UploadedSource)?;
+        if summary.digest != digest {
+            return Err(Error::UploadedSource);
+        }
+        Ok(dir)
+    })
+    .await
+    .map_err(|_| Error::UploadedSource)?
 }
 pub struct Output {
     pub repository: String,
@@ -488,6 +538,7 @@ mod tests {
             service_id: Uuid::new_v4(),
             spec: serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap(),
             no_cache: true,
+            local_context: None,
         }
     }
     #[test]
@@ -505,6 +556,29 @@ mod tests {
         for forbidden in ["--local", "--secret", "--ssh", "--allow"] {
             assert!(!args.iter().any(|a| a == forbidden));
         }
+    }
+    #[test]
+    fn upload_only_shares_its_private_context_and_never_uses_git() {
+        let mut request = request();
+        request.spec.source =
+            serde_json::from_value(serde_json::json!({"upload":"a".repeat(64)})).unwrap();
+        assert!(
+            config()
+                .arguments(&request, Path::new("/tmp/meta"))
+                .is_err()
+        );
+        let dir = tempfile::tempdir().unwrap();
+        request.local_context = Some(dir.path().to_owned());
+        let args = config()
+            .arguments(&request, Path::new("/tmp/meta"))
+            .unwrap();
+        assert!(
+            !args
+                .iter()
+                .any(|s| s.contains("github.com") || s.starts_with("contextsubdir="))
+        );
+        assert!(args.contains(&format!("context={}", dir.path().join(".").display())));
+        assert!(args.contains(&format!("dockerfile={}", dir.path().display())));
     }
     #[test]
     fn checkout_context_and_dockerfile_have_independent_paths() {

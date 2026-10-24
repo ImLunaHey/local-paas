@@ -62,7 +62,10 @@ pub fn volume_mount_path(path: &str) -> bool {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitSource {
+    #[serde(default)]
     pub repository: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -234,6 +237,28 @@ impl ServiceSpec {
                 self.source.is_empty(),
                 "source",
                 "database services do not have a Git source",
+            );
+        } else if let Some(digest) = &self.source.upload {
+            check(
+                matches!(self.workload, Workload::OciService { .. }),
+                "source.upload",
+                "uploaded sources currently support OCI services only",
+            );
+            check(
+                digest.len() == 64
+                    && digest
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                "source.upload",
+                "use the uploaded source's SHA-256 digest",
+            );
+            check(
+                self.source.repository.is_empty()
+                    && self.source.commit.is_none()
+                    && self.source.branch.is_none()
+                    && self.source.tag.is_none(),
+                "source",
+                "choose an uploaded source or a Git source, not both",
             );
         } else {
             let repo = url::Url::parse(&self.source.repository);

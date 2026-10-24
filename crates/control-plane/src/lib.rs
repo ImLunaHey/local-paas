@@ -31,6 +31,7 @@ mod projects;
 pub mod runtime;
 mod s3;
 pub mod secrets;
+mod source_uploads;
 mod storage_files;
 mod volume_files;
 mod volumes;
@@ -38,6 +39,12 @@ mod volumes;
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route(
+            "/api/source-uploads",
+            post(source_uploads::upload)
+                .layer(DefaultBodyLimit::max(platform_sources::ARCHIVE_LIMIT))
+                .layer(middleware::from_fn(source_uploads::limit)),
+        )
         .route(
             "/api/services/{id}/volume/files",
             get(volume_files::get)
@@ -338,6 +345,7 @@ async fn create_service(
     request.spec.validate().map_err(ApiError::Invalid)?;
     let mut tx = pool.begin().await?;
     volumes::validate_scope(&mut tx, &request.spec).await?;
+    source_uploads::validate_scope(&mut tx, &request.spec).await?;
     // Concurrent retries of the same operation must observe the first commit.
     // A hash collision only serializes two otherwise unrelated registrations.
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
