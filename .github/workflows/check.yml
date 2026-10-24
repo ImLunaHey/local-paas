@@ -149,13 +149,6 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
         shard: [1, 2, 3]
-        include:
-          - browser: chromium
-            install: chromium
-          - browser: firefox
-            install: chromium firefox
-          - browser: webkit
-            install: chromium webkit
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -189,7 +182,7 @@ jobs:
           openssl rand -hex 32 > "$RUNNER_TEMP/better-auth.secret"
           echo "BETTER_AUTH_SECRET_FILE=$RUNNER_TEMP/better-auth.secret" >> "$GITHUB_ENV"
       - run: cargo build -p control-plane --bins
-      - run: pnpm exec playwright install --with-deps ${{ matrix.install }}
+      - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
         working-directory: web
       - run: >-
           PATH="/tmp/browser-test-tools/bin:$PATH"
