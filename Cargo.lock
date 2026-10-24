@@ -2767,7 +2767,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 [[package]]
 name = "lucid-auth"
 version = "0.1.0"
-source = "git+https://github.com/ImLunaHey/auth.git?rev=44a90bada06df2c49d31e9626693f77e4bd7d390#44a90bada06df2c49d31e9626693f77e4bd7d390"
+source = "git+https://github.com/lucid-softworks/auth.git?rev=e213a07d4a1b810dbac95e58fe1398b67243d4d5#e213a07d4a1b810dbac95e58fe1398b67243d4d5"
 dependencies = [
  "aes 0.8.4",
  "argon2",

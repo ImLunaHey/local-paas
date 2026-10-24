@@ -23,4 +23,4 @@ deny = [{ name = "sqlx-mysql" }]
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-git = ["https://github.com/ImLunaHey/auth.git"]
+allow-git = ["https://github.com/lucid-softworks/auth.git"]
