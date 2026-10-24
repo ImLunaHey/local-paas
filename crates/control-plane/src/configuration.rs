@@ -1,6 +1,6 @@
 use crate::{ApiError, Service};
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
 };
 use platform_domain::ServiceSpec;
@@ -20,6 +20,7 @@ pub(crate) struct UpdateService {
 #[utoipa::path(put, path = "/api/services/{id}", params(("id" = Uuid, Path)), request_body = UpdateService, responses((status = 200, body = Service), (status = 409, body = crate::openapi::ErrorResponse)), operation_id = "updateService")]
 pub(crate) async fn update(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Path(id): Path<Uuid>,
     Json(request): Json<UpdateService>,
 ) -> Result<Json<Service>, ApiError> {
@@ -51,9 +52,10 @@ pub(crate) async fn update(
             "configuration changed since you opened it; reload the configuration before saving",
         ));
     }
-    crate::volumes::validate_scope(&mut tx, &request.spec).await?;
+    let organization = crate::auth::required_organization(&context)?;
+    crate::volumes::validate_scope(&mut tx, &request.spec, organization).await?;
     crate::discovery::validate(&mut tx, &request.spec).await?;
-    crate::source_uploads::validate_scope(&mut tx, &request.spec).await?;
+    crate::source_uploads::validate_scope(&mut tx, &request.spec, organization).await?;
     if current.spec.workload.is_managed() && current.spec.workload != request.spec.workload {
         let allocated: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM volumes WHERE id=$1)")
@@ -80,8 +82,8 @@ pub(crate) async fn update(
             "create a separate service in the target environment; existing service identity and secret scope cannot move",
         ));
     }
-    let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::now_v7()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
+    let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, organization_id, name) VALUES ($1, $2, $3) ON CONFLICT (organization_id,name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
+        .bind(Uuid::now_v7()).bind(organization).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     crate::domains::assign_service(&mut tx, id, &request.spec.domains).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
         .bind(Uuid::now_v7()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;

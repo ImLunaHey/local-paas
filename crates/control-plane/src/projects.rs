@@ -3,7 +3,7 @@ use crate::{
     openapi::{EnvironmentSummary, ProjectDetail, ProjectList, ProjectSummary},
 };
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
 };
 use serde::Deserialize;
@@ -26,13 +26,16 @@ fn validate_project_name(value: &str, _: &()) -> garde::Result {
 }
 
 #[utoipa::path(get, path = "/api/projects", responses((status = 200, body = crate::openapi::ProjectList)), operation_id = "listProjects")]
-pub async fn list(State(pool): State<PgPool>) -> Result<Json<ProjectList>, ApiError> {
-    let items = sqlx::query_as!(ProjectSummary, r#"
+pub async fn list(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
+) -> Result<Json<ProjectList>, ApiError> {
+    let items = sqlx::query_as::<_, ProjectSummary>(r#"
         SELECT p.id, p.name,
-          (SELECT count(*) FROM environments e WHERE e.project_id=p.id) AS "environments!",
-          (SELECT count(DISTINCT s.name) FROM services s JOIN environments e ON e.id=s.environment_id WHERE e.project_id=p.id) AS "services!"
-        FROM projects p ORDER BY p.name
-    "#).fetch_all(&pool).await?;
+          (SELECT count(*) FROM environments e WHERE e.project_id=p.id) AS environments,
+          (SELECT count(DISTINCT s.name) FROM services s JOIN environments e ON e.id=s.environment_id WHERE e.project_id=p.id) AS services
+        FROM projects p WHERE ($1::text IS NULL OR p.organization_id=$1) ORDER BY p.name
+    "#).bind(context.organization_id.as_deref()).fetch_all(&pool).await?;
     Ok(Json(ProjectList { items }))
 }
 #[derive(Deserialize, utoipa::ToSchema, garde::Validate)]
@@ -46,6 +49,7 @@ pub struct Create {
 #[utoipa::path(post, path = "/api/projects", request_body = Create, responses((status = 200, body = crate::openapi::ProjectIdentity), (status = 409, body = crate::openapi::ErrorResponse)), operation_id = "createProject")]
 pub async fn create(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Json(input): Json<Create>,
 ) -> Result<Json<Value>, ApiError> {
     if garde::Validate::validate(&input).is_err() {
@@ -54,7 +58,13 @@ pub async fn create(
         ));
     }
     let mut tx = pool.begin().await?;
-    let id:Uuid=sqlx::query_scalar!("INSERT INTO projects(id,name) VALUES($1,$2) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id", Uuid::now_v7(), &input.name).fetch_one(&mut *tx).await?;
+    let organization = crate::auth::required_organization(&context)?;
+    let id: Uuid = sqlx::query_scalar("INSERT INTO projects(id,organization_id,name) VALUES($1,$2,$3) ON CONFLICT(organization_id,name) DO UPDATE SET name=excluded.name RETURNING id")
+        .bind(Uuid::now_v7())
+        .bind(organization)
+        .bind(&input.name)
+        .fetch_one(&mut *tx)
+        .await?;
     for name in ["production", "development"] {
         sqlx::query!(
             "INSERT INTO environments(id,project_id,name) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
@@ -120,20 +130,23 @@ pub async fn update(
         ));
     }
     let mut tx = pool.begin().await?;
-    let name: String = sqlx::query_scalar!("SELECT name FROM projects WHERE id=$1 FOR UPDATE", id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(ApiError::NotFound)?;
+    let (name, organization_id): (String, Option<String>) =
+        sqlx::query_as("SELECT name,organization_id FROM projects WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
     if name != input.expected_name && name != input.name {
         return Err(ApiError::Conflict(
             "project changed; reload settings before saving",
         ));
     }
-    let taken: bool = sqlx::query_scalar!(
-        r#"SELECT EXISTS(SELECT 1 FROM projects WHERE name=$1 AND id<>$2) AS "exists!""#,
-        &input.name,
-        id
+    let taken: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE organization_id IS NOT DISTINCT FROM $1 AND name=$2 AND id<>$3)",
     )
+    .bind(organization_id)
+    .bind(&input.name)
+    .bind(id)
     .fetch_one(&mut *tx)
     .await?;
     if taken {
@@ -157,11 +170,16 @@ pub struct Search {
 }
 pub async fn search(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     axum::extract::Query(input): axum::extract::Query<Search>,
 ) -> Result<Json<Value>, ApiError> {
     if input.q.len() > 128 {
         return Err(ApiError::Conflict("search must be at most 128 characters"));
     }
-    let items=sqlx::query_scalar!("SELECT to_jsonb(result) AS \"value!\" FROM (SELECT 'project' AS kind,p.id,p.name,p.id AS \"projectId\",p.name AS project,NULL::text AS environment FROM projects p WHERE strpos(lower(p.name),lower($1))>0 UNION ALL SELECT 'service',s.id,s.name,p.id,p.name,e.name FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE strpos(lower(s.name||' '||p.name||' '||e.name),lower($1))>0 ORDER BY kind,name LIMIT 30) result", input.q.trim()).fetch_all(&pool).await?;
+    let items: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(result) FROM (SELECT 'project' AS kind,p.id,p.name,p.id AS \"projectId\",p.name AS project,NULL::text AS environment FROM projects p WHERE ($2::text IS NULL OR p.organization_id=$2) AND strpos(lower(p.name),lower($1))>0 UNION ALL SELECT 'service',s.id,s.name,p.id,p.name,e.name FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($2::text IS NULL OR p.organization_id=$2) AND strpos(lower(s.name||' '||p.name||' '||e.name),lower($1))>0 ORDER BY kind,name LIMIT 30) result")
+        .bind(input.q.trim())
+        .bind(context.organization_id.as_deref())
+        .fetch_all(&pool)
+        .await?;
     Ok(Json(json!({"items":items})))
 }

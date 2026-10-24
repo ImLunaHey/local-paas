@@ -1,7 +1,7 @@
 //! Desired public domain assignments; no public routing is activated yet.
 use crate::ApiError;
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
 };
 use serde::Deserialize;
@@ -19,7 +19,7 @@ pub async fn assign_service(
     id: Uuid,
     names: &[String],
 ) -> Result<(), ApiError> {
-    let rows:Vec<(String,Option<Uuid>)>=sqlx::query_as("SELECT hostname,service_id FROM domains WHERE hostname=ANY($1) OR service_id=$2 ORDER BY hostname FOR UPDATE")
+    let rows:Vec<(String,Option<Uuid>)>=sqlx::query_as("SELECT d.hostname,d.service_id FROM domains d WHERE d.organization_id=(SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$2) AND (d.hostname=ANY($1) OR d.service_id=$2) ORDER BY d.hostname FOR UPDATE")
         .bind(names).bind(id).fetch_all(&mut **tx).await?;
     if names
         .iter()
@@ -59,8 +59,11 @@ fn normalize(host: &str) -> Option<String> {
     }
     Some(host)
 }
-pub async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('hostname',d.hostname,'serviceId',d.service_id,'version',d.version,'createdAt',d.created_at,'updatedAt',d.updated_at,'project',p.name,'projectId',p.id,'environment',e.name,'service',s.name,'status','pending-edge') FROM domains d LEFT JOIN services s ON s.id=d.service_id LEFT JOIN environments e ON e.id=s.environment_id LEFT JOIN projects p ON p.id=e.project_id ORDER BY d.hostname").fetch_all(&pool).await?;
+pub async fn list(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
+) -> Result<Json<Value>, ApiError> {
+    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('hostname',d.hostname,'serviceId',d.service_id,'version',d.version,'createdAt',d.created_at,'updatedAt',d.updated_at,'project',p.name,'projectId',p.id,'environment',e.name,'service',s.name,'status','pending-edge') FROM domains d LEFT JOIN services s ON s.id=d.service_id LEFT JOIN environments e ON e.id=s.environment_id LEFT JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR d.organization_id=$1) ORDER BY d.hostname").bind(context.organization_id.as_deref()).fetch_all(&pool).await?;
     let target = std::env::var("EDGE_CNAME_TARGET")
         .ok()
         .and_then(|s| normalize(&s));
@@ -76,13 +79,17 @@ pub struct Create {
 }
 pub async fn create(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Json(input): Json<Create>,
 ) -> Result<Json<Value>, ApiError> {
     let hostname=normalize(&input.hostname).ok_or(ApiError::Conflict("enter a hostname such as app.example.com, without a URL, port or wildcard; use punycode for international domains"))?;
-    let inserted = sqlx::query("INSERT INTO domains(hostname) VALUES($1) ON CONFLICT DO NOTHING")
-        .bind(&hostname)
-        .execute(&pool)
-        .await?;
+    let inserted = sqlx::query(
+        "INSERT INTO domains(hostname,organization_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
+    )
+    .bind(&hostname)
+    .bind(crate::auth::required_organization(&context)?)
+    .execute(&pool)
+    .await?;
     if inserted.rows_affected() == 0 {
         return Err(ApiError::Conflict("this domain is already registered"));
     }
@@ -114,16 +121,17 @@ pub async fn update(
         ));
     }
     if let Some(id) = input.service_id {
-        let worker: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM services WHERE id=$1 AND spec->'workload'->>'execution'='worker')")
-            .bind(id).fetch_one(&mut *tx).await?;
+        let worker: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id JOIN domains d ON d.hostname=$2 WHERE s.id=$1 AND p.organization_id=d.organization_id AND s.spec->'workload'->>'execution'='worker')")
+            .bind(id).bind(&hostname).fetch_one(&mut *tx).await?;
         if worker {
             return Err(ApiError::Conflict(
                 "background workers cannot receive domain mappings",
             ));
         }
         let kind: Option<String> =
-            sqlx::query_scalar("SELECT kind FROM services WHERE id=$1 FOR SHARE")
+            sqlx::query_scalar("SELECT s.kind FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id JOIN domains d ON d.hostname=$2 WHERE s.id=$1 AND p.organization_id=d.organization_id FOR SHARE")
                 .bind(id)
+                .bind(&hostname)
                 .fetch_optional(&mut *tx)
                 .await?;
         match kind.as_deref() {

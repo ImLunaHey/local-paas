@@ -169,6 +169,7 @@ function workspaceLabel(path: string) {
     '/hosts': 'Hosts',
     '/domains': 'Domains',
     '/audit': 'Audit log',
+    '/organization': 'Organization',
   }
   return labels[path] ?? 'Projects'
 }

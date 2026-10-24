@@ -1,15 +1,19 @@
 use crate::ApiError;
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Query, State},
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, types::Json as DbJson};
 
-pub async fn get(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let summary: DbJson<Value> = sqlx::query_scalar("SELECT jsonb_build_object('projects',(SELECT count(*) FROM projects),'services',(SELECT count(*) FROM services),'readyInstances',(SELECT count(*) FROM instances i JOIN nodes n ON n.id=i.node_id WHERE i.desired_state='running' AND i.state='ready' AND i.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds'),'healthyNodes',(SELECT count(*) FROM nodes WHERE last_seen>now()-interval '30 seconds'),'totalNodes',(SELECT count(*) FROM nodes),'pendingBuilds',(SELECT count(*) FROM builds WHERE status IN ('queued','running')),'failedDeployments',(SELECT count(*) FROM deployments WHERE status='failed' AND job_options IS NULL AND created_at>now()-interval '24 hours'))").fetch_one(&pool).await?;
-    let deployments: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'serviceId',s.id,'service',s.name,'project',p.name,'environment',e.name,'status',d.status,'createdAt',d.created_at,'errorCode',d.error_code) FROM deployments d JOIN services s ON s.id=d.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE d.job_options IS NULL ORDER BY d.created_at DESC,d.id DESC LIMIT 12").fetch_all(&pool).await?;
-    let builds: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',b.id,'serviceId',s.id,'service',s.name,'project',p.name,'environment',e.name,'status',b.status,'createdAt',b.created_at,'errorCode',b.error_code) FROM builds b JOIN services s ON s.id=b.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id ORDER BY b.created_at DESC,b.id DESC LIMIT 8").fetch_all(&pool).await?;
+pub async fn get(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
+) -> Result<Json<Value>, ApiError> {
+    let organization = context.organization_id.as_deref();
+    let summary: DbJson<Value> = sqlx::query_scalar("SELECT jsonb_build_object('projects',(SELECT count(*) FROM projects WHERE $1::text IS NULL OR organization_id=$1),'services',(SELECT count(*) FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE $1::text IS NULL OR p.organization_id=$1),'readyInstances',(SELECT count(*) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) AND i.desired_state='running' AND i.state='ready' AND i.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds'),'healthyNodes',(SELECT count(*) FROM nodes WHERE last_seen>now()-interval '30 seconds'),'totalNodes',(SELECT count(*) FROM nodes),'pendingBuilds',(SELECT count(*) FROM builds b JOIN services s ON s.id=b.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) AND b.status IN ('queued','running')),'failedDeployments',(SELECT count(*) FROM deployments d JOIN services s ON s.id=d.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) AND d.status='failed' AND d.job_options IS NULL AND d.created_at>now()-interval '24 hours'))").bind(organization).fetch_one(&pool).await?;
+    let deployments: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'serviceId',s.id,'service',s.name,'project',p.name,'environment',e.name,'status',d.status,'createdAt',d.created_at,'errorCode',d.error_code) FROM deployments d JOIN services s ON s.id=d.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) AND d.job_options IS NULL ORDER BY d.created_at DESC,d.id DESC LIMIT 12").bind(organization).fetch_all(&pool).await?;
+    let builds: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',b.id,'serviceId',s.id,'service',s.name,'project',p.name,'environment',e.name,'status',b.status,'createdAt',b.created_at,'errorCode',b.error_code) FROM builds b JOIN services s ON s.id=b.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) ORDER BY b.created_at DESC,b.id DESC LIMIT 8").bind(organization).fetch_all(&pool).await?;
     Ok(Json(
         json!({"summary":summary,"deployments":deployments,"builds":builds}),
     ))

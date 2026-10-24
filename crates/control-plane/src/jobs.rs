@@ -142,7 +142,13 @@ async fn enqueue(
     if !exists {
         return Err(ApiError::NotFound);
     }
-    crate::volumes::validate_scope(tx, &spec).await?;
+    let organization_id: String = sqlx::query_scalar(
+        "SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1",
+    )
+    .bind(service_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    crate::volumes::validate_scope(tx, &spec, &organization_id).await?;
     spec.secrets = crate::secrets::references(pool, service_id).await?;
     crate::discovery::validate(tx, &spec).await?;
     let secret_version = crate::secrets::snapshot(pool, service_id, &spec.secrets).await?;

@@ -1,11 +1,14 @@
 use crate::ApiError;
-use axum::{Json, extract::State};
+use axum::{Extension, Json, extract::State};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row, types::Json as DbJson};
 use uuid::Uuid;
-pub(crate) async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',p.name,'name',e.name,'serviceCount',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e JOIN projects p ON p.id=e.project_id ORDER BY p.name,e.name").fetch_all(&pool).await?;
+pub(crate) async fn list(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
+) -> Result<Json<Value>, ApiError> {
+    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',p.name,'name',e.name,'serviceCount',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) ORDER BY p.name,e.name").bind(context.organization_id.as_deref()).fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }
 #[derive(Deserialize)]
@@ -18,6 +21,7 @@ pub(crate) struct Create {
 }
 pub(crate) async fn create(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Json(input): Json<Create>,
 ) -> Result<Json<Value>, ApiError> {
     fn valid(s: &str) -> bool {
@@ -33,7 +37,8 @@ pub(crate) async fn create(
         ));
     }
     let mut tx = pool.begin().await?;
-    let project:Uuid=sqlx::query_scalar("INSERT INTO projects(id,name) VALUES($1,$2) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id").bind(Uuid::now_v7()).bind(&input.project).fetch_one(&mut *tx).await?;
+    let organization = crate::auth::required_organization(&context)?;
+    let project:Uuid=sqlx::query_scalar("INSERT INTO projects(id,organization_id,name) VALUES($1,$2,$3) ON CONFLICT(organization_id,name) DO UPDATE SET name=excluded.name RETURNING id").bind(Uuid::now_v7()).bind(organization).bind(&input.project).fetch_one(&mut *tx).await?;
     if let Some(parent) = input.parent_id {
         let valid: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM environments WHERE id=$1 AND project_id=$2 AND name<>$3)",

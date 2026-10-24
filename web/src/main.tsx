@@ -58,10 +58,14 @@ import './styles.css'
 import { BuildPanel } from './features/builds/builds'
 import { DeploymentPanel } from './features/deployments/runtime'
 import { useRuntime, runtimeLabel } from './runtime-query'
+import { AccountMenu, AuthShell } from './auth-shell'
+import { authClient } from './auth-client'
+import { OrganizationSettings } from './organization'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
 function Shell() {
+  const activeOrganization = authClient.useActiveOrganization()
   const path = useRouterState({ select: (s) => s.location.pathname })
   const navClass = (active: boolean) =>
     cn(
@@ -89,8 +93,8 @@ function Shell() {
         <div className="workspace">
           <div className="workspace-icon">L</div>
           <div>
-            <strong>Personal workspace</strong>
-            <span>Local development</span>
+            <strong>{activeOrganization.data?.name || 'Organization'}</strong>
+            <span>{activeOrganization.data?.slug || 'Local development'}</span>
           </div>
         </div>
         <div className="nav-label">WORKSPACE</div>
@@ -122,16 +126,12 @@ function Shell() {
             <ShieldCheck size={17} />
             <span>Audit log</span>
           </Link>
+          <Link to="/organization" className={navClass(path === '/organization')}>
+            <ShieldCheck size={17} />
+            <span>Organization</span>
+          </Link>
         </nav>
-        <div className="sidebar-note">
-          <ShieldCheck size={19} />
-          <p>
-            Your infrastructure.
-            <br />
-            <span>Your control.</span>
-          </p>
-        </div>
-        <div className="sidebar-bottom">
+        <div className="sidebar-bottom sidebar-status">
           <span className="tiny-label">CONTROL PLANE</span>
           <span className="flex items-center gap-2 text-xs mt-2">
             <i className={cn('status-dot', { online: health.isSuccess })} />
@@ -142,6 +142,7 @@ function Shell() {
                 : 'Connected locally'}
           </span>
         </div>
+        <AccountMenu />
       </aside>
       <div className="main-shell">
         <header className="topbar">
@@ -150,6 +151,7 @@ function Shell() {
             <span className="status-dot" /> Private platform
           </span>
           <CommandMenu />
+          <AccountMenu compact />
         </header>
         <main>
           <ContentBoundary>
@@ -457,6 +459,11 @@ const auditRoute = createRoute({
   path: '/audit',
   component: AuditLog,
 })
+const organizationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/organization',
+  component: OrganizationSettings,
+})
 const projectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/projects/$projectId',
@@ -593,6 +600,7 @@ const router = createRouter({
     projectRoute,
     projectSettingsRoute,
     auditRoute,
+    organizationRoute,
     environmentsRoute,
     newRoute,
     detailRoute.addChildren([
@@ -621,7 +629,9 @@ declare module '@tanstack/react-router' {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <AuthShell>
+        <RouterProvider router={router} />
+      </AuthShell>
     </QueryClientProvider>
   </StrictMode>,
 )

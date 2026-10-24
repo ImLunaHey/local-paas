@@ -1,6 +1,6 @@
 use crate::ApiError;
 use axum::{
-    Json,
+    Extension, Json,
     extract::{MatchedPath, Query, Request, State},
     http::{HeaderValue, StatusCode},
     middleware::Next,
@@ -24,6 +24,7 @@ pub struct Filters {
 }
 pub async fn list(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Query(q): Query<Filters>,
 ) -> Result<Json<Value>, ApiError> {
     if [&q.actor, &q.action, &q.outcome]
@@ -33,7 +34,7 @@ pub async fn list(
     {
         return Err(ApiError::Conflict("audit filter exceeds 128 characters"));
     }
-    let rows:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('sequence',a.sequence,'requestId',a.request_id,'timestamp',a.timestamp,'actor',a.actor,'action',a.action,'outcome',a.outcome,'targetType',a.target_type,'targetId',a.target_id,'serviceId',a.service_id,'environmentId',a.environment_id,'projectId',a.project_id,'project',a.project,'environment',a.environment,'details',a.details) FROM (SELECT l.*,p.name AS project,e.name AS environment FROM audit_log l LEFT JOIN projects p ON p.id=l.project_id LEFT JOIN environments e ON e.id=l.environment_id WHERE l.target_type IS DISTINCT FROM 'request' AND ($1::bigint IS NULL OR l.sequence<$1) AND ($2::uuid IS NULL OR l.project_id=$2) AND ($3::uuid IS NULL OR l.environment_id=$3) AND ($4::text IS NULL OR strpos(lower(l.actor),lower($4))>0) AND ($5::text IS NULL OR strpos(lower(l.action),lower($5))>0) AND ($6::text IS NULL OR l.outcome=$6) AND ($7::timestamptz IS NULL OR l.timestamp>=$7) AND ($8::timestamptz IS NULL OR l.timestamp<=$8) ORDER BY l.sequence DESC LIMIT 101) a").bind(q.before).bind(q.project).bind(q.environment).bind(q.actor).bind(q.action).bind(q.outcome).bind(q.from).bind(q.until).fetch_all(&pool).await?;
+    let rows:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('sequence',a.sequence,'requestId',a.request_id,'timestamp',a.timestamp,'actor',a.actor,'action',a.action,'outcome',a.outcome,'targetType',a.target_type,'targetId',a.target_id,'serviceId',a.service_id,'environmentId',a.environment_id,'projectId',a.project_id,'project',a.project,'environment',a.environment,'details',a.details) FROM (SELECT l.*,p.name AS project,e.name AS environment FROM audit_log l LEFT JOIN projects p ON p.id=l.project_id LEFT JOIN environments e ON e.id=l.environment_id WHERE ($9::text IS NULL OR coalesce(l.organization_id,p.organization_id)=$9) AND l.target_type IS DISTINCT FROM 'request' AND ($1::bigint IS NULL OR l.sequence<$1) AND ($2::uuid IS NULL OR l.project_id=$2) AND ($3::uuid IS NULL OR l.environment_id=$3) AND ($4::text IS NULL OR strpos(lower(l.actor),lower($4))>0) AND ($5::text IS NULL OR strpos(lower(l.action),lower($5))>0) AND ($6::text IS NULL OR l.outcome=$6) AND ($7::timestamptz IS NULL OR l.timestamp>=$7) AND ($8::timestamptz IS NULL OR l.timestamp<=$8) ORDER BY l.sequence DESC LIMIT 101) a").bind(q.before).bind(q.project).bind(q.environment).bind(q.actor).bind(q.action).bind(q.outcome).bind(q.from).bind(q.until).bind(context.organization_id.as_deref()).fetch_all(&pool).await?;
     let more = rows.len() > 100;
     let rows: Vec<Value> = rows.into_iter().take(100).map(|r| r.0).collect();
     let next = if more {
@@ -118,6 +119,7 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
             .then_some(target)
             .flatten()
     });
+    let operator = request.extensions().get::<crate::auth::Context>().cloned();
     let actor = if route.starts_with("/api/agent/") {
         let hash = request
             .headers()
@@ -137,12 +139,15 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
         };
         node.map(|n| format!("node:{n}"))
             .unwrap_or("unauthenticated node".into())
+    } else if let Some(operator) = &operator {
+        operator.audit_actor()
     } else {
-        "private API caller".into()
+        "unauthenticated operator".into()
     };
+    let organization = operator.and_then(|operator| operator.organization_id);
 
     let insert = |outcome: &'static str, details: Value| {
-        sqlx::query("INSERT INTO audit_log(request_id,actor,action,outcome,target_type,target_id,service_id,environment_id,project_id,details) VALUES($1,$2,$3,$4,'action',$5,$6,$7,$8,$9)").bind(request_id).bind(&actor).bind(action).bind(outcome).bind(target.map(|v|v.to_string())).bind(service).bind(scope.map(|s|s.0)).bind(project).bind(DbJson(details))
+        sqlx::query("INSERT INTO audit_log(request_id,actor,action,outcome,target_type,target_id,service_id,environment_id,project_id,organization_id,details) VALUES($1,$2,$3,$4,'action',$5,$6,$7,$8,$9,$10)").bind(request_id).bind(&actor).bind(action).bind(outcome).bind(target.map(|v|v.to_string())).bind(service).bind(scope.map(|s|s.0)).bind(project).bind(&organization).bind(DbJson(details))
     };
     if insert("requested", json!({})).execute(&pool).await.is_err() {
         return (

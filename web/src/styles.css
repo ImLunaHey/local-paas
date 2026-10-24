@@ -282,6 +282,12 @@ input[type='checkbox'] {
   border-top: 1px solid light-dark(#e4e4e7, #28282c);
   padding: 22px 12px 0;
 }
+.sidebar-status {
+  margin-top: auto;
+}
+.mobile-account-menu {
+  display: none;
+}
 .main-shell {
   margin-left: 212px;
   min-height: 100vh;
@@ -874,6 +880,14 @@ h3 {
   .sidebar-bottom {
     display: none;
   }
+  .mobile-account-menu {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mobile-account-menu > span {
+    margin-top: 0;
+  }
   .nav-item {
     font-size: 11px;
     padding: 8px 10px;
@@ -1171,7 +1185,13 @@ h3 {
     grid-column: 1 / -1;
   }
   .sidebar nav {
-    flex-wrap: wrap;
+    flex: 1;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+  .sidebar nav a {
+    flex: 0 0 auto;
   }
   .topbar .environment-tag {
     display: none;

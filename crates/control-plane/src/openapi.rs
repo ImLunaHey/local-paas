@@ -24,7 +24,7 @@ pub struct ProjectIdentity {
     pub id: Uuid,
     pub name: String,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
     pub id: Uuid,

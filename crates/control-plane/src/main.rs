@@ -1,7 +1,8 @@
 use sqlx::postgres::PgPoolOptions;
 use std::{
-    env,
+    env, fs,
     net::{Ipv4Addr, SocketAddrV4},
+    path::PathBuf,
     time::Duration,
 };
 
@@ -27,6 +28,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         browser_origins.push(public_origin);
     }
+    let auth_secret_file = env::var("BETTER_AUTH_SECRET_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(".local/auth.secret"));
+    let auth_secret = fs::read(&auth_secret_file)
+        .map_err(|_| "BETTER_AUTH_SECRET_FILE is required; run make db or setup-install")?;
+    let auth_base_url = browser_origins
+        .last()
+        .cloned()
+        .ok_or("at least one browser origin is required")?;
+    let auth =
+        control_plane::auth::build(pool.clone(), auth_secret, &auth_base_url, &browser_origins)?;
+    control_plane::auth::check(&auth).await?;
     let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "local development control API listening");
@@ -81,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     axum::serve(
         listener,
-        control_plane::router(pool.clone(), browser_origins),
+        control_plane::authenticated_router(pool.clone(), browser_origins, auth.service),
     )
     .with_graceful_shutdown(shutdown())
     .await?;

@@ -36,6 +36,7 @@ quick-xml = { version = "0.42.0", features = ["serialize"] }
 redis = { version = "1.7.0", default-features = false, features = ["tokio-comp"] }
 utoipa = { version = "5", features = ["uuid", "chrono"] }
 garde = { version = "0.23", features = ["derive"] }
+lucid-auth = { git = "https://github.com/lucid-softworks/auth.git", rev = "d16c16bfa2050e5ac08cf7e18521576f41a214f0", features = ["axum", "postgres"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
