@@ -66,7 +66,7 @@ pub async fn create(
         }
         return Ok(Json(json!({"id":id})));
     }
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     sqlx::query("INSERT INTO shared_volumes(id,operation_id,environment_id,name,size_gib) VALUES($1,$2,$3,$4,$5)").bind(id).bind(input.operation_id).bind(env).bind(input.name).bind(input.size_gib).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(json!({"id":id})))

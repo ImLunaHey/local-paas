@@ -27,10 +27,10 @@ pub async fn enqueue(
     }
     job_spec.domains.clear();
     job_spec.distinct_nodes = false;
-    let child = Uuid::new_v4();
+    let child = Uuid::now_v7();
     sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,job_options,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code,parent_deployment_id) SELECT $1,$1,service_id,revision_id,$2,'job',$3,secret_version,secret_snapshot,database_ports,volume_size_gib,'waiting_for_capacity',id FROM deployments WHERE id=$4")
         .bind(child).bind(Json(job_spec)).bind(Json(options)).bind(parent).execute(&mut **tx).await?;
-    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) SELECT $1,service_id,id,'deployment.pre_deploy_requested' FROM deployments WHERE id=$2").bind(Uuid::new_v4()).bind(parent).execute(&mut **tx).await?;
+    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) SELECT $1,service_id,id,'deployment.pre_deploy_requested' FROM deployments WHERE id=$2").bind(Uuid::now_v7()).bind(parent).execute(&mut **tx).await?;
     Ok(())
 }
 
@@ -107,7 +107,7 @@ pub async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::E
                 .await?;
         }
         for (node, slot) in placements {
-            sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(id).bind(node).bind(slot).execute(&mut **tx).await?;
+            sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::now_v7()).bind(id).bind(node).bind(slot).execute(&mut **tx).await?;
         }
         sqlx::query("UPDATE deployments SET status='preparing',error_code=NULL,deadline=now()+interval '180 seconds' WHERE id=$1").bind(id).execute(&mut **tx).await?;
         event(tx, id, "deployment.pre_deploy_succeeded").await?;
@@ -119,6 +119,6 @@ async fn event(
     id: Uuid,
     kind: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) SELECT $1,service_id,id,$3 FROM deployments WHERE id=$2 ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::new_v4()).bind(id).bind(kind).execute(&mut **tx).await?;
+    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) SELECT $1,service_id,id,$3 FROM deployments WHERE id=$2 ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::now_v7()).bind(id).bind(kind).execute(&mut **tx).await?;
     Ok(())
 }

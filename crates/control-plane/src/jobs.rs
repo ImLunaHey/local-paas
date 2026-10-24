@@ -153,12 +153,12 @@ async fn enqueue(
     } else {
         None
     };
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,job_options,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code) VALUES($1,$2,$3,$4,$5,'job',$6,$7,true,$8,$9,'waiting_for_capacity')").bind(id).bind(operation).bind(service_id).bind(revision).bind(DbJson(spec)).bind(DbJson(options)).bind(secret_version).bind(ports).bind(size).execute(&mut **tx).await?;
     sqlx::query(
         "INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'job.requested')",
     )
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .bind(service_id)
     .bind(operation)
     .execute(&mut **tx)
@@ -261,7 +261,7 @@ pub async fn tick(pool: &PgPool) -> Result<(), ApiError> {
         let elapsed = (now - scheduled).num_seconds();
         let skipped = elapsed / interval;
         let next = scheduled + chrono::Duration::seconds((skipped + 1) * interval);
-        let occurrence = Uuid::new_v4();
+        let occurrence = Uuid::now_v7();
         let (status, run) = if elapsed > 30 {
             ("skipped_missed", None)
         } else if occupied(&mut tx, id).await? {
@@ -347,7 +347,7 @@ pub async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::E
                 .execute(&mut **tx)
                 .await?;
         }
-        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(id).bind(node).bind(slot).execute(&mut **tx).await?;
+        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::now_v7()).bind(id).bind(node).bind(slot).execute(&mut **tx).await?;
         let options = row.get::<DbJson<Options>, _>("job_options").0;
         sqlx::query("UPDATE deployments SET error_code=NULL,deadline=clock_timestamp()+make_interval(secs=>$2) WHERE id=$1").bind(id).bind(f64::from(options.timeout_seconds)).execute(&mut **tx).await?;
     }

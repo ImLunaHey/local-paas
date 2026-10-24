@@ -306,9 +306,9 @@ pub(crate) async fn update_bundle(
     sqlx::query(
         "INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'secrets.updated')",
     )
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .bind(id)
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -454,7 +454,7 @@ pub(crate) async fn database_password(pool: &PgPool, id: Uuid) -> Result<String,
             "database credentials are missing; restore the original OpenBao secret before starting this volume",
         ));
     }
-    let password = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let password = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
     let _ = update(
         State(pool.clone()),
         Path(id),

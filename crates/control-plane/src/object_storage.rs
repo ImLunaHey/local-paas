@@ -68,7 +68,7 @@ pub async fn create(
         }
         bucket
     } else {
-        let bucket = Uuid::new_v4();
+        let bucket = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO storage_buckets(id,operation_id,service_id,name) VALUES($1,$2,$3,$4)",
         )
@@ -158,7 +158,7 @@ pub async fn connect(
                 "restore the missing storage credential before retrying",
             ))?
     } else {
-        format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+        format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple())
     };
     let changes = BTreeMap::from([
         ("AWS_ACCESS_KEY_ID".into(), Some(access.clone())),
@@ -318,12 +318,12 @@ mod live_tests {
         )
         .map_err(|_| "client invalid")
         .unwrap();
-        let other = format!("scope-test-{}", Uuid::new_v4().simple());
+        let other = format!("scope-test-{}", Uuid::now_v7().simple());
         let _ = create(
             State(pool.clone()),
             Path(storage),
             Json(Create {
-                operation_id: Uuid::new_v4(),
+                operation_id: Uuid::now_v7(),
                 name: other.clone(),
             }),
         )
@@ -346,7 +346,7 @@ mod live_tests {
                 .status(),
             reqwest::StatusCode::FORBIDDEN
         );
-        let key = format!("/{bucket}/restart-{}.txt", Uuid::new_v4().simple());
+        let key = format!("/{bucket}/restart-{}.txt", Uuid::now_v7().simple());
         app.put(&key, b"retained object".to_vec())
             .await
             .map_err(|_| "write failed")
@@ -375,7 +375,7 @@ mod live_tests {
             State(pool.clone()),
             Path(storage),
             Json(crate::runtime::DeployRequest {
-                operation_id: Uuid::new_v4(),
+                operation_id: Uuid::now_v7(),
                 revision_id: revision,
             }),
         )

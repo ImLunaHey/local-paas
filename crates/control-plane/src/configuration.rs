@@ -79,14 +79,14 @@ pub(crate) async fn update(
         ));
     }
     let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::new_v4()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     crate::domains::assign_service(&mut tx, id, &request.spec.domains).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::new_v4()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
     let service = sqlx::query_as::<_, Service>("UPDATE services SET environment_id = $2, name = $3, spec = $4, version = version + 1 WHERE id = $1 RETURNING *")
         .bind(id).bind(environment_id).bind(&request.spec.name).bind(DbJson(&request.spec)).fetch_one(&mut *tx).await?;
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind) VALUES ($1, $2, $3, 'service.updated')")
-        .bind(Uuid::new_v4()).bind(id).bind(request.operation_id).execute(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(id).bind(request.operation_id).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO service_updates (operation_id, service_id, expected_version, spec, response) VALUES ($1, $2, $3, $4, $5)")
         .bind(request.operation_id).bind(id).bind(request.expected_version).bind(DbJson(&request.spec)).bind(DbJson(&service)).execute(&mut *tx).await?;
     tx.commit().await?;

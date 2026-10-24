@@ -153,15 +153,9 @@ impl Context {
         if !path.starts_with("/run/user") {
             return Err("backup staging must use /run/user tmpfs");
         }
-        let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes())
-            .map_err(|_| "invalid runtime directory")?;
-        let mut fs = std::mem::MaybeUninit::<libc::statfs>::uninit();
-        // SAFETY: name is NUL terminated and fs points to a correctly sized writable buffer.
-        if unsafe { libc::statfs(name.as_ptr(), fs.as_mut_ptr()) } != 0 {
-            return Err("cannot verify temporary backup filesystem");
-        }
-        // SAFETY: successful statfs initialized fs above.
-        if unsafe { fs.assume_init() }.f_type != libc::TMPFS_MAGIC {
+        let filesystem =
+            rustix::fs::statfs(&path).map_err(|_| "cannot verify temporary backup filesystem")?;
+        if filesystem.f_type != libc::TMPFS_MAGIC {
             return Err("restore staging requires a tmpfs filesystem");
         }
         tempfile::Builder::new()
@@ -403,7 +397,7 @@ async fn audit(pool: &PgPool, id: Uuid, action: &str, outcome: &str, details: Va
     Ok(())
 }
 async fn backup(context: &Context, pool: &PgPool) -> Result<Manifest> {
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     audit(pool, id, "backup.start", "started", json!({})).await?;
     let mut manifest = Manifest {
         version: 1,
@@ -506,7 +500,7 @@ pub async fn cli() -> Result<()> {
                 .open(&context.key)
                 .map_err(|_| "backup key creation failed")?;
             file.write_all(
-                format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple()).as_bytes(),
+                format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple()).as_bytes(),
             )
             .map_err(|_| "backup key write failed")?;
             file.sync_all().map_err(|_| "backup key sync failed")?;

@@ -43,7 +43,7 @@ pub async fn list(
     Ok(Json(json!({"entries":rows,"next_cursor":next})))
 }
 pub async fn record_action(State(pool): State<PgPool>, request: Request, next: Next) -> Response {
-    let request_id = Uuid::new_v4();
+    let request_id = Uuid::now_v7();
     let method = request.method().to_string();
     let route = request
         .extensions()

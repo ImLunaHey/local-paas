@@ -394,17 +394,17 @@ async fn create_service(
         return Ok((StatusCode::OK, Json(existing)));
     }
     let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::new_v4()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::new_v4()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
     let service = sqlx::query_as::<_, Service>("INSERT INTO services (id, environment_id, name, kind, operation_id, spec, registered_spec) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, operation_id, spec, created_at, version")
-        .bind(Uuid::new_v4()).bind(environment_id).bind(&request.spec.name).bind(request.spec.kind())
+        .bind(Uuid::now_v7()).bind(environment_id).bind(&request.spec.name).bind(request.spec.kind())
         .bind(request.operation_id).bind(DbJson(&request.spec)).fetch_one(&mut *tx).await?;
     domains::assign_service(&mut tx, service.id, &request.spec.domains).await?;
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind) VALUES ($1, $2, $3, 'service.registered')")
-        .bind(Uuid::new_v4()).bind(service.id).bind(request.operation_id).execute(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(service.id).bind(request.operation_id).execute(&mut *tx).await?;
     if request.build_on_create && service.spec.kind() != "celld-service" {
-        let build_id = Uuid::new_v4();
+        let build_id = Uuid::now_v7();
         let build_request = builds::CreateBuild {
             operation_id: request.operation_id,
             no_cache: false,
@@ -416,7 +416,7 @@ async fn create_service(
             .bind(build_id).bind(service.id).bind(request.operation_id).bind(&service.spec)
             .bind(&service.spec.source.commit).bind(DbJson(&build_request)).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO events(id,service_id,operation_id,kind,build_id) VALUES($1,$2,$3,'build.queued',$4)")
-            .bind(Uuid::new_v4()).bind(service.id).bind(request.operation_id).bind(build_id).execute(&mut *tx).await?;
+            .bind(Uuid::now_v7()).bind(service.id).bind(request.operation_id).bind(build_id).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(service)))

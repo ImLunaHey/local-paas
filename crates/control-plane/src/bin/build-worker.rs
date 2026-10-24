@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !acquired {
         return Err("another build worker is already active".into());
     }
-    let worker_id = Uuid::new_v4();
+    let worker_id = Uuid::now_v7();
     let work = async {
         loop {
             sqlx::query("SELECT 1").execute(&mut lock).await?;

@@ -127,7 +127,7 @@ pub(crate) async fn create(
     }
     let commit = spec.source.commit.clone();
     let build = sqlx::query_as::<_, Build>("INSERT INTO builds (id, service_id, operation_id, spec, no_cache, resolved_commit, request_json) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *")
-        .bind(Uuid::new_v4()).bind(service_id).bind(request.operation_id).bind(DbJson(spec)).bind(request.no_cache).bind(commit).bind(request_json)
+        .bind(Uuid::now_v7()).bind(service_id).bind(request.operation_id).bind(DbJson(spec)).bind(request.no_cache).bind(commit).bind(request_json)
         .fetch_one(&mut *tx).await?;
     event(&mut tx, &build, "build.queued").await?;
     tx.commit().await?;
@@ -271,7 +271,7 @@ async fn event(
     kind: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind, build_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (operation_id,kind) DO NOTHING")
-        .bind(Uuid::new_v4()).bind(build.service_id).bind(build.operation_id).bind(kind).bind(build.id).execute(&mut **tx).await?;
+        .bind(Uuid::now_v7()).bind(build.service_id).bind(build.operation_id).bind(kind).bind(build.id).execute(&mut **tx).await?;
     Ok(())
 }
 
@@ -279,7 +279,7 @@ async fn event(
 pub async fn claim(pool: &PgPool) -> Result<Option<Build>, sqlx::Error> {
     let mut tx = pool.begin().await?;
     let build: Option<Build> = sqlx::query_as("UPDATE builds SET status='running', started_at=now(), claim_token=$1, lease_until=now()+interval '30 seconds' WHERE id=(SELECT id FROM builds WHERE status='queued' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *")
-        .bind(Uuid::new_v4()).fetch_optional(&mut *tx).await?;
+        .bind(Uuid::now_v7()).fetch_optional(&mut *tx).await?;
     if let Some(build) = &build {
         event(&mut tx, build, "build.started").await?;
     }
@@ -314,7 +314,7 @@ pub async fn record_resolution(
     if updated {
         // Idempotent resolution retries retain one audit event.
         sqlx::query("INSERT INTO events (id,service_id,operation_id,kind,build_id) VALUES ($1,$2,$3,'build.source_resolved',$4) ON CONFLICT (operation_id,kind) DO NOTHING")
-            .bind(Uuid::new_v4()).bind(build.service_id).bind(build.operation_id).bind(build.id).execute(&mut *tx).await?;
+            .bind(Uuid::now_v7()).bind(build.service_id).bind(build.operation_id).bind(build.id).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(updated)
@@ -331,7 +331,7 @@ pub async fn record_plan(
         .bind(build.id).bind(build.claim_token).bind(DbJson(plan)).execute(&mut *tx).await?.rows_affected() == 1;
     if updated {
         sqlx::query("INSERT INTO events (id,service_id,operation_id,kind,build_id) VALUES ($1,$2,$3,'build.planned',$4) ON CONFLICT (operation_id,kind) DO NOTHING")
-            .bind(Uuid::new_v4()).bind(build.service_id).bind(build.operation_id).bind(build.id).execute(&mut *tx).await?;
+            .bind(Uuid::now_v7()).bind(build.service_id).bind(build.operation_id).bind(build.id).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(updated)
@@ -407,7 +407,7 @@ pub async fn finish(
             pinned.source.pin(commit);
         }
         sqlx::query("INSERT INTO revisions (id,service_id,build_id,spec,image_repository,image_digest) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(Uuid::new_v4()).bind(build.service_id).bind(build.id).bind(DbJson(pinned)).bind(repository).bind(String::from(digest)).execute(&mut *tx).await?;
+            .bind(Uuid::now_v7()).bind(build.service_id).bind(build.id).bind(DbJson(pinned)).bind(repository).bind(String::from(digest)).execute(&mut *tx).await?;
     }
     sqlx::query(
         "UPDATE builds SET status=$2,error_code=$3,finished_at=now(),lease_until=NULL WHERE id=$1",

@@ -103,7 +103,7 @@ async fn transfer(
     path: String,
     action: FileAction,
 ) -> Result<FileResult, ApiError> {
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     let (tx, rx) = oneshot::channel();
     let task = FileTask {
         id,

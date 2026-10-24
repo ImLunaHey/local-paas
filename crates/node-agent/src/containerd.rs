@@ -25,7 +25,7 @@ struct Record {
     image: ImageDigest,
 }
 fn failure() -> RuntimeError {
-    RuntimeError::Failed(Uuid::new_v4())
+    RuntimeError::Failed(Uuid::now_v7())
 }
 impl Containerd {
     pub fn new(root: PathBuf, node: Uuid) -> Self {
@@ -657,8 +657,8 @@ mod tests {
     #[tokio::test]
     async fn durable_generation_fencing_survives_reopening_the_adapter() {
         let dir = tempfile::tempdir().unwrap();
-        let node = Uuid::new_v4();
-        let id = Uuid::new_v4();
+        let node = Uuid::now_v7();
+        let id = Uuid::now_v7();
         let runtime = Containerd::new(dir.path().into(), node);
         runtime
             .save(
@@ -673,7 +673,7 @@ mod tests {
             .unwrap();
         let reopened = Containerd::new(dir.path().into(), node);
         let mut op = Operation {
-            id: Uuid::new_v4(),
+            id: Uuid::now_v7(),
             instance_id: id,
             generation: 6,
             controller_epoch: 2,

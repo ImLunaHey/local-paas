@@ -147,9 +147,9 @@ pub(crate) async fn update(
     sqlx::query(
         "INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'networking.updated')",
     )
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .bind(id)
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;

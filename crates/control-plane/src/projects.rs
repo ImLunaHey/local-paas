@@ -33,12 +33,12 @@ pub async fn create(
         ));
     }
     let mut tx = pool.begin().await?;
-    let id:Uuid=sqlx::query_scalar("INSERT INTO projects(id,name) VALUES($1,$2) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id").bind(Uuid::new_v4()).bind(&input.name).fetch_one(&mut *tx).await?;
+    let id:Uuid=sqlx::query_scalar("INSERT INTO projects(id,name) VALUES($1,$2) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id").bind(Uuid::now_v7()).bind(&input.name).fetch_one(&mut *tx).await?;
     for name in ["production", "development"] {
         sqlx::query(
             "INSERT INTO environments(id,project_id,name) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
         )
-        .bind(Uuid::new_v4())
+        .bind(Uuid::now_v7())
         .bind(id)
         .bind(name)
         .execute(&mut *tx)

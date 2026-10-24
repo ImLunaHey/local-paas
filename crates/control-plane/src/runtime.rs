@@ -144,16 +144,16 @@ pub(crate) async fn deploy(
                 "a job is still queued, running or awaiting cleanup",
             ));
         }
-        let deployment = Uuid::new_v4();
+        let deployment = Uuid::now_v7();
         sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code) VALUES($1,$2,$3,$4,$5,'releasing',$6,true,$7,$8,'pre_deploy_running')")
             .bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(&database_ports).bind(shared.map(|v| v.1)).execute(&mut *tx).await?;
         crate::releases::enqueue(&mut tx, deployment, spec, options).await?;
-        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::new_v4()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
         tx.commit().await?;
         return Ok(Json(json!({"id":deployment})));
     }
     if spec.workload.is_worker() {
-        let deployment = Uuid::new_v4();
+        let deployment = Uuid::now_v7();
         sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code) VALUES($1,$2,$3,$4,$5,'waiting',$6,true,$7,$8,'waiting_for_shutdown')").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(&database_ports).bind(shared.map(|v| v.1)).execute(&mut *tx).await?;
         sqlx::query(
             "UPDATE deployments SET status='superseded' WHERE service_id=$1 AND status='active'",
@@ -162,7 +162,7 @@ pub(crate) async fn deploy(
         .execute(&mut *tx)
         .await?;
         sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id IN(SELECT id FROM deployments WHERE service_id=$1 AND job_options IS NULL) AND desired_state<>'stopped'").bind(service_id).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::new_v4()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
         tx.commit().await?;
         return Ok(Json(json!({"id":deployment})));
     }
@@ -199,12 +199,12 @@ pub(crate) async fn deploy(
             .execute(&mut *tx)
             .await?;
     }
-    let deployment = Uuid::new_v4();
+    let deployment = Uuid::now_v7();
     sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib) VALUES($1,$2,$3,$4,$5,'preparing',$6,true,$7,$8)").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(database_ports).bind(shared.map(|v| v.1)).execute(&mut *tx).await?;
     for (node, slot) in placements {
-        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(deployment).bind(node).bind(slot).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::now_v7()).bind(deployment).bind(node).bind(slot).execute(&mut *tx).await?;
     }
-    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::new_v4()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(json!({"id":deployment})))
 }
@@ -399,9 +399,9 @@ async fn reconcile_workers(
                 .execute(&mut **tx)
                 .await?;
         }
-        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(id).bind(placements[0].0).bind(placements[0].1).execute(&mut **tx).await?;
+        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::now_v7()).bind(id).bind(placements[0].0).bind(placements[0].1).execute(&mut **tx).await?;
         sqlx::query("UPDATE deployments SET status='preparing',error_code=NULL,deadline=now()+interval '180 seconds' WHERE id=$1").bind(id).execute(&mut **tx).await?;
-        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.assigned')").bind(Uuid::new_v4()).bind(service).bind(id).execute(&mut **tx).await?;
+        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.assigned')").bind(Uuid::now_v7()).bind(service).bind(id).execute(&mut **tx).await?;
     }
     Ok(())
 }
@@ -431,7 +431,7 @@ pub(crate) async fn stop(
         .await?;
     sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id=$1 AND desired_state<>'stopped'").bind(id).execute(&mut *tx).await?;
     crate::releases::cancel(&mut tx, id).await?;
-    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.stopped') ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::new_v4()).bind(row.get::<Uuid,_>("service_id")).bind(id).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.stopped') ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::now_v7()).bind(row.get::<Uuid,_>("service_id")).bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(json!({"id":id})))
 }
@@ -472,7 +472,7 @@ pub async fn reconcile(pool: &PgPool) -> Result<(), sqlx::Error> {
                 sqlx::query("UPDATE deployments SET status='failed',error_code='readiness_failed' WHERE id=$1").bind(id).execute(&mut *tx).await?;
                 sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id=$1 AND desired_state='running'").bind(id).execute(&mut *tx).await?;
             }
-            sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,$4) ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::new_v4()).bind(service).bind(id).bind(if failed {"deployment.failed"} else {"deployment.active"}).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,$4) ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::now_v7()).bind(service).bind(id).bind(if failed {"deployment.failed"} else {"deployment.active"}).execute(&mut *tx).await?;
         }
     }
     crate::nodes::reconcile(&mut tx).await?;

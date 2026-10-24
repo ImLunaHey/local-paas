@@ -150,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn reservation_and_result_survive_restarts_and_corruption_fails_closed() {
         let dir = tempfile::tempdir().unwrap();
-        let id = Uuid::new_v4();
+        let id = Uuid::now_v7();
         assert!(Journal::load(dir.path(), id).await.unwrap().is_none());
         let mut journal = Journal {
             deadline_unix_ms: 12345,

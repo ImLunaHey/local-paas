@@ -293,8 +293,8 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
         let Some((node, slot)) = placements.first() else {
             continue;
         };
-        let new = Uuid::new_v4();
-        let id = Uuid::new_v4();
+        let new = Uuid::now_v7();
+        let id = Uuid::now_v7();
         sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state,routing_enabled) VALUES($1,$2,$3,$4,'running',false)").bind(new).bind(deployment).bind(node).bind(slot).execute(&mut **tx).await?;
         let reason = if r.get::<bool, _>("draining") {
             "drain"

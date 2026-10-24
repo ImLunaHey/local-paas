@@ -740,8 +740,8 @@ mod tests {
             *context = ".".into();
         }
         let request = crate::Request {
-            build_id: uuid::Uuid::new_v4(),
-            service_id: uuid::Uuid::new_v4(),
+            build_id: uuid::Uuid::now_v7(),
+            service_id: uuid::Uuid::now_v7(),
             spec,
             no_cache: true,
             local_context: None,
@@ -820,8 +820,8 @@ mod tests {
             dockerfile.push_str("RUN [\"/bin/sh\",\"-c\",\"npm run start && test \\\"$(cat custom-build)\\\" = override\"]\n");
         }
         let request = crate::Request {
-            build_id: uuid::Uuid::new_v4(),
-            service_id: uuid::Uuid::new_v4(),
+            build_id: uuid::Uuid::now_v7(),
+            service_id: uuid::Uuid::now_v7(),
             spec: serde_json::from_str(include_str!("../../../examples/build-canary.json"))
                 .unwrap(),
             no_cache: true,

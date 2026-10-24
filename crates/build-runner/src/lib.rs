@@ -547,8 +547,8 @@ mod tests {
     }
     fn request() -> Request {
         Request {
-            build_id: Uuid::new_v4(),
-            service_id: Uuid::new_v4(),
+            build_id: Uuid::now_v7(),
+            service_id: Uuid::now_v7(),
             spec: serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap(),
             no_cache: true,
             local_context: None,

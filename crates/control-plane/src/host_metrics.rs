@@ -177,15 +177,9 @@ fn collect(previous: &Counters, elapsed: f64) -> (Sample, Counters) {
     });
     let (rx, tx) = rate(network, previous.network, elapsed);
     let (read, write) = rate(disk, previous.disk, elapsed);
-    let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
-    // SAFETY: constant NUL-terminated path and writable statvfs-sized output.
-    let space = if unsafe { libc::statvfs(c"/".as_ptr(), stat.as_mut_ptr()) } == 0 {
-        // SAFETY: successful statvfs initialized the output.
-        let stat = unsafe { stat.assume_init() };
-        Some((stat.f_blocks * stat.f_frsize, stat.f_bavail * stat.f_frsize))
-    } else {
-        None
-    };
+    let space = rustix::fs::statvfs("/")
+        .ok()
+        .map(|stat| (stat.f_blocks * stat.f_frsize, stat.f_bavail * stat.f_frsize));
     let first = |path: &str| {
         fs::read_to_string(path)
             .ok()?

@@ -22,3 +22,6 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true
