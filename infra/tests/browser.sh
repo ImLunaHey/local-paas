@@ -37,4 +37,4 @@ for i in $(seq 1 100); do
   sleep 0.1
 done
 curl -sf "$API_TARGET/api/health" > /dev/null
-pnpm --dir web test:e2e
+pnpm --dir web test:e2e "$@"
