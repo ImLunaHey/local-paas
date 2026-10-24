@@ -37,6 +37,11 @@ jobs:
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
       - run: nix build .#quality-tools --out-link /tmp/quality-tools
       - run: echo /tmp/quality-tools/bin >> "$GITHUB_PATH"
+      - name: Prepare ephemeral authentication secret
+        run: |
+          umask 077
+          openssl rand -hex 32 > "$RUNNER_TEMP/better-auth.secret"
+          echo "BETTER_AUTH_SECRET_FILE=$RUNNER_TEMP/better-auth.secret" >> "$GITHUB_ENV"
       - run: cargo run -p control-plane --bin platform-migrate
       - run: cargo sqlx prepare --check --workspace -- --all-targets
         env:
