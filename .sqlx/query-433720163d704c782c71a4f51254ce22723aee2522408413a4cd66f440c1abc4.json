@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM services WHERE ($1::text IS NULL OR spec->>'project'=$1) AND ($2::text IS NULL OR spec->>'environment'=$2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "433720163d704c782c71a4f51254ce22723aee2522408413a4cd66f440c1abc4"
+}

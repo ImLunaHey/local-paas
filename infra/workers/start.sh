@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Explicit development provisioning; no Lake-wide rebuild or unrelated service changes.
+# Explicit development provisioning; no host-wide rebuild or unrelated service changes.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 worker_index=${1:?usage: start.sh 1|2|3}

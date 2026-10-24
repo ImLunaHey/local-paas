@@ -1,26 +1,26 @@
 import { PreDeployResult, type ReleaseJob } from './release-job'
 import { Diagnostic } from './diagnostic'
-import { Button } from './ui'
+import { Button } from './components/button'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { api } from './api'
+import { api } from './api-client'
 interface Deployment {
-  pre_deploy?: ReleaseJob | null
+  preDeploy?: ReleaseJob | null
   id: string
-  revision_id: string
-  created_at: string
+  revisionId: string
+  createdAt: string
   status: string
   instances: {
     id: string
     node: string
     state: string
     diagnostic: string | null
-    has_logs: boolean
+    hasLogs: boolean
   }[]
 }
 interface Page {
   deployments: Deployment[]
-  next_cursor: string | null
+  nextCursor: string | null
 }
 export function DeploymentHistory({ serviceId }: { serviceId: string }) {
   const history = useInfiniteQuery({
@@ -30,7 +30,7 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
       api<Page>(
         '/services/' + serviceId + '/deployments' + (pageParam ? '?before=' + pageParam : ''),
       ),
-    getNextPageParam: (page) => page.next_cursor ?? undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
     refetchInterval: 10000,
   })
   return (
@@ -57,18 +57,18 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
                 {d.status === 'releasing' ? 'Pre-deploy' : d.status}
               </span>
               <code>{d.id.slice(0, 8)}</code>
-              <time dateTime={d.created_at}>{new Date(d.created_at).toLocaleString()}</time>
+              <time dateTime={d.createdAt}>{new Date(d.createdAt).toLocaleString()}</time>
             </summary>
-            {d.pre_deploy && (
+            {d.preDeploy && (
               <div className="px-4 py-3">
-                <PreDeployResult job={d.pre_deploy} serviceId={serviceId} />
+                <PreDeployResult job={d.preDeploy} serviceId={serviceId} />
               </div>
             )}
             {d.instances.map((i) => (
               <div
                 className="border-t border-zinc-800 px-4 py-3"
                 key={i.id}
-                data-has-logs={i.has_logs}
+                data-has-logs={i.hasLogs}
                 data-instance-history
               >
                 <div className="flex min-w-0 items-center justify-between gap-3">

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Explicit provisioning entry point. Does not rebuild Lake or touch its services.
+# Explicit provisioning entry point. Does not reconfigure the host or touch its services.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 builder_tools=$(readlink -f .local/builder-tools)

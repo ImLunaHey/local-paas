@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schemaVersion": 1,
   "project": "sandbox",
   "environment": "development",
   "name": "build-canary",
@@ -7,8 +7,8 @@
     "repository": "https://github.com/docker-library/hello-world.git",
     "commit": "522bcd2faf422c60b9d20e64d7cd6d56600aec97"
   },
-  "resources": { "cpu_millis": 500, "memory_mib": 128 },
-  "distinct_nodes": true,
+  "resources": { "cpuMillis": 500, "memoryMib": 128 },
+  "distinctNodes": true,
   "domains": [],
   "secrets": [],
   "workload": {
@@ -17,6 +17,6 @@
     "context": "amd64",
     "replicas": 1,
     "port": 8080,
-    "readiness": { "path": "/", "interval_seconds": 10, "stabilization_seconds": 30 }
+    "readiness": { "path": "/", "intervalSeconds": 10, "stabilizationSeconds": 30 }
   }
 }

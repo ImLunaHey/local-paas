@@ -1,19 +1,26 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Button, Field, Input, Select } from './ui'
-import { api, type Service } from './api'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 interface Target {
   id: string
   name: string
-  ready_instances: number
+  readyInstances: number
 }
 export function PrivateNetworking({ service }: { service: Service }) {
   const initial =
     service.spec.workload.kind === 'oci-service'
-      ? (service.spec.workload.private_connections ?? [])
+      ? (service.spec.workload.privateConnections ?? [])
       : []
-  const [connections, setConnections] = useState(initial)
+  const [connections, setConnections] = useState(() =>
+    initial.map((connection) => ({ ...connection, rowId: crypto.randomUUID() })),
+  )
+  const configuration = connections.map(({ serviceId, env }) => ({ serviceId, env }))
   const client = useQueryClient()
   const operation = useRef<{ value: string; id: string } | null>(null)
   const targets = useQuery({
@@ -26,7 +33,7 @@ export function PrivateNetworking({ service }: { service: Service }) {
       if (service.spec.workload.kind !== 'oci-service') return
       const spec = {
         ...service.spec,
-        workload: { ...service.spec.workload, private_connections: connections },
+        workload: { ...service.spec.workload, privateConnections: configuration },
       }
       const value = JSON.stringify(spec)
       if (operation.current?.value !== value) operation.current = { value, id: crypto.randomUUID() }
@@ -34,8 +41,8 @@ export function PrivateNetworking({ service }: { service: Service }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          operation_id: operation.current.id,
-          expected_version: service.version,
+          operationId: operation.current.id,
+          expectedVersion: service.version,
           spec,
         }),
       })
@@ -62,31 +69,29 @@ export function PrivateNetworking({ service }: { service: Service }) {
         }}
       >
         {connections.map((connection, index) => {
-          const target = targets.data?.items.find((t) => t.id === connection.service_id)
+          const target = targets.data?.items.find((t) => t.id === connection.serviceId)
           return (
-            <div key={index} className="rounded-md border border-zinc-800 p-4 space-y-3">
+            <div key={connection.rowId} className="rounded-md border border-zinc-800 p-4 space-y-3">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={`Destination service ${index + 1}`}>
                   <Select
                     required
-                    value={connection.service_id}
+                    value={connection.serviceId}
                     onChange={(e) =>
                       setConnections((rows) =>
-                        rows.map((r, i) =>
-                          i === index ? { ...r, service_id: e.target.value } : r,
-                        ),
+                        rows.map((r, i) => (i === index ? { ...r, serviceId: e.target.value } : r)),
                       )
                     }
                   >
                     <option value="">Choose a service</option>
-                    {connection.service_id && !target && (
-                      <option value={connection.service_id}>
-                        Unavailable destination · {connection.service_id.slice(0, 8)}
+                    {connection.serviceId && !target && (
+                      <option value={connection.serviceId}>
+                        Unavailable destination · {connection.serviceId.slice(0, 8)}
                       </option>
                     )}
                     {targets.data?.items.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.name} · {t.ready_instances} ready
+                        {t.name} · {t.readyInstances} ready
                       </option>
                     ))}
                   </Select>
@@ -109,9 +114,9 @@ export function PrivateNetworking({ service }: { service: Service }) {
                   />
                 </Field>
               </div>
-              {connection.service_id && (
+              {connection.serviceId && (
                 <code className="block text-[11px] text-muted break-all">
-                  http://svc-{connection.service_id.replaceAll('-', '')}.internal:{24000 + index}
+                  http://svc-{connection.serviceId.replaceAll('-', '')}.internal:{24000 + index}
                 </code>
               )}
               <div className="flex flex-wrap items-center gap-3">
@@ -140,14 +145,19 @@ export function PrivateNetworking({ service }: { service: Service }) {
         <div className="flex flex-wrap gap-3">
           <Button
             disabled={connections.length >= 16}
-            onClick={() => setConnections((rows) => [...rows, { service_id: '', env: '' }])}
+            onClick={() =>
+              setConnections((rows) => [
+                ...rows,
+                { rowId: crypto.randomUUID(), serviceId: '', env: '' },
+              ])
+            }
           >
             Add connection
           </Button>
           <Button
             variant="primary"
             type="submit"
-            disabled={save.isPending || JSON.stringify(initial) === JSON.stringify(connections)}
+            disabled={save.isPending || JSON.stringify(initial) === JSON.stringify(configuration)}
           >
             Save connections
           </Button>

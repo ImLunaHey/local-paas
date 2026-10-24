@@ -85,7 +85,7 @@ mod tests {
     async fn reservations_survive_restarts_and_exhaust_without_extra_starts() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
-        let id = Uuid::new_v4();
+        let id = Uuid::now_v7();
         let mut now = 1_000_000;
         for delay in [5_000, 10_000, 20_000, 40_000, 60_000] {
             let mut state = Recovery::load(root, id).await.unwrap();
@@ -125,7 +125,7 @@ mod tests {
     async fn interrupted_start_consumes_reservation_and_clock_reversal_is_bounded() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
-        let id = Uuid::new_v4();
+        let id = Uuid::now_v7();
         let mut state = Recovery::load(root, id).await.unwrap();
         state.before_start(root, id, 1_000_000).await.unwrap();
         assert_eq!(state.before_start(root, id, 0).await.unwrap(), Gate::Wait);

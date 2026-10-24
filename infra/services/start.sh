@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dedicated development services; never connects to Lake's existing ClickHouse.
+# Dedicated development services; never connects to other ClickHouse instances.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 umask 077

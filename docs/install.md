@@ -165,11 +165,16 @@ extended downtime. Until unsealed, secret operations/new secret-bearing workload
 can fail. Recovery shares are colocated for this alpha; automatic unsealing and
 independent recovery custody are not claimed.
 
-Before upgrades, take and verify a backup. Stop the API/build worker, update the
-checkout and enter the new `nix develop`, run `cargo build --workspace --bins` and
-`npm ci --prefix web && npm run build --prefix web`, then start the API/build worker
-and restart ingress. Embedded PostgreSQL migrations run on startup. **An old binary
-is not a database migration rollback**; restore the matching backup if needed.
+Read [contract resets](upgrades.md) first: the camelCase release requires fresh
+platform and agent state. The following applies only to compatible later updates.
+
+Before an upgrade, take and verify a backup. Stop the API/build worker, update the
+checkout and enter the new `nix develop`. Run `cargo build --workspace --bins` and
+`pnpm install --frozen-lockfile && pnpm --dir web build`. Set `DATABASE_URL` for the
+intended installation and run `target/debug/platform-migrate` explicitly before
+starting the API/build worker and restarting ingress. Application startup only
+checks migration versions/checksums. **An old binary is not a migration rollback**;
+restore the matching complete backup if needed.
 Refresh the pinned service tools with `nix build path:./infra/services -o
 .local/service-tools` before restarting services/backup jobs that use them.
 Do not rerun the fresh installer to upgrade an existing installation.
@@ -230,7 +235,7 @@ Verified on 2026-10-24 using a fresh Ubuntu 24.04 x86-64 cloud image in a tempor
 VM with nested KVM, 20 GiB RAM and a 160 GiB virtual disk:
 
 - Installed Nix and provisioned the entire stack from a source-only checkout.
-  No Lake database, credentials, installed tools or VM state were copied.
+  No pre-existing database, credentials, installed tools or VM state were copied.
 - All three authenticated workers, isolated builder/registry, API, static dashboard,
   independent ingress, PostgreSQL, dedicated ClickHouse and OpenBao became ready.
 - Uploaded a disposable HTTP Dockerfile, built and recorded an immutable image,
@@ -238,7 +243,7 @@ VM with nested KVM, 20 GiB RAM and a 160 GiB virtual disk:
 - Verified the expected application response through independent ingress.
 - Rebooted the Ubuntu host, confirmed persistent services/VMs restarted, explicitly
   unsealed OpenBao, and verified the same deployment recovered and served traffic.
-- Shut down the temporary qualification host afterward; existing Lake services
+- Shut down the temporary qualification host afterward; other installations
   were not used for this deployment.
 
 Local x86-64 validation also includes the pinned Rust/frontend checks, disposable
@@ -248,6 +253,5 @@ Pinned Node/Bun/PostgreSQL/Redis/RustFS image indexes include ARM64.
 
 CI is configured for native tests on Ubuntu 22.04/24.04 x86-64 and Ubuntu 24.04
 ARM64. **A complete native ARM64 installation/reboot drill has not been run here.**
-CI has not run remotely before repository publication, and does not boot the four-VM
-stack. Other Linux distributions and mixed hardware require their own qualification;
+CI does not boot the four-VM stack. Other Linux distributions and mixed hardware require their own qualification;
 this Ubuntu test does not establish production HA or a general security audit.

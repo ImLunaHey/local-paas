@@ -8,7 +8,7 @@
 }
 
 {$PLATFORM_DOMAINS} {
-	reverse_proxy https://{$PLATFORM_LAKE_NETBIRD_ADDRESS}:18444 {
+	reverse_proxy https://{$PLATFORM_GATEWAY_NETBIRD_ADDRESS}:18444 {
 		header_up Host {http.request.host}
 		flush_interval -1
 		stream_close_delay 5m

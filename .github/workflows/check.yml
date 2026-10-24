@@ -1,5 +1,8 @@
 name: Check
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 permissions:
   contents: read
 jobs:
@@ -24,22 +27,52 @@ jobs:
     env:
       DATABASE_URL: postgres://platform_test:local_test_only@localhost:5432/platform_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: 1.95.0
           components: rustfmt, clippy
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
-        working-directory: web
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - run: pnpm install --frozen-lockfile
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
+      - run: nix build .#quality-tools --out-link /tmp/quality-tools
+      - run: echo /tmp/quality-tools/bin >> "$GITHUB_PATH"
+      - run: cargo run -p control-plane --bin platform-migrate
+      - run: cargo sqlx prepare --check --workspace -- --all-targets
+        env:
+          SQLX_OFFLINE: "false"
       - run: make check
+      - run: cargo nextest run --workspace --all-features
+      - run: cargo test --workspace --doc --all-features
+      - run: pnpm --dir web test:coverage
       - run: make test-db
+      - run: cargo run -p control-plane --bin export-openapi > /tmp/openapi.json
+      - run: diff -u docs/api/openapi.json /tmp/openapi.json
+      - run: pnpm --dir web generate:api
+      - run: git diff --exit-code -- web/src/generated
       - run: cargo build -p control-plane
-      - run: ./target/debug/control-plane > /tmp/local-paas-api.log 2>&1 &
-      - run: npx playwright install --with-deps chromium
+      - run: nix build .#browser-test-tools --out-link /tmp/browser-test-tools
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
         working-directory: web
-      - run: npm run test:e2e
-        working-directory: web
+      - run: PATH="/tmp/browser-test-tools/bin:$PATH" bash infra/tests/browser.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: browser-failures-${{ matrix.os }}
+          path: web/test-results/
+          retention-days: 7
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
+      - run: nix build .#quality-tools --out-link /tmp/quality-tools
+      - run: echo /tmp/quality-tools/bin >> "$GITHUB_PATH"
+      - run: pnpm install --frozen-lockfile
+      - run: cargo audit
+      - run: cargo deny check
+      - run: pnpm audit --audit-level high
+      - run: gitleaks git --redact --no-banner

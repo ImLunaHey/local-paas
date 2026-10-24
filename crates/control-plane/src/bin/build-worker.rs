@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt().with_env_filter("info").init();
+    platform_telemetry::init()?;
     let config = Config::from_env()?;
     let database_url = env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
     let pool = PgPoolOptions::new()
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&database_url)
         .await
         .map_err(|_| "cannot connect to PostgreSQL")?;
-    control_plane::migrate(&pool)
+    control_plane::check_migrations(&pool)
         .await
         .map_err(|_| "database migration failed")?;
     // One active build worker. This session lock is never returned to a pool.
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !acquired {
         return Err("another build worker is already active".into());
     }
-    let worker_id = Uuid::new_v4();
+    let worker_id = Uuid::now_v7();
     let work = async {
         loop {
             sqlx::query("SELECT 1").execute(&mut lock).await?;

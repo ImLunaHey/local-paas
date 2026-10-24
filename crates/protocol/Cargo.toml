@@ -6,6 +6,12 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-platform-domain = { path = "../domain" }
+platform-domain = { version = "0.1.0", path = "../domain" }
 serde.workspace = true
 uuid.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

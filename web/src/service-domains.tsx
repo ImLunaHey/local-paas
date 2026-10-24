@@ -1,32 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { api } from './api'
-import { Button, Field, Input, Select } from './ui'
-interface Domain {
-  hostname: string
-  service_id: string | null
-  service: string | null
-}
+import { domainsQuery } from './domains-query'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
 export function ServiceDomains({
   serviceId,
   onChange,
-  onReadyChange,
 }: {
   serviceId?: string
   onChange: () => void
-  onReadyChange: (ready: boolean) => void
 }) {
-  const query = useQuery({
-    queryKey: ['domains'],
-    queryFn: () => api<{ items: Domain[] }>('/domains'),
-  })
+  const query = useQuery(domainsQuery)
   const [selection, setSelection] = useState<string[]>()
-  useEffect(() => onReadyChange(query.isSuccess), [query.isSuccess, onReadyChange])
   const selected =
     selection ??
-    query.data?.items.filter((d) => d.service_id === serviceId).map((d) => d.hostname) ??
+    query.data?.items.filter((d) => d.serviceId === serviceId).map((d) => d.hostname) ??
     []
+  const selectedNames = new Set(selected)
   return (
     <div className="space-y-3">
       <Field
@@ -47,15 +40,15 @@ export function ServiceDomains({
             {query.isPending ? 'Loading domains…' : 'Select a domain (optional)'}
           </option>
           {query.data?.items
-            .filter((d) => !selected.includes(d.hostname))
+            .filter((d) => !selectedNames.has(d.hostname))
             .map((d) => (
               <option
                 key={d.hostname}
                 value={d.hostname}
-                disabled={!!d.service_id && d.service_id !== serviceId}
+                disabled={!!d.serviceId && d.serviceId !== serviceId}
               >
                 {d.hostname}
-                {d.service_id && d.service_id !== serviceId ? ` · assigned to ${d.service}` : ''}
+                {d.serviceId && d.serviceId !== serviceId ? ` · assigned to ${d.service}` : ''}
               </option>
             ))}
         </Select>

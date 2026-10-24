@@ -1,4 +1,4 @@
-//! Explicit Lake-only destructive fault drill, against the disposable Rust recovery fixture.
+//! Explicit three-worker destructive fault drill, against the disposable Rust recovery fixture.
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 use std::{process::Stdio, time::Duration};
@@ -114,7 +114,7 @@ async fn drain_node_loss_partition_and_controller_outage() {
         &client,
         reqwest::Method::PUT,
         &format!("/services/{service}/relocation"),
-        json!({"operation_id":Uuid::new_v4(),"enabled":true}),
+        json!({"operationId":Uuid::new_v4(),"enabled":true}),
     )
     .await
     .unwrap();
@@ -122,7 +122,7 @@ async fn drain_node_loss_partition_and_controller_outage() {
         &client,
         reqwest::Method::POST,
         &format!("/services/{service}/deployments"),
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
     )
     .await
     .unwrap();
@@ -135,7 +135,7 @@ async fn drain_node_loss_partition_and_controller_outage() {
         let original=sqlx::query("SELECT i.id,n.name FROM instances i JOIN nodes n ON n.id=i.node_id WHERE deployment_id=$1 AND desired_state='running'").bind(deployment).fetch_one(&pool).await.map_err(|e|e.to_string())?;
         if original.get::<String,_>("name")!="worker-2" {return Err("canary must initially fit on worker-2; stop rather than fault another node".into());}
         let old:Uuid=original.get("id");
-        api(&client,reqwest::Method::POST,&format!("/nodes/{node2}/actions"),json!({"operation_id":Uuid::new_v4(),"action":"drain"})).await?;
+        api(&client,reqwest::Method::POST,&format!("/nodes/{node2}/actions"),json!({"operationId":Uuid::new_v4(),"action":"drain"})).await?;
         wait(&pool,"SELECT EXISTS(SELECT 1 FROM relocations WHERE old_instance=$1 AND state='preparing')",old,30).await?;
         command("systemctl",&["--user","stop","local-paas-api"]).await?;controller_stopped=true;
         // This exceeds both original ingress observation freshness thresholds.
@@ -147,7 +147,7 @@ async fn drain_node_loss_partition_and_controller_outage() {
         command("bash",&["infra/services/api.sh"]).await?;controller_stopped=false;
         wait(&pool,"SELECT EXISTS(SELECT 1 FROM relocations WHERE old_instance=$1 AND state='completed')",old,180).await?;
         wait(&pool,"SELECT state='stopped' FROM instances WHERE id=$1",old,90).await?;
-        api(&client,reqwest::Method::POST,&format!("/nodes/{node2}/actions"),json!({"operation_id":Uuid::new_v4(),"action":"uncordon"})).await?;
+        api(&client,reqwest::Method::POST,&format!("/nodes/{node2}/actions"),json!({"operationId":Uuid::new_v4(),"action":"uncordon"})).await?;
         let second:Uuid=sqlx::query_scalar("SELECT id FROM instances WHERE deployment_id=$1 AND desired_state='running'").bind(deployment).fetch_one(&pool).await.map_err(|e|e.to_string())?;
         command("sudo",&["-n","systemctl","stop","local-paas-worker-3"]).await?;worker_stopped=true;
         wait(&pool,"SELECT EXISTS(SELECT 1 FROM relocations WHERE old_instance=$1 AND reason='node_lost' AND state='completed')",second,240).await?;
@@ -193,7 +193,7 @@ async fn drain_node_loss_partition_and_controller_outage() {
         &client,
         reqwest::Method::POST,
         &format!("/nodes/{node2}/actions"),
-        json!({"operation_id":Uuid::new_v4(),"action":"uncordon"}),
+        json!({"operationId":Uuid::new_v4(),"action":"uncordon"}),
     )
     .await
     .unwrap();
@@ -209,7 +209,7 @@ async fn drain_node_loss_partition_and_controller_outage() {
         &client,
         reqwest::Method::PUT,
         &format!("/services/{service}/relocation"),
-        json!({"operation_id":Uuid::new_v4(),"enabled":false}),
+        json!({"operationId":Uuid::new_v4(),"enabled":false}),
     )
     .await
     .unwrap();

@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT p.id, p.name,\n          (SELECT count(*) FROM environments e WHERE e.project_id=p.id) AS \"environments!\",\n          (SELECT count(DISTINCT s.name) FROM services s JOIN environments e ON e.id=s.environment_id WHERE e.project_id=p.id) AS \"services!\"\n        FROM projects p ORDER BY p.name\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "environments!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "services!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "51fe0804fe91099310efff15ea50a941d51e449cd4feabae344492bd851f7703"
+}

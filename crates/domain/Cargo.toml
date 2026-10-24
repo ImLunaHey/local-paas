@@ -10,7 +10,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 url = "2"
+utoipa = { version = "5", features = ["uuid"] }
 uuid.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -5,11 +5,12 @@ use serde_json::{Value, json};
 use sqlx::{PgPool, Row, types::Json as DbJson};
 use uuid::Uuid;
 pub(crate) async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',p.name,'name',e.name,'service_count',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e JOIN projects p ON p.id=e.project_id ORDER BY p.name,e.name").fetch_all(&pool).await?;
+    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',p.name,'name',e.name,'serviceCount',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e JOIN projects p ON p.id=e.project_id ORDER BY p.name,e.name").fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Create {
     project: String,
     name: String,
@@ -32,7 +33,7 @@ pub(crate) async fn create(
         ));
     }
     let mut tx = pool.begin().await?;
-    let project:Uuid=sqlx::query_scalar("INSERT INTO projects(id,name) VALUES($1,$2) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id").bind(Uuid::new_v4()).bind(&input.project).fetch_one(&mut *tx).await?;
+    let project:Uuid=sqlx::query_scalar("INSERT INTO projects(id,name) VALUES($1,$2) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id").bind(Uuid::now_v7()).bind(&input.project).fetch_one(&mut *tx).await?;
     if let Some(parent) = input.parent_id {
         let valid: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM environments WHERE id=$1 AND project_id=$2 AND name<>$3)",
@@ -71,7 +72,7 @@ pub(crate) async fn create(
             json!({"id":id,"project":input.project,"name":input.name}),
         ));
     }
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     sqlx::query("INSERT INTO environments(id,project_id,name,parent_id) VALUES($1,$2,$3,$4)")
         .bind(id)
         .bind(project)
@@ -85,28 +86,26 @@ pub(crate) async fn create(
             .fetch_all(&mut *tx)
             .await?;
         let ids: std::collections::HashMap<Uuid, Uuid> =
-            rows.iter().map(|r| (r.get("id"), Uuid::new_v4())).collect();
+            rows.iter().map(|r| (r.get("id"), Uuid::now_v7())).collect();
         for row in rows {
             let DbJson(mut spec): DbJson<Value> = row.get("spec");
             spec["environment"] = json!(input.name);
             spec["domains"] = json!([]);
             // Shadow configuration, never attach the source environment's live filesystem.
             spec.as_object_mut().unwrap().remove("volume");
-            if let Some(connections) = spec["workload"]["private_connections"].as_array_mut() {
+            if let Some(connections) = spec["workload"]["privateConnections"].as_array_mut() {
                 for c in connections {
-                    let old = c["service_id"]
-                        .as_str()
-                        .and_then(|s| s.parse::<Uuid>().ok());
+                    let old = c["serviceId"].as_str().and_then(|s| s.parse::<Uuid>().ok());
                     let new = old.and_then(|id| ids.get(&id)).ok_or(ApiError::Conflict(
                         "private connection cannot be shadowed outside its environment",
                     ))?;
-                    c["service_id"] = json!(new);
+                    c["serviceId"] = json!(new);
                 }
             }
             let service = ids[&row.get::<Uuid, _>("id")];
-            let operation = Uuid::new_v4();
+            let operation = Uuid::now_v7();
             sqlx::query("INSERT INTO services(id,environment_id,name,kind,operation_id,spec,registered_spec) VALUES($1,$2,$3,$4,$5,$6,$6)").bind(service).bind(id).bind(row.get::<String,_>("name")).bind(row.get::<String,_>("kind")).bind(operation).bind(DbJson(spec)).execute(&mut *tx).await?;
-            sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'service.shadowed')").bind(Uuid::new_v4()).bind(service).bind(operation).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'service.shadowed')").bind(Uuid::now_v7()).bind(service).bind(operation).execute(&mut *tx).await?;
         }
     }
     tx.commit().await?;

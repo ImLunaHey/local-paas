@@ -33,7 +33,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     let (_, s) = call(
         pool,
         "/api/services",
-        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"buildOnCreate":false,"operationId":Uuid::new_v4(),"spec":spec}),
         None,
     )
     .await;
@@ -41,7 +41,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     call(
         pool,
         &format!("/api/services/{service}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        json!({"operationId":Uuid::new_v4(),"noCache":false}),
         None,
     )
     .await;
@@ -116,7 +116,7 @@ async fn ingress_uses_local_health_honors_membership_and_expires_routes_without_
     let (_, deployed) = call(
         &pool,
         &format!("/api/services/{service}/deployments"),
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;
@@ -208,7 +208,7 @@ async fn ingress_uses_local_health_honors_membership_and_expires_routes_without_
     let (_, next) = call(
         &pool,
         &format!("/api/services/{service}/deployments"),
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;

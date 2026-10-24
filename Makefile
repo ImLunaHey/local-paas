@@ -14,7 +14,7 @@ db-stop:
 api: db
 	bash infra/services/api.sh
 
-api-foreground:
+api-foreground: migrate
 	cargo run -p control-plane --bin control-plane
 
 build-worker: db
@@ -24,9 +24,9 @@ web:
 	bash infra/services/web.sh
 
 web-foreground:
-	cd web && npm run dev
+	pnpm --dir web dev
 
-# Existing provisioned Lake stack; does not create VMs or initialize OpenBao.
+# Existing provisioned development stack; does not create VMs or initialize OpenBao.
 up:
 	$(MAKE) api
 	$(MAKE) web
@@ -36,8 +36,7 @@ check:
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace
-	cd web && npm run format:check
-	cd web && npm run build
+	pnpm --dir web check
 
 test-db:
 	cargo test -p control-plane --tests -- --ignored
@@ -51,3 +50,11 @@ setup-install:
 	cargo run -p control-plane --bin platform-setup -- install
 unseal:
 	cargo run -p control-plane --bin initialize-openbao -- "$(CURDIR)/.local/platform-services"
+
+.PHONY: migrate api-schema
+migrate:
+	cargo run -p control-plane --bin platform-migrate
+
+api-schema:
+	cargo run -p control-plane --bin export-openapi > docs/api/openapi.json
+	pnpm --dir web generate:api

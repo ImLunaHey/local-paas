@@ -1,13 +1,16 @@
 import { PrivateNetworking } from './private-networking'
-import { Button, Input, Field } from './ui'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Field } from './components/field'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
-import { api, type Service } from './api'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 interface Network {
   authority: string | null
   available: string[]
-  active_port: number | null
+  activePort: number | null
   scope: string
 }
 export function Networking({ service }: { service: Service }) {
@@ -59,6 +62,7 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
   const desiredPort =
     service.spec.workload.kind === 'oci-service' ? (service.spec.workload.port ?? 3000) : 3000
   const [port, setPort] = useState(desiredPort)
+  // oxlint-disable-next-line react-doctor/no-derived-useState -- Draft resets through the parent key when service version or authority changes.
   const [enabled, setEnabled] = useState(!!network.authority)
   const save = useMutation({
     mutationFn: () =>
@@ -68,7 +72,7 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
         body: JSON.stringify({
           enabled,
           port,
-          expected_version: service.version,
+          expectedVersion: service.version,
         }),
       }),
     onSuccess: async () => {
@@ -95,11 +99,11 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
           <div>
             <code className="break-all">https://{network.authority}</code>
             <p className="text-xs text-muted mt-2">
-              {network.active_port == null
+              {network.activePort == null
                 ? 'URL reserved · deploy the app to serve requests'
-                : `HTTPS → container port ${network.active_port}`}
-              {network.active_port != null &&
-                desiredPort !== network.active_port &&
+                : `HTTPS → container port ${network.activePort}`}
+              {network.activePort != null &&
+                desiredPort !== network.activePort &&
                 ` · next deployment: port ${desiredPort}`}
             </p>
           </div>
@@ -157,9 +161,9 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
         </p>
       )}
       {save.isSuccess && <p role="status">Networking saved.</p>}
-      {network.active_port !== null && desiredPort !== network.active_port && (
+      {network.activePort !== null && desiredPort !== network.activePort && (
         <p role="status" className="error-notice">
-          Port change pending: deploy a new revision to switch from port {network.active_port} to{' '}
+          Port change pending: deploy a new revision to switch from port {network.activePort} to{' '}
           {desiredPort}.
         </p>
       )}

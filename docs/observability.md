@@ -1,7 +1,7 @@
 # Log history and workload metrics
 
 The platform uses its own pinned ClickHouse process, data directory and credentials.
-It does not connect to, configure, or reuse Lake's existing ClickHouse instance.
+It does not connect to, configure, or reuse other ClickHouse instances.
 The dedicated HTTP listener is 127.0.0.1:18123; data is on NVMe under the ignored
 .local/platform-services/clickhouse directory. infra/services/start.sh provisions
 this instance and a separate OpenBao listener. Neither is exposed through Tailscale.

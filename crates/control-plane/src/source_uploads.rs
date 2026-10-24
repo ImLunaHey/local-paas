@@ -24,6 +24,7 @@ pub async fn limit(request: Request, next: Next) -> Response {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Scope {
     project: String,
 }
@@ -127,7 +128,7 @@ pub async fn upload(
     sqlx::query("INSERT INTO source_uploads(project_id,digest,archive_bytes,expanded_bytes,file_count) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(project).bind(&summary.digest).bind(size as i64).bind(summary.expanded as i64).bind(summary.files as i32).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(
-        json!({"digest":summary.digest,"files":summary.files,"expanded_bytes":summary.expanded,"archive_bytes":size}),
+        json!({"digest":summary.digest,"files":summary.files,"expandedBytes":summary.expanded,"archiveBytes":size}),
     ))
 }
 pub async fn validate_scope(

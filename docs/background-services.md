@@ -8,13 +8,13 @@ startup. It enables user lingering. These survive logout and host reboot. The
 installed web unit runs Caddy against built frontend assets. OpenBao starts sealed;
 run `make unseal` after reboot. See [installation and recovery](install.md).
 
-## Development and the existing Lake checkout
+## Development
 
-The platform runs independently of T3 Code and its agent threads. `make db`,
+The platform runs independently of the terminal or editor. `make db`,
 `make api`, `make web`, and `make build-worker` use the systemd user manager;
-none leaves a daemon in the invoking terminal's or T3's process group.
+none leaves a daemon in the invoking terminal’s process group.
 
-For Lake's existing provisioned checkout, `make up` starts the database, rebuilds
+For an already provisioned development checkout, `make up` starts the database, rebuilds
 and restarts the API, starts Vite, and ensures the build worker is running. It
 returns after launching them. It does not provision VMs, change DNS, initialize
 OpenBao, or replace any database. PostgreSQL startup waits for readiness before
@@ -44,12 +44,8 @@ An already-running ingress is left alone; after an ingress code change use
 change. `systemctl --user restart local-paas-web` restarts the existing unit.
 `make db-stop` gracefully stops PostgreSQL without deleting data. To start it
 again, run `make db`; a bare `pg_ctl start` would reintroduce thread ownership.
-The database launcher migrates an old unsupervised instance with a graceful
-stop/start, retaining the existing `.local/postgres` directory.
 
-The standalone launchers use transient development units. They survive T3/thread/terminal
-restarts, but are not a host-reboot bootstrap system. Lake already has user
-lingering enabled, so logging out does not stop its user manager. A reboot still
+The standalone launchers use transient development units. They survive terminal and editor restarts, but are not a host-reboot bootstrap system. Enable user lingering if services need to survive logout. A reboot still
 requires the documented infrastructure startup sequence, including OpenBao
 unsealing; this change does not introduce automatic secret recovery.
 
@@ -57,14 +53,3 @@ For a deliberately attached process, use `make api-foreground` or
 `make web-foreground`. The API foreground target reads the Makefile's database and
 origin settings; the supervised API loads `.local/platform.env` when present,
 otherwise exported settings and available local service files. Keep the supervised targets for normal use.
-
-## 2026-10-24 restart incident
-
-PostgreSQL had been started by `pg_ctl` inside a T3-owned shell. Daemonizing gave it
-PID 1 as its parent but left it in `t3code.service`'s cgroup. Restarting T3 therefore
-stopped it, while the independently supervised API continued running and reported
-database failures. PostgreSQL shut down cleanly, and restarting the same data
-directory restored existing host history. Samples during the outage remain a gap.
-
-The database now runs in its own foreground systemd service, and the Makefile
-makes supervision the default for all long-lived development entry points.

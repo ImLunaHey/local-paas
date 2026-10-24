@@ -4,9 +4,16 @@ const baseURL = process.env.E2E_BASE_URL || 'http://localhost:5188'
 
 export default defineConfig({
   testDir: './tests',
+  projects: process.env.CI
+    ? ['chromium', 'firefox', 'webkit'].map((browserName) => ({
+        name: browserName,
+        use: { browserName: browserName as 'chromium' | 'firefox' | 'webkit' },
+      }))
+    : undefined,
   workers: 1,
   use: {
     baseURL,
+    colorScheme: 'dark',
     viewport: { width: 1440, height: 1100 },
     launchOptions: {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -21,8 +28,8 @@ export default defineConfig({
   },
   // Run make db and make api separately. The API must use a disposable DB.
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5188',
+    command: 'pnpm dev',
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
   },
 })

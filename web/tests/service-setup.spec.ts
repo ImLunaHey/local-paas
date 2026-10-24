@@ -5,8 +5,8 @@ import { zipSync } from 'fflate'
 test('new service selects registered domains and saves OpenBao secrets before building', async ({
   page,
 }) => {
-  const name = `setup-${Date.now()}`,
-    hostname = `${name}.invalid`
+  const name = `setup-${Date.now()}`
+  const hostname = `${name}.invalid`
   await page.goto('/')
   await page.evaluate(
     async ({ name, hostname }) => {
@@ -57,10 +57,10 @@ test('new service selects registered domains and saves OpenBao secrets before bu
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: '../.local/inline-secrets-mobile.png', fullPage: true })
 
-  let writes = 0,
-    registrations = 0,
-    id = '',
-    builds = 0
+  let writes = 0
+  let registrations = 0
+  let id = ''
+  let builds = 0
   page.on('request', (request) => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/services')
       registrations++
@@ -78,7 +78,9 @@ test('new service selects registered domains and saves OpenBao secrets before bu
     if (route.request().method() === 'POST' && ++builds === 1) {
       // The build committed, but its response was lost. Retrying must not duplicate it.
       const response = await route.fetch({
-        url: 'http://127.0.0.1:5188' + new URL(route.request().url()).pathname,
+        url:
+          (process.env.E2E_BASE_URL || 'http://127.0.0.1:5188') +
+          new URL(route.request().url()).pathname,
       })
       expect(response.ok()).toBe(true)
       await route.fulfill({ status: 503, json: { error: 'Response interrupted' } })
@@ -98,7 +100,7 @@ test('new service selects registered domains and saves OpenBao secrets before bu
   )
   expect(state.builds).toHaveLength(0)
   expect(
-    state.domains.items.find((d: { hostname: string }) => d.hostname === hostname).service_id,
+    state.domains.items.find((d: { hostname: string }) => d.hostname === hostname).serviceId,
   ).toBe(id)
   await page.getByRole('button', { name: 'Retry creation', exact: true }).click()
   await expect(page.getByText('Response interrupted', { exact: true })).toBeVisible()

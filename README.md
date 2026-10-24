@@ -66,11 +66,12 @@ execution is not implemented. Storage remains node-pinned. See
 
 ## Develop without provisioning VMs
 
-Use `nix develop` for the pinned Rust, Node and PostgreSQL toolchain, or supply
-compatible tools yourself (Rust 2024 edition, Node 24, PostgreSQL 18, Make/systemd).
+Use `nix develop` for the pinned Rust, Node, pnpm and PostgreSQL toolchain.
+`mise install` pins language and package-manager versions when using native tools;
+PostgreSQL 18 and Make/systemd are also needed.
 
 ```sh
-npm ci --prefix web
+pnpm install --frozen-lockfile
 make db
 make api
 make web
@@ -95,15 +96,40 @@ make check
 make test-db
 ```
 
-Checks include Rust formatting, Clippy, workspace tests, frontend formatting and
-production build. Database tests create isolated SQLx databases. Browser tests
-require a separate development API/database and a stopped build worker:
+`make check` runs Rust formatting, Clippy with warnings denied, workspace tests,
+Oxfmt, Oxlint (including accessibility, React Doctor recommended and TanStack Query
+rules), TypeScript, Vitest and the frontend
+production build. Shared visual variants use CVA and `cn`; components are imported
+directly, with no handwritten barrels. Oxlint also enforces one variable per statement.
+Rule exceptions are documented beside the affected declaration or in
+`web/oxlint.config.ts`; existing large views still need decomposition.
+CI also runs nextest, doc tests, coverage, dependency/license
+checks, secret scanning and generated OpenAPI/client drift checks.
+
+For isolated browser tests, use a disposable PostgreSQL database named
+`platform_test` or `platform_e2e`, with CREATEDB. The harness starts its own API,
+OpenBao and web server; it does not use operator credentials or running workers.
 
 ```sh
-cd web
-npx playwright install chromium
-npm run test:e2e
+cargo build -p control-plane --bins
+nix build .#browser-test-tools --out-link /tmp/platform-browser-tools
+pnpm --dir web exec playwright install --with-deps chromium firefox webkit
+PATH="/tmp/platform-browser-tools/bin:$PATH" bash infra/tests/browser.sh
 ```
+
+Infrastructure fault drills require explicit opt-in fixtures; they are not part
+of ordinary local or CI tests. `pnpm --dir web test:coverage` reports unit coverage
+without imposing an artificial universal threshold.
+
+Compile-checked SQL uses reviewed metadata in `.sqlx`; normal builds run offline.
+After changing a checked query or its schema, migrate a disposable test database,
+then run `SQLX_OFFLINE=false cargo sqlx prepare --workspace -- --all-targets` with
+`DATABASE_URL` pointing to it. CI checks the metadata against real PostgreSQL.
+
+The API schema is exported to `docs/api/openapi.json`. Regenerate it and the Orval
+TanStack Query client with `make api-schema` after changing documented endpoints.
+This development release changes API fields to camelCase and agent protocol to v2;
+existing installations require a [clean contract reset](docs/upgrades.md).
 
 CI is configured for Ubuntu 22.04 and 24.04 on x86-64, and Ubuntu 24.04 on ARM64.
 A fresh Ubuntu 24.04 x86-64 installation, real two-replica deployment and host

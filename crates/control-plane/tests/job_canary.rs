@@ -25,7 +25,7 @@ async fn request(
 }
 async fn wait_finished(pool: &PgPool, run: Uuid) -> Result<(String, Option<i32>, Uuid), String> {
     for _ in 0..180 {
-        let row:Option<(String,Option<i32>,Uuid,String)>=sqlx::query_as("SELECT d.status,(d.job_result->>'exit_code')::integer,i.id,i.state FROM deployments d JOIN instances i ON i.deployment_id=d.id WHERE d.id=$1").bind(run).fetch_optional(pool).await.map_err(|e|e.to_string())?;
+        let row:Option<(String,Option<i32>,Uuid,String)>=sqlx::query_as("SELECT d.status,(d.job_result->>'exitCode')::integer,i.id,i.state FROM deployments d JOIN instances i ON i.deployment_id=d.id WHERE d.id=$1").bind(run).fetch_optional(pool).await.map_err(|e|e.to_string())?;
         if let Some((status, exit, id, state)) = row
             && status != "job"
             && state == "stopped"
@@ -92,7 +92,7 @@ async fn real_jobs_record_results_cancel_timeout_and_schedule_without_restarting
             ("controller-restart",vec!["/canary","sleep","20"],90,"succeeded",Some(0),Some("sleep")),
         ] {
             if vm_only { break; }
-            let body=json!({"operation_id":Uuid::new_v4(),"revision_id":revision,"options":{"command":command,"timeout_seconds":limit}});
+            let body=json!({"operationId":Uuid::new_v4(),"revisionId":revision,"options":{"command":command,"timeoutSeconds":limit}});
             let response=request(&client,reqwest::Method::POST,&format!("/services/{service}/jobs"),body.clone()).await?;
             let run:Uuid=response["id"].as_str().ok_or("missing run ID")?.parse().map_err(|_|"invalid run ID")?;
             runs.push(run);
@@ -117,7 +117,7 @@ async fn real_jobs_record_results_cancel_timeout_and_schedule_without_restarting
             println!("{label}: {status}, exit {code:?}, one start, logs retained, cleanup confirmed");
         }
         if vm_only || std::env::var("PLATFORM_JOB_VM_RESTART").as_deref()==Ok("1") {
-            let response=request(&client,reqwest::Method::POST,&format!("/services/{service}/jobs"),json!({"operation_id":Uuid::new_v4(),"revision_id":revision,"options":{"command":["/canary","sleep","120"],"timeout_seconds":180}})).await?;
+            let response=request(&client,reqwest::Method::POST,&format!("/services/{service}/jobs"),json!({"operationId":Uuid::new_v4(),"revisionId":revision,"options":{"command":["/canary","sleep","120"],"timeoutSeconds":180}})).await?;
             let run:Uuid=response["id"].as_str().ok_or("missing run")?.parse().map_err(|_|"bad ID")?;runs.push(run);
             let node=wait_started(&pool,run).await?;
             let index=match node.as_str(){"worker-1"=>"1","worker-2"=>"2","worker-3"=>"3",_=>return Err("unexpected test node".into())};
@@ -140,7 +140,7 @@ async fn real_jobs_record_results_cancel_timeout_and_schedule_without_restarting
         }
         if vm_only { return Ok(()); }
         let current:Option<i64>=sqlx::query_scalar("SELECT version FROM job_schedules WHERE id=$1").bind(service).fetch_optional(&pool).await.map_err(|e|e.to_string())?;
-        request(&client,reqwest::Method::PUT,&format!("/services/{service}/job-schedule"),json!({"operation_id":Uuid::new_v4(),"version":current.unwrap_or(0),"revision_id":revision,"options":{"command":["/canary"],"timeout_seconds":60},"interval_minutes":1,"enabled":true})).await?;
+        request(&client,reqwest::Method::PUT,&format!("/services/{service}/job-schedule"),json!({"operationId":Uuid::new_v4(),"version":current.unwrap_or(0),"revisionId":revision,"options":{"command":["/canary"],"timeoutSeconds":60},"intervalMinutes":1,"enabled":true})).await?;
         let mut scheduled=None;
         for _ in 0..100 {
             scheduled=sqlx::query_scalar("SELECT o.deployment_id FROM job_occurrences o JOIN job_schedules s ON s.id=o.schedule_id WHERE o.service_id=$1 AND o.status='queued' AND o.created_at>=s.updated_at ORDER BY o.created_at DESC LIMIT 1").bind(service).fetch_optional(&pool).await.map_err(|e|e.to_string())?;
@@ -161,7 +161,7 @@ async fn real_jobs_record_results_cancel_timeout_and_schedule_without_restarting
             .await
             .unwrap()
     {
-        request(&client,reqwest::Method::PUT,&format!("/services/{service}/job-schedule"),json!({"operation_id":Uuid::new_v4(),"version":version,"revision_id":revision,"options":{"command":["/canary"],"timeout_seconds":60},"interval_minutes":1,"enabled":false})).await.unwrap();
+        request(&client,reqwest::Method::PUT,&format!("/services/{service}/job-schedule"),json!({"operationId":Uuid::new_v4(),"version":version,"revisionId":revision,"options":{"command":["/canary"],"timeoutSeconds":60},"intervalMinutes":1,"enabled":false})).await.unwrap();
     }
     for run in runs {
         request(

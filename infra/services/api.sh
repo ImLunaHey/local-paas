@@ -3,7 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source infra/services/config.sh
-cargo build -p control-plane --bin control-plane --bin platform-ingress
+cargo build -p control-plane --bin control-plane --bin platform-ingress --bin platform-migrate
+./target/debug/platform-migrate
 optional_env=()
 for setting in CLICKHOUSE_URL CLICKHOUSE_PASSWORD_FILE OPENBAO_ADDR OPENBAO_CA_FILE OPENBAO_TOKEN_FILE; do
   if [ -n "${!setting:-}" ]; then optional_env+=("--setenv=$setting=${!setting}"); fi

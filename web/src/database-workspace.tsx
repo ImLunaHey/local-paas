@@ -12,10 +12,11 @@ import {
   Settings2,
 } from 'lucide-react'
 import { cn } from 'cn'
-import { api, type Service } from './api'
-import type { DatabaseState } from './databases'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import type { DatabaseState } from './features/databases/database-connections'
 import { ProjectBackLink } from './projects'
-import { Button } from './ui'
+import { Button } from './components/button'
 import { WorkspaceLayout } from './service-workspace'
 
 const navigation = [
@@ -94,10 +95,10 @@ export function DatabaseWorkspace({
           },
           {
             label: 'Persistent volume',
-            value: info.data?.volume ? info.data.volume.size_gib + ' GiB' : '—',
+            value: info.data?.volume ? info.data.volume.sizeGib + ' GiB' : '—',
           },
-          { label: 'CPU limit', value: spec.resources.cpu_millis + 'm' },
-          { label: 'Memory limit', value: spec.resources.memory_mib + ' MiB' },
+          { label: 'CPU limit', value: spec.resources.cpuMillis + 'm' },
+          { label: 'Memory limit', value: spec.resources.memoryMib + ' MiB' },
         ]}
       >
         {children}

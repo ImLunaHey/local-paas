@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schemaVersion": 1,
   "project": "sandbox",
   "environment": "development",
   "name": "web-canary",
@@ -7,8 +7,8 @@
     "repository": "https://github.com/example/web-canary.git",
     "commit": "0000000000000000000000000000000000000000"
   },
-  "resources": { "cpu_millis": 500, "memory_mib": 512 },
-  "distinct_nodes": true,
+  "resources": { "cpuMillis": 500, "memoryMib": 512 },
+  "distinctNodes": true,
   "domains": [],
   "secrets": [],
   "workload": {
@@ -17,6 +17,6 @@
     "context": ".",
     "replicas": 2,
     "port": 3000,
-    "readiness": { "path": "/health", "interval_seconds": 10, "stabilization_seconds": 30 }
+    "readiness": { "path": "/health", "intervalSeconds": 10, "stabilizationSeconds": 30 }
   }
 }

@@ -1,40 +1,23 @@
-import { Button, Input, Select, Field } from './ui'
+import { projectsQuery } from './projects-query'
+import type { ProjectDetail as Project } from './generated/model/projectDetail'
+import { getGetProjectQueryOptions, createProject, updateProject } from './generated/management'
+import { ProjectNameForm } from './features/projects/project-name-form'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Select } from './components/select'
+import { Field } from './components/field'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Plus, Layers3, ArrowLeft } from 'lucide-react'
-import { api, type Service } from './api'
-interface Environment {
-  id: string
-  name: string
-  parent_id: string | null
-  parent_name: string | null
-  service_count: number
-}
-interface Project {
-  id: string
-  name: string
-  environments: Environment[]
-}
-export const projectsQuery = {
-  queryKey: ['projects'],
-  queryFn: () =>
-    api<{ items: { id: string; name: string; environments: number; services: number }[] }>(
-      '/projects',
-    ),
-}
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 export function Projects() {
-  const client = useQueryClient(),
-    navigate = useNavigate()
+  const client = useQueryClient()
+  const navigate = useNavigate()
   const projects = useQuery(projectsQuery)
-  const [name, setName] = useState('')
   const create = useMutation({
-    mutationFn: () =>
-      api<{ id: string }>('/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      }),
+    mutationFn: (name: string) => createProject({ name }),
     onSuccess: async (p) => {
       await client.invalidateQueries({ queryKey: ['projects'] })
       void navigate({ to: '/projects/$projectId', params: { projectId: p.id } })
@@ -49,28 +32,12 @@ export function Projects() {
           <p>Applications and databases, grouped by project and environment.</p>
         </div>
       </div>
-      <form
-        className="flex flex-wrap gap-3 mb-7"
-        onSubmit={(e) => {
-          e.preventDefault()
-          create.mutate()
-        }}
-      >
-        <Input
-          className="input"
-          aria-label="Project name"
-          placeholder="Project name"
-          required
-          pattern="[a-z0-9]+(-[a-z0-9]+)*"
-          maxLength={63}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Button variant="primary" disabled={create.isPending} type="submit">
-          <Plus size={15} />
-          Create project
-        </Button>
-      </form>
+      <ProjectNameForm
+        className="mb-7 max-w-xl"
+        label="Create project"
+        onSave={(name) => create.mutateAsync(name)}
+      />
+
       {(projects.error || create.error) && (
         <p role="alert" className="error-notice">
           {(projects.error || create.error)?.message}
@@ -105,19 +72,20 @@ export function ProjectWorkspace({
 }) {
   const { projectId } = useParams({ strict: false }) as { projectId: string }
   const search = useSearch({ strict: false }) as { environment?: string }
-  const navigate = useNavigate(),
-    client = useQueryClient()
-  const project = useQuery({
-    queryKey: ['projects', projectId],
-    queryFn: () => api<Project>('/projects/' + projectId),
-  })
+  const navigate = useNavigate()
+  const client = useQueryClient()
+  const project = useQuery(
+    getGetProjectQueryOptions<Project, Error>(projectId, {
+      query: { queryKey: ['projects', projectId] },
+    }),
+  )
   const env =
     project.data?.environments.find((e) => e.name === search.environment) ??
     project.data?.environments.find((e) => e.name === 'production') ??
     project.data?.environments[0]
-  const [offset, setOffset] = useState(0),
-    [name, setName] = useState(''),
-    [parent, setParent] = useState('')
+  const [offset, setOffset] = useState(0)
+  const [name, setName] = useState('')
+  const [parent, setParent] = useState('')
   useEffect(() => setOffset(0), [env?.id])
   const params = new URLSearchParams({
     project: project.data?.name ?? '',
@@ -134,7 +102,7 @@ export function ProjectWorkspace({
       api('/environments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project: project.data?.name, name, parent_id: parent || null }),
+        body: JSON.stringify({ project: project.data?.name, name, parentId: parent || null }),
       }),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ['projects'] })
@@ -184,9 +152,9 @@ export function ProjectWorkspace({
         </p>
       )}
       <div className="flex flex-wrap gap-5 items-center mb-6">
-        {env?.parent_name && (
+        {env?.parentName && (
           <p className="text-xs text-muted">
-            Shadows {env.parent_name} · local secrets override inherited values
+            Shadows {env.parentName} · local secrets override inherited values
           </p>
         )}
       </div>
@@ -291,23 +259,15 @@ export function ProjectBackLink({
 export function ProjectSettings() {
   const { projectId } = useParams({ strict: false }) as { projectId: string }
   const client = useQueryClient()
-  const project = useQuery({
-    queryKey: ['projects', projectId],
-    queryFn: () => api<Project>('/projects/' + projectId),
-  })
-  const [name, setName] = useState<string | null>(null)
+  const project = useQuery(
+    getGetProjectQueryOptions<Project, Error>(projectId, {
+      query: { queryKey: ['projects', projectId] },
+    }),
+  )
   const save = useMutation({
-    mutationFn: () =>
-      api('/projects/' + projectId, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name ?? project.data?.name,
-          expected_name: project.data?.name,
-        }),
-      }),
+    mutationFn: (name: string) =>
+      updateProject(projectId, { name, expectedName: project.data!.name }),
     onSuccess: async () => {
-      setName(null)
       await Promise.all([
         client.invalidateQueries({ queryKey: ['projects'] }),
         client.invalidateQueries({ queryKey: ['services'] }),
@@ -329,32 +289,22 @@ export function ProjectSettings() {
           <p>Manage this project's identity.</p>
         </div>
       </div>
-      <form
-        className="panel max-w-2xl space-y-5 p-6"
-        onSubmit={(event) => {
-          event.preventDefault()
-          save.mutate()
-        }}
-      >
-        <Field label="Project name" hint="Use lowercase letters, numbers and hyphens.">
-          <Input
-            required
-            maxLength={63}
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
-            value={name ?? project.data?.name ?? ''}
-            onChange={(event) => {
-              setName(event.target.value)
-              save.reset()
-            }}
-          />
-        </Field>
+      <section className="panel max-w-2xl space-y-5 p-6">
         <p className="text-xs leading-relaxed text-muted">
           Renaming keeps the project's services, environments, secrets and URLs. Existing deployment
           history keeps its original name.
         </p>
-        {(project.error || save.error) && (
+        {project.data && (
+          <ProjectNameForm
+            key={projectId}
+            initialName={project.data.name}
+            label="Save changes"
+            onSave={(name) => save.mutateAsync(name)}
+          />
+        )}
+        {project.error && (
           <p role="alert" className="error-notice">
-            {(project.error || save.error)?.message}
+            {project.error.message}
           </p>
         )}
         {save.isSuccess && (
@@ -362,14 +312,7 @@ export function ProjectSettings() {
             Project settings saved.
           </p>
         )}
-        <Button
-          variant="primary"
-          type="submit"
-          disabled={!project.data || save.isPending || name === null || name === project.data.name}
-        >
-          Save changes
-        </Button>
-      </form>
+      </section>
     </>
   )
 }

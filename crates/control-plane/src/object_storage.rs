@@ -14,8 +14,8 @@ pub async fn list(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     crate::runtime::service_exists(&pool, id).await?;
-    let buckets:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',b.id,'name',b.name,'status',b.status,'storage_id',s.id,'storage',s.name) FROM storage_buckets b JOIN services s ON s.id=b.service_id WHERE s.environment_id=(SELECT environment_id FROM services WHERE id=$1) ORDER BY s.name,b.name").bind(id).fetch_all(&pool).await?;
-    let binding:Option<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('bucket_id',b.bucket_id,'status',b.status,'read_only',b.read_only) FROM storage_bindings b WHERE b.service_id=$1").bind(id).fetch_optional(&pool).await?;
+    let buckets:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',b.id,'name',b.name,'status',b.status,'storageId',s.id,'storage',s.name) FROM storage_buckets b JOIN services s ON s.id=b.service_id WHERE s.environment_id=(SELECT environment_id FROM services WHERE id=$1) ORDER BY s.name,b.name").bind(id).fetch_all(&pool).await?;
+    let binding:Option<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('bucketId',b.bucket_id,'status',b.status,'readOnly',b.read_only) FROM storage_bindings b WHERE b.service_id=$1").bind(id).fetch_optional(&pool).await?;
     Ok(Json(json!({"buckets":buckets,"binding":binding})))
 }
 async fn endpoint(pool: &PgPool, id: Uuid) -> Result<i32, ApiError> {
@@ -36,6 +36,7 @@ fn bucket_name(s: &str) -> bool {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Create {
     operation_id: Uuid,
     name: String,
@@ -68,7 +69,7 @@ pub async fn create(
         }
         bucket
     } else {
-        let bucket = Uuid::new_v4();
+        let bucket = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO storage_buckets(id,operation_id,service_id,name) VALUES($1,$2,$3,$4)",
         )
@@ -96,6 +97,7 @@ pub async fn create(
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Connect {
     bucket_id: Uuid,
     read_only: bool,
@@ -158,7 +160,7 @@ pub async fn connect(
                 "restore the missing storage credential before retrying",
             ))?
     } else {
-        format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+        format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple())
     };
     let changes = BTreeMap::from([
         ("AWS_ACCESS_KEY_ID".into(), Some(access.clone())),
@@ -205,7 +207,7 @@ pub async fn connect(
     }
     sqlx::query("INSERT INTO storage_bindings(service_id,bucket_id,read_only,status) VALUES($1,$2,$3,'ready') ON CONFLICT(service_id) DO UPDATE SET status='ready'").bind(id).bind(input.bucket_id).bind(input.read_only).execute(&mut *tx).await?;
     tx.commit().await?;
-    Ok(Json(json!({"saved":true,"redeploy_required":true})))
+    Ok(Json(json!({"saved":true,"redeployRequired":true})))
 }
 #[cfg(test)]
 mod tests {
@@ -224,6 +226,7 @@ mod tests {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Detach {
     expected_secret_version: i32,
 }
@@ -280,7 +283,7 @@ pub async fn detach(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(Json(json!({"detached":true,"redeploy_required":true})))
+    Ok(Json(json!({"detached":true,"redeployRequired":true})))
 }
 
 #[cfg(test)]
@@ -318,12 +321,12 @@ mod live_tests {
         )
         .map_err(|_| "client invalid")
         .unwrap();
-        let other = format!("scope-test-{}", Uuid::new_v4().simple());
+        let other = format!("scope-test-{}", Uuid::now_v7().simple());
         let _ = create(
             State(pool.clone()),
             Path(storage),
             Json(Create {
-                operation_id: Uuid::new_v4(),
+                operation_id: Uuid::now_v7(),
                 name: other.clone(),
             }),
         )
@@ -346,7 +349,7 @@ mod live_tests {
                 .status(),
             reqwest::StatusCode::FORBIDDEN
         );
-        let key = format!("/{bucket}/restart-{}.txt", Uuid::new_v4().simple());
+        let key = format!("/{bucket}/restart-{}.txt", Uuid::now_v7().simple());
         app.put(&key, b"retained object".to_vec())
             .await
             .map_err(|_| "write failed")
@@ -375,7 +378,7 @@ mod live_tests {
             State(pool.clone()),
             Path(storage),
             Json(crate::runtime::DeployRequest {
-                operation_id: Uuid::new_v4(),
+                operation_id: Uuid::now_v7(),
                 revision_id: revision,
             }),
         )

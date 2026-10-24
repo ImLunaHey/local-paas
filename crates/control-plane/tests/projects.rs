@@ -12,7 +12,7 @@ async fn service_configuration_assigns_only_registered_available_domains(pool: P
     let (_, current) = request(&pool, "GET", &format!("/api/services/{id}"), json!(null)).await;
     let mut spec = current["spec"].clone();
     spec["domains"] = json!(["canary.example.com"]);
-    let change = json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec});
+    let change = json!({"operationId":Uuid::new_v4(),"expectedVersion":1,"spec":spec});
     assert_eq!(
         request(&pool, "PUT", &format!("/api/services/{id}"), change.clone())
             .await
@@ -48,7 +48,7 @@ async fn service_configuration_assigns_only_registered_available_domains(pool: P
             &pool,
             "POST",
             "/api/services",
-            json!({"operation_id":Uuid::new_v4(),"build_on_create":false,"spec":spec})
+            json!({"operationId":Uuid::new_v4(),"buildOnCreate":false,"spec":spec})
         )
         .await
         .0,
@@ -59,7 +59,7 @@ async fn service_configuration_assigns_only_registered_available_domains(pool: P
             &pool,
             "PUT",
             "/api/domains/canary.example.com",
-            json!({"service_id":null,"expected_version":2})
+            json!({"serviceId":null,"expectedVersion":2})
         )
         .await
         .0,
@@ -115,7 +115,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Uuid) {
         pool,
         "POST",
         "/api/services",
-        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"buildOnCreate":false,"operationId":Uuid::new_v4(),"spec":spec}),
     )
     .await;
     assert_eq!(status, 201);
@@ -133,7 +133,7 @@ async fn shadow_environment_is_project_scoped_and_does_not_start_workloads(pool:
         &pool,
         "POST",
         "/api/environments",
-        json!({"project":"project-canary","name":"preview","parent_id":env}),
+        json!({"project":"project-canary","name":"preview","parentId":env}),
     )
     .await;
     assert_eq!(status, 200);
@@ -155,7 +155,7 @@ async fn shadow_environment_is_project_scoped_and_does_not_start_workloads(pool:
         &pool,
         "POST",
         "/api/environments",
-        json!({"project":"unrelated","name":"preview","parent_id":env}),
+        json!({"project":"unrelated","name":"preview","parentId":env}),
     )
     .await;
     assert_eq!(status, 409);
@@ -180,7 +180,7 @@ async fn shadow_environment_is_project_scoped_and_does_not_start_workloads(pool:
             .as_array()
             .unwrap()
             .iter()
-            .any(|e| e["action"] == "services.insert" && e["target_id"] == service.to_string())
+            .any(|e| e["action"] == "services.insert" && e["targetId"] == service.to_string())
     );
     assert!(
         sqlx::query("DELETE FROM audit_log")
@@ -210,7 +210,7 @@ async fn secret_shadow_overrides_and_snapshots_remain_immutable(pool: PgPool) {
         &pool,
         "PUT",
         &secret_path,
-        json!({"name":"DATABASE_URL","value":parent_value,"expected_version":0}),
+        json!({"name":"DATABASE_URL","value":parent_value,"expectedVersion":0}),
     )
     .await;
     assert_eq!(status, 200);
@@ -218,7 +218,7 @@ async fn secret_shadow_overrides_and_snapshots_remain_immutable(pool: PgPool) {
         &pool,
         "POST",
         "/api/environments",
-        json!({"project":"project-canary","name":"preview","parent_id":env}),
+        json!({"project":"project-canary","name":"preview","parentId":env}),
     )
     .await;
     let child_env: Uuid = shadow["id"].as_str().unwrap().parse().unwrap();
@@ -254,7 +254,7 @@ async fn secret_shadow_overrides_and_snapshots_remain_immutable(pool: PgPool) {
         &pool,
         "PUT",
         &format!("/api/services/{child}/secrets"),
-        json!({"name":"DATABASE_URL","value":override_value,"expected_version":0}),
+        json!({"name":"DATABASE_URL","value":override_value,"expectedVersion":0}),
     )
     .await;
     assert_eq!(status, 200);
@@ -287,7 +287,7 @@ async fn secret_shadow_overrides_and_snapshots_remain_immutable(pool: PgPool) {
         &pool,
         "POST",
         "/api/agent/secrets",
-        json!({"node_id":Uuid::new_v4(),"instance_id":Uuid::new_v4(),"generation":1}),
+        json!({"nodeId":Uuid::new_v4(),"instanceId":Uuid::new_v4(),"generation":1}),
     )
     .await;
     assert_eq!(status, 401);
@@ -315,7 +315,7 @@ async fn audit_records_actions_but_not_http_traffic(pool: PgPool) {
             .as_array()
             .unwrap()
             .iter()
-            .all(|entry| entry["target_type"] != "request")
+            .all(|entry| entry["targetType"] != "request")
     );
     let (status, page) = request(
         &pool,
@@ -339,7 +339,7 @@ async fn audit_records_actions_but_not_http_traffic(pool: PgPool) {
             .as_array()
             .unwrap()
             .iter()
-            .any(|entry| entry["target_id"] == service.to_string())
+            .any(|entry| entry["targetId"] == service.to_string())
     );
 }
 
@@ -352,7 +352,7 @@ async fn rename_updates_current_specs_preserves_ids_and_checks_stale_names(pool:
         &pool,
         "PUT",
         &path,
-        json!({"name":"renamed-canary","expected_name":"project-canary"}),
+        json!({"name":"renamed-canary","expectedName":"project-canary"}),
     )
     .await;
     assert_eq!(status, 200);
@@ -381,7 +381,7 @@ async fn rename_updates_current_specs_preserves_ids_and_checks_stale_names(pool:
         &pool,
         "PUT",
         &path,
-        json!({"name":"overwritten","expected_name":"project-canary"}),
+        json!({"name":"overwritten","expectedName":"project-canary"}),
     )
     .await;
     assert_eq!(status, 409);
@@ -389,7 +389,7 @@ async fn rename_updates_current_specs_preserves_ids_and_checks_stale_names(pool:
     assert_eq!(results["items"].as_array().unwrap().len(), 2);
     let (_, overview) = request(&pool, "GET", "/api/overview", Value::Null).await;
     assert_eq!(overview["summary"]["services"], 1);
-    assert_eq!(overview["summary"]["ready_instances"], 0);
+    assert_eq!(overview["summary"]["readyInstances"], 0);
     assert_eq!(overview["deployments"], json!([]));
     let (status, hosts) = request(&pool, "GET", "/api/hosts", Value::Null).await;
     assert_eq!(status, 200);
@@ -433,7 +433,7 @@ async fn global_domains_normalize_reassign_and_audit_without_claiming_live_routi
             &pool,
             "PUT",
             path,
-            json!({"service_id":service,"expected_version":1})
+            json!({"serviceId":service,"expectedVersion":1})
         )
         .await
         .0,
@@ -444,22 +444,22 @@ async fn global_domains_normalize_reassign_and_audit_without_claiming_live_routi
             &pool,
             "PUT",
             path,
-            json!({"service_id":null,"expected_version":1})
+            json!({"serviceId":null,"expectedVersion":1})
         )
         .await
         .0,
         409
     );
     let (_, domains) = request(&pool, "GET", "/api/domains", Value::Null).await;
-    assert_eq!(domains["edge_ready"], false);
-    assert_eq!(domains["items"][0]["service_id"], json!(service));
+    assert_eq!(domains["edgeReady"], false);
+    assert_eq!(domains["items"][0]["serviceId"], json!(service));
     assert_eq!(domains["items"][0]["status"], "pending-edge");
     assert_eq!(
         request(
             &pool,
             "PUT",
             path,
-            json!({"service_id":null,"expected_version":2})
+            json!({"serviceId":null,"expectedVersion":2})
         )
         .await
         .0,
@@ -468,7 +468,7 @@ async fn global_domains_normalize_reassign_and_audit_without_claiming_live_routi
     let audit:Value=sqlx::query_scalar("SELECT details FROM audit_log WHERE target_type='domains' AND action='domains.update' ORDER BY sequence DESC LIMIT 1").fetch_one(&pool).await.unwrap();
     assert_eq!(audit["hostname"], "app.example.com");
     assert_eq!(audit["previous_service_id"], json!(service));
-    assert!(audit["service_id"].is_null());
+    assert!(audit["serviceId"].is_null());
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -481,7 +481,7 @@ async fn private_url_auto_allocation_preserves_existing_url_and_disables_cleanly
         &pool,
         "PUT",
         &path,
-        json!({"enabled":true,"port":3000,"expected_version":1}),
+        json!({"enabled":true,"port":3000,"expectedVersion":1}),
     )
     .await;
     if before["available"].as_array().unwrap().is_empty() {
@@ -499,7 +499,7 @@ async fn private_url_auto_allocation_preserves_existing_url_and_disables_cleanly
         &pool,
         "PUT",
         &path,
-        json!({"enabled":true,"port":3000,"expected_version":2}),
+        json!({"enabled":true,"port":3000,"expectedVersion":2}),
     )
     .await;
     assert_eq!(status, 200);
@@ -509,7 +509,7 @@ async fn private_url_auto_allocation_preserves_existing_url_and_disables_cleanly
             &pool,
             "PUT",
             &path,
-            json!({"enabled":false,"port":3000,"expected_version":3})
+            json!({"enabled":false,"port":3000,"expectedVersion":3})
         )
         .await
         .0,

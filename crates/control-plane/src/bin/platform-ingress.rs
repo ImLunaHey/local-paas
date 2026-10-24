@@ -3,9 +3,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("control_plane=info")
-        .init();
+    platform_telemetry::init()?;
     let pool = PgPoolOptions::new()
         .max_connections(3)
         .acquire_timeout(Duration::from_secs(2))

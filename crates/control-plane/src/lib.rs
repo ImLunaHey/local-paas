@@ -1,3 +1,5 @@
+mod http_errors;
+pub mod openapi;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, Query, Request, State},
@@ -45,6 +47,7 @@ mod volumes;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
+        .route("/api/openapi.json", get(openapi::document))
         .route("/api/health", get(health))
         .route(
             "/api/source-uploads",
@@ -175,7 +178,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                 if !local_host {
                     return (
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error":"local Host header required"})),
+                        Json(json!({"code":"forbidden","error":"local Host header required"})),
                     )
                         .into_response();
                 }
@@ -188,7 +191,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                 }) {
                     return (
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error":"untrusted browser origin"})),
+                        Json(json!({"code":"forbidden","error":"untrusted browser origin"})),
                     )
                         .into_response();
                 }
@@ -210,19 +213,52 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
             pool.clone(),
             audit::record_action,
         ))
+        .layer(middleware::from_fn(http_errors::normalize))
         .with_state(pool)
+}
+
+/// Application processes verify the exact deployed schema without issuing DDL.
+pub async fn check_migrations(pool: &PgPool) -> Result<(), &'static str> {
+    let applied: Vec<(i64, Vec<u8>, bool)> =
+        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .map_err(|_| "database migrations unavailable; run platform-migrate")?;
+    let expected = sqlx::migrate!();
+    if applied.len() != expected.iter().count()
+        || applied
+            .iter()
+            .zip(expected.iter())
+            .any(|((version, checksum, success), migration)| {
+                !success
+                    || *version != migration.version
+                    || checksum.as_slice() != migration.checksum.as_ref()
+            })
+    {
+        return Err(
+            "database schema does not match this release; run platform-migrate or restore a compatible release",
+        );
+    }
+    Ok(())
 }
 
 pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!().run(pool).await
 }
 
+#[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("valid workload identity required")]
     Unauthorized,
+    #[error("invalid service specification")]
     Invalid(Vec<ValidationIssue>),
+    #[error("{0}")]
     Conflict(&'static str),
+    #[error("resource not found")]
     NotFound,
+    #[error("database operation unavailable")]
     Database,
+    #[error("{0}")]
     Unavailable(&'static str),
 }
 
@@ -243,7 +279,15 @@ impl From<sqlx::Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, value) = match self {
+        let code = match &self {
+            Self::Unauthorized => "unauthorized",
+            Self::Invalid(_) => "validation_failed",
+            Self::Conflict(_) => "conflict",
+            Self::NotFound => "not_found",
+            Self::Database => "database_unavailable",
+            Self::Unavailable(_) => "dependency_unavailable",
+        };
+        let (status, mut value) = match self {
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 json!({"error":"valid workload identity required"}),
@@ -262,21 +306,25 @@ impl IntoResponse for ApiError {
                 json!({"error":"Could not access the platform database. Please try again shortly."}),
             ),
         };
+        value["code"] = json!(code);
         (status, Json(value)).into_response()
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Service {
     pub id: Uuid,
     pub operation_id: Uuid,
     pub version: i32,
+    #[schema(value_type = ServiceSpec)]
     pub spec: DbJson<ServiceSpec>,
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateService {
     pub operation_id: Uuid,
     pub spec: ServiceSpec,
@@ -287,6 +335,7 @@ fn default_build_on_create() -> bool {
     true
 }
 
+#[utoipa::path(get, path = "/api/health", responses((status = 200, body = Object)), operation_id = "getHealth")]
 async fn health(State(pool): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&pool).await?;
     Ok(Json(
@@ -294,6 +343,7 @@ async fn health(State(pool): State<PgPool>) -> Result<Json<serde_json::Value>, A
     ))
 }
 
+#[utoipa::path(post, path = "/api/specs/validate", request_body = ServiceSpec, responses((status = 200, body = Object), (status = 422, body = openapi::ErrorResponse)), operation_id = "validateServiceSpec")]
 async fn validate_spec(Json(spec): Json<ServiceSpec>) -> Result<Json<serde_json::Value>, ApiError> {
     spec.validate().map_err(ApiError::Invalid)?;
     Ok(Json(json!({"valid":true})))
@@ -307,34 +357,32 @@ struct Pagination {
     environment: Option<String>,
 }
 
+#[utoipa::path(get, path = "/api/services", params(("offset" = Option<u32>, Query), ("project" = Option<String>, Query), ("environment" = Option<String>, Query)), responses((status = 200, body = openapi::ServiceList)), operation_id = "listServices")]
 async fn list_services(
     State(pool): State<PgPool>,
     Query(page): Query<Pagination>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let items = sqlx::query_as::<_, Service>("SELECT id, operation_id, spec, created_at, version FROM services WHERE ($2::text IS NULL OR spec->>'project'=$2) AND ($3::text IS NULL OR spec->>'environment'=$3) ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1")
-        .bind(i64::from(page.offset)).bind(&page.project).bind(&page.environment).fetch_all(&pool).await?;
-    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM services WHERE ($1::text IS NULL OR spec->>'project'=$1) AND ($2::text IS NULL OR spec->>'environment'=$2)")
-        .bind(&page.project).bind(&page.environment)
+    let items = sqlx::query_as!(Service, r#"SELECT id, operation_id, spec AS "spec: _", created_at, version FROM services WHERE ($2::text IS NULL OR spec->>'project'=$2) AND ($3::text IS NULL OR spec->>'environment'=$3) ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1"#, i64::from(page.offset), page.project.as_deref(), page.environment.as_deref()).fetch_all(&pool).await?;
+    let total: i64 = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM services WHERE ($1::text IS NULL OR spec->>'project'=$1) AND ($2::text IS NULL OR spec->>'environment'=$2)"#, page.project.as_deref(), page.environment.as_deref())
         .fetch_one(&pool)
         .await?;
     Ok(Json(json!({"items":items,"total":total})))
 }
 
+#[utoipa::path(get, path = "/api/services/{id}", params(("id" = Uuid, Path)), responses((status = 200, body = Service), (status = 404, body = openapi::ErrorResponse)), operation_id = "getService")]
 async fn get_service(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Service>, ApiError> {
-    sqlx::query_as::<_, Service>(
-        "SELECT id, operation_id, spec, created_at, version FROM services WHERE id = $1",
-    )
-    .bind(id)
+    sqlx::query_as!(Service, r#"SELECT id, operation_id, spec AS "spec: _", created_at, version FROM services WHERE id = $1"#, id)
     .fetch_optional(&pool)
     .await?
     .map(Json)
     .ok_or(ApiError::NotFound)
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 struct Event {
     id: Uuid,
     operation_id: Uuid,
@@ -342,21 +390,24 @@ struct Event {
     created_at: DateTime<Utc>,
 }
 
+#[utoipa::path(get, path = "/api/services/{id}/events", params(("id" = Uuid, Path)), responses((status = 200, body = Vec<Event>)), operation_id = "listServiceEvents")]
 async fn list_events(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<Event>>, ApiError> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM services WHERE id = $1)")
-        .bind(id)
-        .fetch_one(&pool)
-        .await?;
+    let exists: bool = sqlx::query_scalar!(
+        r#"SELECT EXISTS(SELECT 1 FROM services WHERE id = $1) AS "exists!""#,
+        id
+    )
+    .fetch_one(&pool)
+    .await?;
     if !exists {
         return Err(ApiError::NotFound);
     }
-    Ok(Json(sqlx::query_as::<_, Event>("SELECT id, operation_id, kind, created_at FROM events WHERE service_id = $1 ORDER BY created_at DESC, id DESC LIMIT 100")
-        .bind(id).fetch_all(&pool).await?))
+    Ok(Json(sqlx::query_as!(Event, "SELECT id, operation_id, kind, created_at FROM events WHERE service_id = $1 ORDER BY created_at DESC, id DESC LIMIT 100", id).fetch_all(&pool).await?))
 }
 
+#[utoipa::path(post, path = "/api/services", request_body = CreateService, responses((status = 201, body = Service), (status = 422, body = openapi::ErrorResponse)), operation_id = "createService")]
 async fn create_service(
     State(pool): State<PgPool>,
     Json(request): Json<CreateService>,
@@ -394,17 +445,17 @@ async fn create_service(
         return Ok((StatusCode::OK, Json(existing)));
     }
     let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::new_v4()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::new_v4()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
     let service = sqlx::query_as::<_, Service>("INSERT INTO services (id, environment_id, name, kind, operation_id, spec, registered_spec) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, operation_id, spec, created_at, version")
-        .bind(Uuid::new_v4()).bind(environment_id).bind(&request.spec.name).bind(request.spec.kind())
+        .bind(Uuid::now_v7()).bind(environment_id).bind(&request.spec.name).bind(request.spec.kind())
         .bind(request.operation_id).bind(DbJson(&request.spec)).fetch_one(&mut *tx).await?;
     domains::assign_service(&mut tx, service.id, &request.spec.domains).await?;
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind) VALUES ($1, $2, $3, 'service.registered')")
-        .bind(Uuid::new_v4()).bind(service.id).bind(request.operation_id).execute(&mut *tx).await?;
+        .bind(Uuid::now_v7()).bind(service.id).bind(request.operation_id).execute(&mut *tx).await?;
     if request.build_on_create && service.spec.kind() != "celld-service" {
-        let build_id = Uuid::new_v4();
+        let build_id = Uuid::now_v7();
         let build_request = builds::CreateBuild {
             operation_id: request.operation_id,
             no_cache: false,
@@ -416,7 +467,7 @@ async fn create_service(
             .bind(build_id).bind(service.id).bind(request.operation_id).bind(&service.spec)
             .bind(&service.spec.source.commit).bind(DbJson(&build_request)).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO events(id,service_id,operation_id,kind,build_id) VALUES($1,$2,$3,'build.queued',$4)")
-            .bind(Uuid::new_v4()).bind(service.id).bind(request.operation_id).bind(build_id).execute(&mut *tx).await?;
+            .bind(Uuid::now_v7()).bind(service.id).bind(request.operation_id).bind(build_id).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(service)))

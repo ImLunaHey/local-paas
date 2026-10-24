@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_jsonb(result) AS \"value!\" FROM (SELECT 'project' AS kind,p.id,p.name,p.id AS \"projectId\",p.name AS project,NULL::text AS environment FROM projects p WHERE strpos(lower(p.name),lower($1))>0 UNION ALL SELECT 'service',s.id,s.name,p.id,p.name,e.name FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE strpos(lower(s.name||' '||p.name||' '||e.name),lower($1))>0 ORDER BY kind,name LIMIT 30) result",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "84ed17c1e23ec4800348ee79c39ab690379dc972518df2f405d89e887e656d60"
+}

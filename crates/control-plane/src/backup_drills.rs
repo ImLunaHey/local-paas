@@ -89,7 +89,7 @@ async fn postgres_dump_restores_into_an_independent_database() {
         .await
         .map_err(|_| "canary connection failed")
         .unwrap();
-    let suffix = Uuid::new_v4().simple().to_string();
+    let suffix = Uuid::now_v7().simple().to_string();
     let table = format!("backup_canary_{suffix}");
     let restored_database = format!("restore_canary_{suffix}");
     // Private temporary archive; no credentials in URLs, argv, files or test output.
@@ -197,7 +197,7 @@ async fn redis_serialized_key_restores_under_a_new_name() {
         .await
         .map_err(|_| "canary connection failed")
         .unwrap();
-    let key = format!("backup-canary:{}", Uuid::new_v4().simple());
+    let key = format!("backup-canary:{}", Uuid::now_v7().simple());
     let restored = format!("{key}:restored");
     let result: Result<(), &'static str> = async {
         let _: () = redis::cmd("SET")

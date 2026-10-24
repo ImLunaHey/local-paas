@@ -172,7 +172,17 @@ fn execute(
             if task.expires_unix_ms < now() {
                 return Err("expired");
             }
-            fs::linkat(&file, "", &dir, name, AtFlags::EMPTY_PATH).map_err(|e| {
+            // Resolve only our open staging inode through procfs. Unlike AT_EMPTY_PATH,
+            // this works without CAP_DAC_READ_SEARCH on older Linux kernels.
+            // The destination remains fd-relative and linkat never replaces it.
+            fs::linkat(
+                rustix::fs::CWD,
+                format!("/proc/self/fd/{}", file.as_raw_fd()),
+                &dir,
+                name,
+                AtFlags::SYMLINK_FOLLOW,
+            )
+            .map_err(|e| {
                 if e == rustix::io::Errno::EXIST {
                     "already_exists"
                 } else {
@@ -248,8 +258,8 @@ mod tests {
     use super::*;
     fn task(path: &str, action: FileAction) -> FileTask {
         FileTask {
-            id: uuid::Uuid::new_v4(),
-            volume_id: uuid::Uuid::new_v4(),
+            id: uuid::Uuid::now_v7(),
+            volume_id: uuid::Uuid::now_v7(),
             read_only: false,
             expires_unix_ms: now() + 30000,
             path: path.into(),

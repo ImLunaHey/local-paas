@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Options {
     pub command: Vec<String>,
     pub timeout_seconds: u32,
@@ -37,6 +38,7 @@ impl Options {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct RunRequest {
     pub operation_id: Uuid,
     pub revision_id: Uuid,
@@ -153,12 +155,12 @@ async fn enqueue(
     } else {
         None
     };
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,job_options,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code) VALUES($1,$2,$3,$4,$5,'job',$6,$7,true,$8,$9,'waiting_for_capacity')").bind(id).bind(operation).bind(service_id).bind(revision).bind(DbJson(spec)).bind(DbJson(options)).bind(secret_version).bind(ports).bind(size).execute(&mut **tx).await?;
     sqlx::query(
         "INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'job.requested')",
     )
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .bind(service_id)
     .bind(operation)
     .execute(&mut **tx)
@@ -171,13 +173,13 @@ pub async fn list(
     Path(service): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     crate::runtime::service_exists(&pool, service).await?;
-    let runs: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revision_id',d.revision_id,'options',d.job_options,'status',CASE WHEN d.status<>'job' THEN d.status WHEN i.id IS NULL THEN 'queued' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' OR i.state='unknown' THEN 'unknown' WHEN i.state='assigned' THEN 'assigned' ELSE 'running' END,'result',d.job_result,'error_code',d.error_code,'created_at',d.created_at,'completed_at',d.completed_at,'instance_id',i.id,'node',n.name,'cleanup_pending',coalesce(i.desired_state='stopped' AND i.state<>'stopped',false)) FROM deployments d LEFT JOIN instances i ON i.deployment_id=d.id LEFT JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND d.job_options IS NOT NULL ORDER BY d.created_at DESC LIMIT 50").bind(service).fetch_all(&pool).await?;
+    let runs: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'options',d.job_options,'status',CASE WHEN d.status<>'job' THEN d.status WHEN i.id IS NULL THEN 'queued' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' OR i.state='unknown' THEN 'unknown' WHEN i.state='assigned' THEN 'assigned' ELSE 'running' END,'result',d.job_result,'errorCode',d.error_code,'createdAt',d.created_at,'completedAt',d.completed_at,'instanceId',i.id,'node',n.name,'cleanupPending',coalesce(i.desired_state='stopped' AND i.state<>'stopped',false)) FROM deployments d LEFT JOIN instances i ON i.deployment_id=d.id LEFT JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND d.job_options IS NOT NULL ORDER BY d.created_at DESC LIMIT 50").bind(service).fetch_all(&pool).await?;
     let schedule: Option<DbJson<Value>> =
-        sqlx::query_scalar("SELECT to_jsonb(s) FROM job_schedules s WHERE service_id=$1")
+        sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'serviceId',s.service_id,'operationId',s.operation_id,'version',s.version,'revisionId',s.revision_id,'options',s.options,'intervalMinutes',s.interval_minutes,'status',s.status,'nextRunAt',s.next_run_at,'updatedAt',s.updated_at) FROM job_schedules s WHERE service_id=$1")
             .bind(service)
             .fetch_optional(&pool)
             .await?;
-    let occurrences: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT to_jsonb(o) FROM job_occurrences o WHERE service_id=$1 ORDER BY scheduled_at DESC LIMIT 20").bind(service).fetch_all(&pool).await?;
+    let occurrences: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',o.id,'serviceId',o.service_id,'scheduleId',o.schedule_id,'scheduledAt',o.scheduled_at,'deploymentId',o.deployment_id,'skippedCount',o.skipped_count,'createdAt',o.created_at,'status',o.status) FROM job_occurrences o WHERE service_id=$1 ORDER BY scheduled_at DESC LIMIT 20").bind(service).fetch_all(&pool).await?;
     Ok(Json(
         json!({"runs":runs,"schedule":schedule,"occurrences":occurrences}),
     ))
@@ -185,6 +187,7 @@ pub async fn list(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ScheduleRequest {
     pub operation_id: Uuid,
     pub version: i64,
@@ -261,7 +264,7 @@ pub async fn tick(pool: &PgPool) -> Result<(), ApiError> {
         let elapsed = (now - scheduled).num_seconds();
         let skipped = elapsed / interval;
         let next = scheduled + chrono::Duration::seconds((skipped + 1) * interval);
-        let occurrence = Uuid::new_v4();
+        let occurrence = Uuid::now_v7();
         let (status, run) = if elapsed > 30 {
             ("skipped_missed", None)
         } else if occupied(&mut tx, id).await? {
@@ -347,7 +350,7 @@ pub async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::E
                 .execute(&mut **tx)
                 .await?;
         }
-        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::new_v4()).bind(id).bind(node).bind(slot).execute(&mut **tx).await?;
+        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::now_v7()).bind(id).bind(node).bind(slot).execute(&mut **tx).await?;
         let options = row.get::<DbJson<Options>, _>("job_options").0;
         sqlx::query("UPDATE deployments SET error_code=NULL,deadline=clock_timestamp()+make_interval(secs=>$2) WHERE id=$1").bind(id).bind(f64::from(options.timeout_seconds)).execute(&mut **tx).await?;
     }

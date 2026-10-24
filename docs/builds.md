@@ -1,7 +1,7 @@
 # Image builds and the isolated development builder
 
 For a complete fresh-host installation use [install.md](install.md). The manual
-commands below are component operations and historical Lake qualification notes.
+commands below are component operations and opt-in qualification checks.
 
 Registration saves configuration. **Queue build** snapshots that configuration,
 optionally overrides its branch, tag or commit for this build, and writes a durable PostgreSQL
@@ -27,7 +27,7 @@ create revisions. An interrupted push may leave an unreferenced registry image.
 Sources specify exactly one of `commit`, `branch` or `tag`. Branch/tag names are
 short names (for example `main`, `feature/forms`, `v1.2.3`), not `refs/…`. The
 worker resolves the exact `refs/heads/…` or `refs/tags/…` advertisement when it
-claims a build, peels annotated tags, and stores `resolved_commit` under the job's
+claims a build, peels annotated tags, and stores `resolvedCommit` under the job's
 lease before execution. A later branch/tag move cannot change that job or revision;
 a new build resolves the current ref again. Missing refs fail without a revision.
 Revision specs contain only the resolved commit; build specs retain the requested
@@ -70,7 +70,7 @@ that file is absent. Generation is based on `package.json` in the build context,
 so a standalone app in a subdirectory works by setting `context` accordingly.
 An existing Dockerfile that fails to build is never replaced as a retry strategy.
 
-The Configuration tab also accepts `build_command` and `start_command`.
+The Configuration tab also accepts `buildCommand` and `startCommand`.
 Blank fields use `scripts.build` (if present) and `scripts.start` respectively.
 A custom start command allows an app without `scripts.start`. Custom commands
 select generation even in automatic mode; select `generated` to explicitly
@@ -110,7 +110,7 @@ proxy environment or host checkout. Other allowlisted Git hosts can use
 Dockerfile-only mode. Only a definitive missing-file response permits fallback;
 network errors do not. Package scripts never run during inspection.
 
-The worker persists the exact `build_plan` before invoking BuildKit, with lease
+The worker persists the exact `buildPlan` before invoking BuildKit, with lease
 fencing and an audit event. The build details show the saved generated Dockerfile,
 including after a failed build. Source checkout stays in the isolated VM. For a
 generated build, buildctl shares only a fresh tmpfs directory containing the
@@ -149,12 +149,11 @@ before cancellation is persisted.
 
 These explicit component provisioning commands create a
 dedicated host system user, task-specific nftables table and transient systemd
-service. They do not rebuild Lake or provision the three workload workers.
+service. They do not reconfigure the host or provision the three workload workers.
 
 Recheck memory, load and NVMe headroom before starting. This experiment uses two
 vCPUs, 3 GiB guest RAM, a 4 GiB host cgroup limit, 200% CPU quota and a 16 GiB
-virtual disk. State resides at `/var/lib/local-paas-builder` on Lake's root NVMe;
-the degraded ZFS pool is not used.
+virtual disk. State resides at `/var/lib/local-paas-builder` on the host. Use healthy, suitable local storage.
 
 ```sh
 nix build path:./infra/builder#tools -o .local/builder-tools
@@ -196,14 +195,13 @@ Start the Rust worker after the VM is ready:
 bash infra/builder/worker.sh
 ```
 
-On Lake, this worker is currently running as the transient user unit
+The development launcher runs the worker as the transient user unit
 `local-paas-build-worker`. Inspect it with `systemctl --user status
 local-paas-build-worker`; stop it before browser queue tests with `systemctl
 --user stop local-paas-build-worker`. Recreate it afterward with `bash
 infra/builder/worker.sh` (a collected transient unit cannot be restarted with
 `systemctl start`). Do not stop the shared worker while someone has queued builds;
-use a separate test database and worker for queue tests. In non-login shells on Lake, prefix these
-commands with `XDG_RUNTIME_DIR=/run/user/1000`. The VM itself is a separate system
+use a separate test database and worker for queue tests. The VM itself is a separate system
 unit, operated with `sudo systemctl` as shown below.
 
 The UI reports the worker heartbeat, not a guarantee of daemon/registry health.
@@ -237,9 +235,9 @@ production gate. There is no production backup guarantee for this builder.
 
 ## API and verification
 
-- `POST /api/services/{id}/builds`: `operation_id`, optional source override (one of `commit`, `branch`, `tag`), `no_cache`.
+- `POST /api/services/{id}/builds`: `operationId`, optional source override (one of `commit`, `branch`, `tag`), `noCache`.
 - `GET /api/services/{id}/builds`: latest 50 jobs.
-- `GET /api/builds/{id}`: state, immutable source snapshot and `resolved_commit`.
+- `GET /api/builds/{id}`: state, immutable source snapshot and `resolvedCommit`.
 - `POST /api/builds/{id}/cancel`: idempotent cancellation request.
 - `GET /api/builds/{id}/logs?after=0`: up to 128 chunks, next cursor, truncation flag.
 - `GET /api/services/{id}/revisions`: successful image digests and build IDs.
@@ -266,18 +264,9 @@ The fixture probes a CGNAT address as a denied-network canary; no personal
 tailnet address is required. Set `E2E_COMPLETED_BUILD_SERVICE_ID` to the build
 canary service UUID to additionally verify its actual logs/digest in the browser.
 
-Verified on Lake on 2026-10-23: real Git → VM build → registry push → persisted
-revision, registry manifest body matching its recorded SHA-256, mTLS rejecting a
-client without a certificate, the Rust Dockerfile isolation test, cancellation
-of a running job, and worker SIGKILL leading to lease expiry without a revision.
-Rust checks, PostgreSQL integration tests and Tailscale browser tests passed.
-Additional coverage checks configuration conflicts/retries, immutable queued
-snapshots, branch/tag resolution, cancellation/lease fencing and pinned revisions.
-A hello-world `master` branch build and a Traefik whoami `v1.11.0` tag build
-both completed in the isolated VM; registry manifest hashes matched the stored
-digests and revision specs contained the resolved commits. These are build
-fixtures only; no instances were started. Showcase Studio's registered commit fetched successfully but failed
-because its root Dockerfile is absent; its service configuration was preserved.
+The opt-in VM suite checks remote Git checkout, immutable registry digests, mTLS,
+network isolation, cancellation and worker lease expiry. Run it against a dedicated
+test builder; a passing unit suite does not prove these infrastructure properties.
 
 `examples/build-canary.json` pins Docker's tiny scratch-based hello-world image.
 It exercises remote Git checkout, separate context/Dockerfile paths, push and
@@ -296,7 +285,7 @@ it as the Railway web canary.
 Git ref contracts: [ls-remote](https://git-scm.com/docs/git-ls-remote),
 [check-ref-format](https://git-scm.com/docs/git-check-ref-format).
 
-Generated build references: [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/),
+Generated build references: [pnpm install --frozen-lockfile](https://docs.npmjs.com/cli/v11/commands/npm-ci/),
 [npm start](https://docs.npmjs.com/cli/v11/commands/npm-start/),
 [pnpm install](https://pnpm.io/cli/install), [Yarn install](https://yarnpkg.com/cli/install),
 [BuildKit Dockerfile selection](https://github.com/moby/buildkit/blob/v0.30.0/frontend/dockerui/config.go).

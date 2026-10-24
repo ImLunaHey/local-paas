@@ -1,19 +1,20 @@
+import type { Project } from './workspace-types'
+import { useWorkspaceBreadcrumbs } from './use-workspace-breadcrumbs'
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate, useParams, useRouterState, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
-import { api, serviceQuery, type Service } from './api'
-import { projectsQuery } from './projects'
-import { Button, Field, Select } from './ui'
-interface Project {
-  id: string
-  name: string
-  environments: { id: string; name: string }[]
-}
+import { api } from './api-client'
+
+import { projectsQuery } from './projects-query'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Select } from './components/select'
+
 export function CreationScope({ children }: { children: ReactNode }) {
   const search = useSearch({ strict: false }) as { project?: string; environment?: string }
-  const navigate = useNavigate(),
-    projects = useQuery(projectsQuery)
+  const navigate = useNavigate()
+  const projects = useQuery(projectsQuery)
   const [chosen, setChosen] = useState('')
   const selected = projects.data?.items.find((p) => p.name === search.project)
   const id = chosen || selected?.id || ''
@@ -101,83 +102,13 @@ export function CreationScope({ children }: { children: ReactNode }) {
   )
 }
 export function WorkspaceBreadcrumbs() {
-  const params = useParams({ strict: false }) as { projectId?: string; serviceId?: string }
-  const search = useSearch({ strict: false }) as { project?: string; environment?: string }
-  const path = useRouterState({ select: (s) => s.location.pathname })
-  const navigate = useNavigate()
-  const service = useQuery({ ...serviceQuery(params.serviceId ?? ''), enabled: !!params.serviceId })
-  const projects = useQuery({
-    ...projectsQuery,
-    enabled: !!params.serviceId || path === '/services/new',
-  })
-  const name = service.data?.spec.project ?? search.project
-  const id = params.projectId ?? projects.data?.items.find((p) => p.name === name)?.id ?? ''
-  const project = useQuery({
-    queryKey: ['projects', id],
-    queryFn: () => api<Project>('/projects/' + id),
-    enabled: !!id,
-  })
-  const env =
-    service.data?.spec.environment ??
-    search.environment ??
-    project.data?.environments.find((e) => e.name === 'production')?.name ??
-    project.data?.environments[0]?.name ??
-    ''
-  const [switching, setSwitching] = useState(false),
-    [error, setError] = useState('')
-  async function change(environment: string) {
-    setSwitching(true)
-    setError('')
-    try {
-      if (path === '/services/new')
-        await navigate({
-          to: '/services/new',
-          search: { project: project.data!.name, environment },
-        })
-      else if (service.data) {
-        const results = await api<{ items: Service[] }>(
-          '/services?' + new URLSearchParams({ project: project.data!.name, environment }),
-        )
-        const sibling = results.items.find((s) => s.spec.name === service.data!.spec.name)
-        if (sibling)
-          await navigate({
-            to: '/services/$serviceId/' + (path.split('/')[3] ?? 'builds'),
-            params: { serviceId: sibling.id },
-          })
-        else
-          await navigate({
-            to: '/projects/$projectId',
-            params: { projectId: id },
-            search: { environment },
-          })
-      } else
-        await navigate({
-          to: '/projects/$projectId',
-          params: { projectId: id },
-          search: { environment },
-        })
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setSwitching(false)
-    }
-  }
+  const { path, service, id, project, env, switching, error, change } = useWorkspaceBreadcrumbs()
   if (!project.data)
     return (
       <span className="flex items-center gap-2">
         <span className="text-muted">Workspace</span>
         <ChevronRight size={13} />
-        {path === '/'
-          ? 'Overview'
-          : path === '/nodes'
-            ? 'Nodes'
-            : path === '/hosts'
-              ? 'Hosts'
-              : path === '/domains'
-                ? 'Domains'
-                : path === '/audit'
-                  ? 'Audit log'
-                  : 'Projects'}
+        {workspaceLabel(path)}
       </span>
     )
   return (
@@ -229,4 +160,15 @@ export function WorkspaceBreadcrumbs() {
       )}
     </div>
   )
+}
+
+function workspaceLabel(path: string) {
+  const labels: Record<string, string> = {
+    '/': 'Overview',
+    '/nodes': 'Nodes',
+    '/hosts': 'Hosts',
+    '/domains': 'Domains',
+    '/audit': 'Audit log',
+  }
+  return labels[path] ?? 'Projects'
 }

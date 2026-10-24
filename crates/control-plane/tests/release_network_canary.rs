@@ -29,7 +29,7 @@ async fn build(c: &Client, service: Uuid) -> Result<Uuid, String> {
         c,
         Method::POST,
         &format!("/services/{service}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        json!({"operationId":Uuid::new_v4(),"noCache":false}),
     )
     .await?;
     let build = id(&b);
@@ -45,7 +45,7 @@ async fn build(c: &Client, service: Uuid) -> Result<Uuid, String> {
             .as_array()
             .unwrap()
             .iter()
-            .find(|r| r["build_id"] == build.to_string())
+            .find(|r| r["buildId"] == build.to_string())
         {
             return Ok(id(r));
         }
@@ -54,7 +54,7 @@ async fn build(c: &Client, service: Uuid) -> Result<Uuid, String> {
             b["status"].as_str(),
             Some("failed" | "cancelled" | "interrupted")
         ) {
-            return Err(format!("build {build} failed: {}", b["error_code"]));
+            return Err(format!("build {build} failed: {}", b["errorCode"]));
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
@@ -67,13 +67,13 @@ async fn configure(c: &Client, service: Uuid, edit: impl FnOnce(&mut Value)) -> 
         c,
         Method::PUT,
         &format!("/services/{service}"),
-        json!({"operation_id":Uuid::new_v4(),"expected_version":s["version"],"spec":s["spec"]}),
+        json!({"operationId":Uuid::new_v4(),"expectedVersion":s["version"],"spec":s["spec"]}),
     )
     .await?;
     Ok(())
 }
 async fn deploy(c: &Client, service: Uuid, revision: Uuid) -> Result<Uuid, String> {
-    let body = json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
+    let body = json!({"operationId":Uuid::new_v4(),"revisionId":revision});
     let d = api(
         c,
         Method::POST,
@@ -169,8 +169,8 @@ async fn real_build_options_release_gates_and_private_connections() {
     let result:Result<(),String>=async {
         let stamp=chrono::Utc::now().timestamp_millis();
         for name in ["upstream","client"] {
-            let spec=json!({"schema_version":1,"project":"platform-release-canary","environment":"production","name":format!("{name}-{stamp}"),"source":{"upload":uploaded["digest"]},"resources":{"cpu_millis":50,"memory_mib":32},"distinct_nodes":false,"domains":[],"secrets":[],"workload":{"kind":"oci-service","build_mode":"dockerfile","dockerfile":"Dockerfile","context":".","build_args":{"CANARY_LABEL":"release-v1"},"build_target":"app","replicas":1,"port":3000,"readiness":{"path":"/","interval_seconds":1,"stabilization_seconds":2}}});
-            let s=api(&c,Method::POST,"/services",json!({"operation_id":Uuid::new_v4(),"spec":spec,"build_on_create":false})).await?;services.push(id(&s));
+            let spec=json!({"schemaVersion":1,"project":"platform-release-canary","environment":"production","name":format!("{name}-{stamp}"),"source":{"upload":uploaded["digest"]},"resources":{"cpuMillis":50,"memoryMib":32},"distinctNodes":false,"domains":[],"secrets":[],"workload":{"kind":"oci-service","buildMode":"dockerfile","dockerfile":"Dockerfile","context":".","buildArgs":{"CANARY_LABEL":"release-v1"},"buildTarget":"app","replicas":1,"port":3000,"readiness":{"path":"/","intervalSeconds":1,"stabilizationSeconds":2}}});
+            let s=api(&c,Method::POST,"/services",json!({"operationId":Uuid::new_v4(),"spec":spec,"buildOnCreate":false})).await?;services.push(id(&s));
         }
         let target=services[0];let source=services[1];
         tokio::fs::write(root.join(".local/release-network-canary.json"),json!({"target":target,"source":source}).to_string()).await.map_err(|e|e.to_string())?;
@@ -179,7 +179,7 @@ async fn real_build_options_release_gates_and_private_connections() {
         if body(&c,&pool,target,"/").await?.trim()!="release-v1"{return Err("build arg/stage was not used".into());}
         println!("Dockerfile target and literal build argument verified by live HTTP response");
         for (command,limit,expected) in [("fail",60,"failed"),("sleep",10,"timed_out")] {
-            configure(&c,target,|spec|spec["workload"]["pre_deploy"]=json!({"command":["/canary",command],"timeout_seconds":limit})).await?;
+            configure(&c,target,|spec|spec["workload"]["preDeploy"]=json!({"command":["/canary",command],"timeoutSeconds":limit})).await?;
             let d=deploy(&c,target,revision).await?;wait(&pool,d,"failed").await?;
             let outcome:String=sqlx::query_scalar("SELECT status FROM deployments WHERE parent_deployment_id=$1").bind(d).fetch_one(&pool).await.map_err(|e|e.to_string())?;
             if outcome!=expected{return Err(format!("migration expected {expected}, got {outcome}"));}
@@ -187,7 +187,7 @@ async fn real_build_options_release_gates_and_private_connections() {
             for _ in 0..30 {let running:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.parent_deployment_id=$1 AND i.state<>'stopped')").bind(d).fetch_one(&pool).await.map_err(|e|e.to_string())?;if !running{break;}tokio::time::sleep(Duration::from_secs(1)).await;}
             println!("{expected} migration preserved the old HTTP app");
         }
-        configure(&c,target,|spec|spec["workload"]["pre_deploy"]=json!({"command":["/canary","sleep"],"timeout_seconds":90})).await?;
+        configure(&c,target,|spec|spec["workload"]["preDeploy"]=json!({"command":["/canary","sleep"],"timeoutSeconds":90})).await?;
         let d=deploy(&c,target,revision).await?;
         for _ in 0..90 {let started:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instance_starts s JOIN instances i ON i.id=s.instance_id JOIN deployments d ON d.id=i.deployment_id WHERE d.parent_deployment_id=$1)").bind(d).fetch_one(&pool).await.map_err(|e|e.to_string())?;if started{break;}tokio::time::sleep(Duration::from_secs(1)).await;}
         let status=tokio::process::Command::new("systemctl").args(["--user","restart","local-paas-api"]).env("XDG_RUNTIME_DIR","/run/user/1000").status().await.map_err(|e|e.to_string())?;
@@ -195,18 +195,18 @@ async fn real_build_options_release_gates_and_private_connections() {
         wait(&pool,d,"active").await?;
         let starts:i64=sqlx::query_scalar("SELECT count(*) FROM instance_starts s JOIN instances i ON i.id=s.instance_id JOIN deployments j ON j.id=i.deployment_id WHERE j.parent_deployment_id=$1").bind(d).fetch_one(&pool).await.map_err(|e|e.to_string())?;
         if starts!=1{return Err(format!("migration had {starts} starts"));}println!("controller restart resumed the migration gate without repeating its command");
-        configure(&c,source,|spec|{spec["workload"]["private_connections"]=json!([{"service_id":target,"env":"API_URL"}]);spec["workload"]["pre_deploy"]=json!({"command":["/canary","fetch"],"timeout_seconds":60});}).await?;
+        configure(&c,source,|spec|{spec["workload"]["privateConnections"]=json!([{"serviceId":target,"env":"API_URL"}]);spec["workload"]["preDeploy"]=json!({"command":["/canary","fetch"],"timeoutSeconds":60});}).await?;
         let client_revision=build(&c,source).await?;
         let client_deploy=deploy(&c,source,client_revision).await?;wait(&pool,client_deploy,"active").await?;
         if body(&c,&pool,source,"/dependency").await?.trim()!="release-v1"{return Err("private service call failed".into());}
         let separate_nodes: bool=sqlx::query_scalar("SELECT a.node_id<>b.node_id FROM instances a JOIN deployments da ON da.id=a.deployment_id CROSS JOIN instances b JOIN deployments db ON db.id=b.deployment_id WHERE da.service_id=$1 AND db.service_id=$2 AND da.status='active' AND db.status='active'").bind(source).bind(target).fetch_one(&pool).await.map_err(|e|e.to_string())?;
         if !separate_nodes { return Err("cross-node canary was unexpectedly colocated".into()); }
         println!("pre-deploy job and app both resolved and called the private dependency across worker VMs");
-        configure(&c,target,|spec|{spec["workload"].as_object_mut().unwrap().remove("pre_deploy");spec["workload"]["build_args"]["CANARY_LABEL"]=json!("release-v2");}).await?;
+        configure(&c,target,|spec|{spec["workload"].as_object_mut().unwrap().remove("preDeploy");spec["workload"]["buildArgs"]["CANARY_LABEL"]=json!("release-v2");}).await?;
         let next=build(&c,target).await?;let next=deploy(&c,target,next).await?;wait(&pool,next,"active").await?;
         for attempt in 0..20 {if body(&c,&pool,source,"/dependency").await.ok().as_deref()==Some("release-v2\n"){break;} else if attempt==19{return Err("private proxy did not adopt the new healthy deployment".into());}tokio::time::sleep(Duration::from_secs(1)).await;}
         println!("private connection followed a replacement deployment without restarting the client");
-        let job=api(&c,Method::POST,&format!("/services/{target}/jobs"),json!({"operation_id":Uuid::new_v4(),"revision_id":revision,"options":{"command":["/canary","blocked"],"timeout_seconds":60}})).await?;
+        let job=api(&c,Method::POST,&format!("/services/{target}/jobs"),json!({"operationId":Uuid::new_v4(),"revisionId":revision,"options":{"command":["/canary","blocked"],"timeoutSeconds":60}})).await?;
         wait(&pool,id(&job),"succeeded").await?;
         println!("a workload without a declared connection could not use the private proxy");
         Ok(())

@@ -142,7 +142,7 @@ fn check(root: &Path, fresh: bool) -> Result<()> {
     }
     settings(root)?;
     for tool in [
-        "nix", "cargo", "rustc", "node", "npm", "psql", "initdb", "openssl",
+        "nix", "cargo", "rustc", "node", "pnpm", "psql", "initdb", "openssl",
     ] {
         if !succeeds(tool, &["--version"]) {
             return Err(format!("missing {tool}; enter nix develop first").into());
@@ -337,8 +337,8 @@ fn prepare(root: &Path) -> Result<()> {
     )?;
     run("bash", &["infra/workers/build.sh"])?;
     run("cargo", &["build", "--workspace", "--bins"])?;
-    run("npm", &["ci", "--prefix", "web"])?;
-    run("npm", &["run", "build", "--prefix", "web"])?;
+    run("pnpm", &["install", "--frozen-lockfile"])?;
+    run("pnpm", &["--dir", "web", "build"])?;
     if !root.join(".local/builder-tls/client.key").exists() {
         run("bash", &["infra/builder/credentials.sh"])?;
     }
@@ -369,6 +369,15 @@ fn install(root: &Path) -> Result<()> {
         root.join("target/debug/initialize-openbao"),
         &[&format!("{r}/.local/platform-services")],
     )?;
+    let status = Command::new(root.join("target/debug/platform-migrate"))
+        .env(
+            "DATABASE_URL",
+            format!("postgresql:///local_paas?host={r}/.local/socket&port=55432"),
+        )
+        .status()?;
+    if !status.success() {
+        return Err("database migration failed".into());
+    }
     for index in 1..=3 {
         let status = Command::new(root.join("target/debug/enroll-node"))
             .env(

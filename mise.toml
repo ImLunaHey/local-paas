@@ -1,0 +1,7 @@
+[tools]
+node = "24.21.0"
+pnpm = "11.27.0"
+rust = "1.95.0"
+
+[tasks.check]
+run = "make check"

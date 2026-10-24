@@ -2,7 +2,7 @@ import { Component, type ReactNode, useState } from 'react'
 import { useQueryClient, useQueryErrorResetBoundary } from '@tanstack/react-query'
 import { Link, useLocation, useRouter, type ErrorComponentProps } from '@tanstack/react-router'
 import { AlertCircle, RotateCcw } from 'lucide-react'
-import { Button } from './ui'
+import { Button } from './components/button'
 
 type Scope = 'page' | 'tab'
 function Failure({ scope, retry }: { scope: Scope; retry: () => void | Promise<void> }) {

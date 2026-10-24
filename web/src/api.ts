@@ -1,59 +1,7 @@
-export type Workload =
-  | { kind: 'rustfs-service'; storage_gib: number }
-  | { kind: 'redis-service'; storage_gib: number }
-  | { kind: 'postgres-service'; database: string; storage_gib: number }
-  | {
-      kind: 'oci-service'
-      execution?: 'http' | 'worker'
-      build_mode?: 'auto' | 'dockerfile' | 'generated'
-      build_command?: string
-      start_command?: string
-      build_args?: Record<string, string>
-      build_target?: string
-      pre_deploy?: { command: string[]; timeout_seconds: number }
-      private_connections?: { service_id: string; env: string }[]
-      dockerfile: string
-      context: string
-      replicas: number
-      port?: number
-      readiness?: { path: string; interval_seconds: number; stabilization_seconds: number }
-    }
-  | { kind: 'celld-service'; wrangler: string; members: number; bucket_ref: string }
-
-export interface ServiceSpec {
-  schema_version: number
-  project: string
-  environment: string
-  name: string
-  source?: Source
-  resources: { cpu_millis: number; memory_mib: number }
-  distinct_nodes: boolean
-  domains: string[]
-  secrets: string[]
-  workload: Workload
-  volume?: { id: string; mount_path: string; read_only: boolean }
-}
-export interface Source {
-  repository: string
-  commit?: string
-  branch?: string
-  tag?: string
-  upload?: string
-}
-
-export interface Service {
-  id: string
-  operation_id: string
-  version: number
-  spec: ServiceSpec
-  created_at: string
-}
-export interface AuditEvent {
-  id: string
-  operation_id: string
-  kind: string
-  created_at: string
-}
+import type { Service } from './generated/model/service'
+import type { ServiceSpec } from './generated/model/serviceSpec'
+import type { GitSource as Source } from './generated/model/gitSource'
+import { getGetServiceQueryOptions } from './generated/management'
 
 export type BuildPlan =
   | { kind: 'dockerfile'; path: string }
@@ -61,66 +9,42 @@ export type BuildPlan =
       kind: 'generated'
       generator: string
       runtime: string
-      package_manager: string
+      packageManager: string
       dockerfile: string
       dockerignore: string
     }
 
 export interface Build {
   id: string
-  service_id: string
+  serviceId: string
   spec: ServiceSpec
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
-  build_plan: BuildPlan | null
-  resolved_commit: string | null
-  no_cache: boolean
-  cancel_requested: boolean
-  error_code: string | null
-  created_at: string
-  logs_truncated: boolean
+  buildPlan: BuildPlan | null
+  resolvedCommit: string | null
+  noCache: boolean
+  cancelRequested: boolean
+  errorCode: string | null
+  createdAt: string
+  logsTruncated: boolean
 }
 export interface Revision {
   id: string
-  build_id: string
-  image_repository: string
-  image_digest: string
-  created_at: string
+  buildId: string
+  imageRepository: string
+  imageDigest: string
+  createdAt: string
 }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, init)
-  if (!response.ok) {
-    const text = await response.text()
-    let message = `Request failed (${response.status})`
-    try {
-      const error = JSON.parse(text) as {
-        error?: string
-        issues?: { field: string; message: string }[]
-      }
-      message =
-        error.issues?.map((issue) => `${issue.field}: ${issue.message}`).join('\n') ||
-        error.error ||
-        message
-    } catch {
-      /* Framework rejections are plain text. Don't render submitted data. */
-    }
-    throw new Error(message)
-  }
-  return response.json() as Promise<T>
-}
-
-export const serviceQuery = (id: string) => ({
-  queryKey: ['services', id],
-  queryFn: () => api<Service>(`/services/${id}`),
-})
+export const serviceQuery = (id: string) =>
+  getGetServiceQueryOptions<Service, Error>(id, { query: { queryKey: ['services', id] } })
 
 export type SourceKind = 'commit' | 'branch' | 'tag'
 export function sourceReference(source: Source = { repository: '' }): {
   kind: SourceKind
   value: string
 } {
-  if (source.branch !== undefined) return { kind: 'branch', value: source.branch }
-  if (source.tag !== undefined) return { kind: 'tag', value: source.tag }
+  if (source.branch != null) return { kind: 'branch', value: source.branch }
+  if (source.tag != null) return { kind: 'tag', value: source.tag }
   return { kind: 'commit', value: source.commit ?? '' }
 }
 export function sourceLabel(source?: Source): string {

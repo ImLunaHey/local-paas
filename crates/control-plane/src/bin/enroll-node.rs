@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_connections(1)
         .connect(&std::env::var("DATABASE_URL")?)
         .await?;
-    control_plane::migrate(&pool).await?;
+    control_plane::check_migrations(&pool).await?;
     sqlx::query("INSERT INTO nodes(id,name,token_hash,cpu_millis,memory_mib,slots,endpoint_base) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO UPDATE SET token_hash=EXCLUDED.token_hash")
       .bind(id).bind(cfg["name"].as_str().ok_or("name required")?).bind(control_plane::runtime::token_hash(token))
       .bind(cfg["cpu_millis"].as_i64().ok_or("cpu required")? as i32).bind(cfg["memory_mib"].as_i64().ok_or("memory required")? as i32)

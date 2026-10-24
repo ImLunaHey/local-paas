@@ -14,7 +14,7 @@ pub async fn obtain(
     if a.spec.secrets.is_empty() {
         return Ok(Values::new());
     }
-    let response=client.post(format!("{}/api/agent/secrets",config.controller_url)).bearer_auth(&config.token).json(&serde_json::json!({"node_id":config.node_id,"instance_id":a.instance_id,"generation":a.generation})).send().await.map_err(|_|())?;
+    let response=client.post(format!("{}/api/agent/secrets",config.controller_url)).bearer_auth(&config.token).json(&serde_json::json!({"nodeId":config.node_id,"instanceId":a.instance_id,"generation":a.generation})).send().await.map_err(|_|())?;
     if !response.status().is_success() {
         return Err(());
     }

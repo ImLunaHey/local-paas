@@ -8,7 +8,12 @@ use serde_json::Value;
 use std::{collections::BTreeSet, time::Duration};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all_fields = "camelCase",
+    rename_all = "kebab-case",
+    deny_unknown_fields
+)]
 pub enum BuildPlan {
     Dockerfile {
         path: String,
@@ -16,6 +21,7 @@ pub enum BuildPlan {
     Generated {
         generator: String,
         runtime: String,
+
         package_manager: String,
         dockerfile: String,
         dockerignore: String,
@@ -740,8 +746,8 @@ mod tests {
             *context = ".".into();
         }
         let request = crate::Request {
-            build_id: uuid::Uuid::new_v4(),
-            service_id: uuid::Uuid::new_v4(),
+            build_id: uuid::Uuid::now_v7(),
+            service_id: uuid::Uuid::now_v7(),
             spec,
             no_cache: true,
             local_context: None,
@@ -820,8 +826,8 @@ mod tests {
             dockerfile.push_str("RUN [\"/bin/sh\",\"-c\",\"npm run start && test \\\"$(cat custom-build)\\\" = override\"]\n");
         }
         let request = crate::Request {
-            build_id: uuid::Uuid::new_v4(),
-            service_id: uuid::Uuid::new_v4(),
+            build_id: uuid::Uuid::now_v7(),
+            service_id: uuid::Uuid::now_v7(),
             spec: serde_json::from_str(include_str!("../../../examples/build-canary.json"))
                 .unwrap(),
             no_cache: true,

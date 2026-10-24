@@ -184,11 +184,12 @@ pub(crate) async fn list(
     let (resolved, origins) = resolved(&pool, id, &bao).await?;
     let refs = references(&pool, id).await?;
     Ok(Json(
-        json!({"configured":true,"version":version,"names":resolved.keys().collect::<Vec<_>>(),"own_names":names,"origins":origins,"references":refs,"path":path}),
+        json!({"configured":true,"version":version,"names":resolved.keys().collect::<Vec<_>>(),"ownNames":names,"origins":origins,"references":refs,"path":path}),
     ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Update {
     name: String,
     value: Option<String>,
@@ -306,9 +307,9 @@ pub(crate) async fn update_bundle(
     sqlx::query(
         "INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'secrets.updated')",
     )
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .bind(id)
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -356,6 +357,7 @@ pub async fn snapshot(pool: &PgPool, id: Uuid, names: &[String]) -> Result<Optio
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Delivery {
     node_id: Uuid,
     instance_id: Uuid,
@@ -454,7 +456,7 @@ pub(crate) async fn database_password(pool: &PgPool, id: Uuid) -> Result<String,
             "database credentials are missing; restore the original OpenBao secret before starting this volume",
         ));
     }
-    let password = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let password = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
     let _ = update(
         State(pool.clone()),
         Path(id),

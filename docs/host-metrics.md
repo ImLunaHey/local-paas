@@ -9,7 +9,7 @@ does not discard its history when machine ID is available.
 Retention is 30 days, with cleanup at collector startup and approximately hourly.
 At five-second sampling this is about 518,400 records per continuously observed host.
 Include `host_metric_samples` in control-plane database backups; this is not using
-Lake's unrelated ClickHouse instance. Existing log archival is unchanged.
+unrelated ClickHouse instances. Existing log archival is unchanged.
 
 `GET /api/hosts?range=15m` supports `15m`, `1h`, `24h`, `7d`, and `30d`. The response
 contains at most 361 actual observations: the latest measurement in each time bucket.

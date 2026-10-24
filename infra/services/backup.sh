@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Explicit backup operator for the already provisioned private Lake development stack.
+# Explicit backup operator for the already provisioned private development stack.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 umask 077

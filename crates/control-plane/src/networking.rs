@@ -47,11 +47,12 @@ pub(crate) async fn get(
         .collect();
     let active_port:Option<i32>=sqlx::query_scalar::<_,Option<i32>>("SELECT (spec->'workload'->>'port')::integer FROM deployments WHERE service_id=$1 AND status='active'").bind(id).fetch_optional(&pool).await?.flatten();
     Ok(Json(
-        json!({"authority":route,"available":available,"active_port":active_port,"scope":"private-tailnet"}),
+        json!({"authority":route,"available":available,"activePort":active_port,"scope":"private-tailnet"}),
     ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Update {
     authority: Option<String>,
     enabled: Option<bool>,
@@ -147,9 +148,9 @@ pub(crate) async fn update(
     sqlx::query(
         "INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'networking.updated')",
     )
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .bind(id)
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
