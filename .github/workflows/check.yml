@@ -86,7 +86,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
-      - run: sqlx migrate run
+      - run: sqlx migrate run --source crates/control-plane/migrations
       - run: >-
           cargo nextest run -p control-plane --tests
           --run-ignored ignored-only
@@ -122,7 +122,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
-      - run: sqlx migrate run
+      - run: sqlx migrate run --source crates/control-plane/migrations
       - run: cargo sqlx prepare --check --workspace -- --all-targets
         env:
           SQLX_OFFLINE: "false"
