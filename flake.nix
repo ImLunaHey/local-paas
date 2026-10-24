@@ -5,7 +5,7 @@
     systems = [ "x86_64-linux" "aarch64-linux" ];
     each = nixpkgs.lib.genAttrs systems;
     tools = pkgs: with pkgs; [
-      bash coreutils curl git gnumake gnugrep gnused gawk findutils
+      bash coreutils curl git nix gnumake gnugrep gnused gawk findutils
       rustc cargo rustfmt clippy gcc pkg-config nodejs_24 postgresql_18
       openssl caddy nftables cdrkit util-linux systemd
     ];

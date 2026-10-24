@@ -349,11 +349,15 @@ fn prepare(root: &Path) -> Result<()> {
 fn install(root: &Path) -> Result<()> {
     let marker = root.join(".local/install-started");
     check(root, !marker.exists())?;
-    run("sudo", &["-v"])?;
+    if !succeeds("sudo", &["-n", "true"]) {
+        run("sudo", &["-v"])?;
+    }
     fs::set_permissions(root.join(".local"), fs::Permissions::from_mode(0o700))?;
     private_write(&marker, &safe_path(root)?)?;
     prepare(root)?;
-    run("sudo", &["-v"])?;
+    if !succeeds("sudo", &["-n", "true"]) {
+        run("sudo", &["-v"])?;
+    }
     let r = safe_path(root)?;
     let cfg = settings(root)?;
     private_write(&root.join(".local/platform.env"), &environment(&r, &cfg))?;

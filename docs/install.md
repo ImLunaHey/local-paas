@@ -170,6 +170,8 @@ checkout and enter the new `nix develop`, run `cargo build --workspace --bins` a
 `npm ci --prefix web && npm run build --prefix web`, then start the API/build worker
 and restart ingress. Embedded PostgreSQL migrations run on startup. **An old binary
 is not a database migration rollback**; restore the matching backup if needed.
+Refresh the pinned service tools with `nix build path:./infra/services -o
+.local/service-tools` before restarting services/backup jobs that use them.
 Do not rerun the fresh installer to upgrade an existing installation.
 
 Worker/builder image changes require an explicit maintenance window: drain nodes,
@@ -224,12 +226,28 @@ All host TCP endpoints bind loopback. Do not forward management infrastructure.
 
 ## Validation status
 
-Local x86-64 validation includes Rust/frontend checks, disposable PostgreSQL tests,
-OpenBao bootstrap/unseal/identity-recovery in an isolated network namespace, and
-configuration generation. Both architecture variants of the infrastructure are
-Nix-evaluated. Pinned Node/Bun/PostgreSQL/Redis/RustFS image indexes include ARM64.
+Verified on 2026-10-24 using a fresh Ubuntu 24.04 x86-64 cloud image in a temporary
+VM with nested KVM, 20 GiB RAM and a 160 GiB virtual disk:
 
-CI is configured to run native tests on Ubuntu 22.04/24.04 x86-64 and Ubuntu 24.04
-ARM64. It does not boot the four-VM stack. A complete fresh Ubuntu/ARM64 installation
-and reboot drill still require actual execution; do not infer that qualification
-from passing compilation, Nix evaluation or the existing Lake deployment.
+- Installed Nix and provisioned the entire stack from a source-only checkout.
+  No Lake database, credentials, installed tools or VM state were copied.
+- All three authenticated workers, isolated builder/registry, API, static dashboard,
+  independent ingress, PostgreSQL, dedicated ClickHouse and OpenBao became ready.
+- Uploaded a disposable HTTP Dockerfile, built and recorded an immutable image,
+  and deployed two ready replicas on distinct worker nodes.
+- Verified the expected application response through independent ingress.
+- Rebooted the Ubuntu host, confirmed persistent services/VMs restarted, explicitly
+  unsealed OpenBao, and verified the same deployment recovered and served traffic.
+- Shut down the temporary qualification host afterward; existing Lake services
+  were not used for this deployment.
+
+Local x86-64 validation also includes the pinned Rust/frontend checks, disposable
+PostgreSQL integration tests and isolated OpenBao bootstrap/unseal/token-recovery
+coverage. Both architecture variants of the infrastructure are Nix-evaluated.
+Pinned Node/Bun/PostgreSQL/Redis/RustFS image indexes include ARM64.
+
+CI is configured for native tests on Ubuntu 22.04/24.04 x86-64 and Ubuntu 24.04
+ARM64. **A complete native ARM64 installation/reboot drill has not been run here.**
+CI has not run remotely before repository publication, and does not boot the four-VM
+stack. Other Linux distributions and mixed hardware require their own qualification;
+this Ubuntu test does not establish production HA or a general security audit.

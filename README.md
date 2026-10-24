@@ -106,9 +106,10 @@ npm run test:e2e
 ```
 
 CI is configured for Ubuntu 22.04 and 24.04 on x86-64, and Ubuntu 24.04 on ARM64.
-Native ARM64 CI and fresh-host deployment results must be observed before claiming
-those platforms are qualified; configuration/evaluation alone is not an end-to-end
-installation test. See [validation status](docs/install.md#validation-status).
+A fresh Ubuntu 24.04 x86-64 installation, real two-replica deployment and host
+reboot recovery were verified. A native ARM64 installation/reboot drill is still
+pending; CI configuration and Nix evaluation do not substitute for it. See
+[validation status](docs/install.md#validation-status).
 
 ## Layout
 
