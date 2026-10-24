@@ -20,7 +20,8 @@
       { from = "host"; host.address = "127.0.0.1"; host.port = 15000; guest.port = 15000; }
     ];
     qemu.options = [
-      "-drive file=/var/lib/local-paas-builder/credentials.iso,format=raw,media=cdrom,readonly=on"
+      "-drive file=/var/lib/local-paas-builder/credentials.iso,format=raw,if=none,id=credentials,readonly=on"
+      "-device virtio-blk-pci,drive=credentials"
       "-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
     ];
   };

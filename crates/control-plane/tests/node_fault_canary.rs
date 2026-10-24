@@ -140,7 +140,7 @@ async fn drain_node_loss_partition_and_controller_outage() {
         command("systemctl",&["--user","stop","local-paas-api"]).await?;controller_stopped=true;
         // This exceeds both original ingress observation freshness thresholds.
         for _ in 0..20 {
-            let response=client.get("http://127.0.0.1:8090/").header("host","lake.tail3275e2.ts.net:5201").send().await.map_err(|_|"independent ingress unavailable")?;
+            let response=client.get("http://127.0.0.1:8090/").header("host", std::env::var("PLATFORM_CANARY_HOST").unwrap_or_else(|_|"localhost:5201".into())).send().await.map_err(|_|"independent ingress unavailable")?;
             if !response.status().is_success() {return Err(format!("healthy preview failed during controller outage: {}",response.status()));}
             tokio::time::sleep(Duration::from_secs(3)).await;
         }

@@ -18,7 +18,8 @@ in {
       host.port = 21000 + (index - 1) * 100 + slot; guest.port = 20000 + slot;
     }) 4;
     qemu.options = [
-      "-drive file=/var/lib/${name}/credentials.iso,format=raw,media=cdrom,readonly=on"
+      "-drive file=/var/lib/${name}/credentials.iso,format=raw,if=none,id=credentials,readonly=on"
+      "-device virtio-blk-pci,drive=credentials"
       "-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
     ];
     containerd.enable = true;

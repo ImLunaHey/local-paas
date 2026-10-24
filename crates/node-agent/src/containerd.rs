@@ -143,9 +143,7 @@ impl Containerd {
         if let Some(members) = manifest["manifests"].as_array() {
             let selected = members
                 .iter()
-                .find(|v| {
-                    v["platform"]["architecture"] == "amd64" && v["platform"]["os"] == "linux"
-                })
+                .find(|v| matches_platform(v, std::env::consts::ARCH))
                 .and_then(|v| v["digest"].as_str())
                 .ok_or_else(failure)?;
             manifest = get(&client, repository, "manifests", selected).await?;
@@ -701,5 +699,34 @@ mod tests {
             reopened.record(id).await,
             Err(RuntimeError::Failed(_))
         ));
+    }
+}
+
+// Rust and OCI use different names for the same CPU architecture.
+fn matches_platform(member: &Value, arch: &str) -> bool {
+    let oci = match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        _ => return false,
+    };
+    member["platform"]["os"] == "linux" && member["platform"]["architecture"] == oci
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+    #[test]
+    fn selects_native_manifest_and_rejects_attestations() {
+        let arm = serde_json::json!({"platform":{"os":"linux","architecture":"arm64"}});
+        let amd = serde_json::json!({"platform":{"os":"linux","architecture":"amd64"}});
+        assert!(matches_platform(&arm, "aarch64"));
+        assert!(matches_platform(&amd, "x86_64"));
+        assert!(!matches_platform(&amd, "aarch64"));
+        assert!(!matches_platform(&arm, "x86_64"));
+        assert!(!matches_platform(
+            &serde_json::json!({"platform":{"os":"unknown","architecture":"unknown"}}),
+            "aarch64"
+        ));
+        assert!(!matches_platform(&arm, "unsupported"));
     }
 }

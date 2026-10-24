@@ -1,9 +1,9 @@
 {
   description = "Isolated local-paas development worker VMs";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-  outputs = { self, nixpkgs }:
+  outputs = { nixpkgs, ... }: {
+    packages = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system:
     let
-      system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       secretExec = pkgs.runCommand "local-paas-secret-exec" { nativeBuildInputs = [ pkgs.rustc pkgs.stdenv.cc pkgs.binutils ]; } ''
         mkdir -p $out/bin
@@ -26,7 +26,7 @@
         modules = [ ./vm.nix ];
       }).config.system.build.vm;
     in {
-      packages.${system} = {
+
         worker1 = worker 1;
         worker2 = worker 2;
         worker3 = worker 3;
@@ -34,6 +34,6 @@
           name = "local-paas-worker-tools";
           paths = with pkgs; [ caddy nftables openssl cdrkit qemu_kvm ];
         };
-      };
-    };
+    });
+  };
 }

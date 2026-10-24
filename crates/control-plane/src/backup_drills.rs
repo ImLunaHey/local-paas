@@ -95,10 +95,8 @@ async fn postgres_dump_restores_into_an_independent_database() {
     // Private temporary archive; no credentials in URLs, argv, files or test output.
     let temporary = tempfile::tempdir().unwrap();
     let archive = tempfile::NamedTempFile::new_in(temporary.path()).unwrap();
-    let dump = std::env::var("PLATFORM_PG_DUMP")
-        .unwrap_or_else(|_| "/run/current-system/sw/bin/pg_dump".into());
-    let restore = std::env::var("PLATFORM_PG_RESTORE")
-        .unwrap_or_else(|_| "/run/current-system/sw/bin/pg_restore".into());
+    let dump = std::env::var("PLATFORM_PG_DUMP").unwrap_or_else(|_| "pg_dump".into());
+    let restore = std::env::var("PLATFORM_PG_RESTORE").unwrap_or_else(|_| "pg_restore".into());
     let result: Result<(), &'static str> = async {
         sqlx::query(&format!(
             "CREATE TABLE public.{table}(id integer PRIMARY KEY, value text NOT NULL)"

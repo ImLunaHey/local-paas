@@ -255,6 +255,14 @@ impl Context {
                 started = true;
                 break;
             }
+            if self
+                .systemctl(&["start", "local-paas-openbao"])
+                .await
+                .is_ok()
+            {
+                started = true;
+                break;
+            }
             let mut cmd = Command::new("systemd-run");
             cmd.args([
                 "--user",
@@ -415,7 +423,7 @@ async fn backup(context: &Context, pool: &PgPool) -> Result<Manifest> {
             let database: String = row.get("database");
             let (_, values) = crate::secrets::own_values(pool, service).await.map_err(|_| "database backup credential unavailable")?;
             let snapshot = if kind == "postgres-service" {
-                context.snapshot(id, "postgres", Some(service), "database.dump", Path::new("/run/current-system/sw/bin/pg_dump"),
+                context.snapshot(id, "postgres", Some(service), "database.dump", &context.tool("pg_dump"),
                     &["--host=127.0.0.1".into(),format!("--port={port}"),"--username=postgres".into(),format!("--dbname={database}"),"--no-password".into(),"--format=custom".into()],
                     &[("PGPASSWORD",values.get("POSTGRES_PASSWORD").ok_or("database password unavailable")?.clone()),("PGCONNECT_TIMEOUT","5".into())]).await?
             } else {
@@ -424,7 +432,7 @@ async fn backup(context: &Context, pool: &PgPool) -> Result<Manifest> {
                 cmd.args(["-h", "127.0.0.1", "-p", &port.to_string(), "--rdb"]).arg(&rdb)
                     .env("REDISCLI_AUTH", values.get("REDIS_PASSWORD").ok_or("database password unavailable")?);
                 command(cmd).await?;
-                let snapshot = context.snapshot(id,"redis",Some(service),"database.rdb",Path::new("/run/current-system/sw/bin/cat"), &[rdb.to_string_lossy().into_owned()],&[]).await?;
+                let snapshot = context.snapshot(id,"redis",Some(service),"database.rdb",&context.tool("cat"), &[rdb.to_string_lossy().into_owned()],&[]).await?;
                 std::fs::remove_file(rdb).map_err(|_| "temporary Redis archive cleanup failed")?;
                 snapshot
             };
@@ -435,16 +443,16 @@ async fn backup(context: &Context, pool: &PgPool) -> Result<Manifest> {
         save(&context.dir().join("openbao-paused"), &json!({"backup_id":id}))?;
         let guard = ResumeGuard(context.clone());
         context.systemctl(&["stop", "local-paas-openbao"]).await?;
-        let bao = context.snapshot(id,"openbao",None,"openbao.tar",Path::new("/run/current-system/sw/bin/tar"),
+        let bao = context.snapshot(id,"openbao",None,"openbao.tar",&context.tool("tar"),
             &["-C".into(),context.services().to_string_lossy().into_owned(),"-cf".into(),"-".into(),"openbao".into(),"tls".into(),"recovery".into(),"controller.token".into(),"openbao.hcl".into()],&[]).await?;
         manifest.snapshots.push(bao);
-        let control = context.snapshot(id,"control-plane",None,"database.dump",Path::new("/run/current-system/sw/bin/pg_dump"),
+        let control = context.snapshot(id,"control-plane",None,"database.dump",&context.tool("pg_dump"),
             &[format!("--host={}",context.root.join(".local/socket").display()),"--port=55432".into(),"--dbname=local_paas".into(),"--no-password".into(),"--format=custom".into()],&[]).await?;
         manifest.snapshots.push(control);
         context.resume().await?;
         drop(guard);
         let path = stage.path().join("manifest.json"); save(&path,&manifest)?;
-        context.snapshot(id,"manifest",None,"manifest.json",Path::new("/run/current-system/sw/bin/cat"), &[path.to_string_lossy().into_owned()],&[]).await?;
+        context.snapshot(id,"manifest",None,"manifest.json",&context.tool("cat"), &[path.to_string_lossy().into_owned()],&[]).await?;
         save(&context.dir().join("latest.json"), &manifest)?;
         Ok(())
     }.await;
@@ -583,16 +591,13 @@ async fn verify_set(context: &Context, manifest: &Manifest) -> Result<Value> {
     let pg_data = stage.path().join("pg");
     let socket = stage.path().join("socket");
     std::fs::create_dir(&socket).map_err(|_| "restore socket directory unavailable")?;
-    let mut init = Command::new("/run/current-system/sw/bin/initdb");
+    let mut init = Command::new(context.tool("initdb"));
     init.arg("-D")
         .arg(&pg_data)
         .args(["--auth=trust", "--no-instructions", "--no-locale"]);
     command(init).await?;
     let mut postgres = context
-        .sandbox(
-            Path::new("/run/current-system/sw/bin/postgres"),
-            stage.path(),
-        )?
+        .sandbox(&context.tool("postgres"), stage.path())?
         .arg("-D")
         .arg(&pg_data)
         .arg("-k")
@@ -643,7 +648,7 @@ async fn verify_set(context: &Context, manifest: &Manifest) -> Result<Value> {
                     .execute(&admin)
                     .await
                     .map_err(|_| "disposable database creation failed")?;
-                let mut restore = Command::new("/run/current-system/sw/bin/pg_restore");
+                let mut restore = Command::new(context.tool("pg_restore"));
                 restore
                     .arg("--host")
                     .arg(&socket)
@@ -727,7 +732,7 @@ async fn verify_set(context: &Context, manifest: &Manifest) -> Result<Value> {
                     .map_err(|_| "disposable Redis cleanup failed")?;
             }
             "openbao" => {
-                let mut tar = Command::new("/run/current-system/sw/bin/tar");
+                let mut tar = Command::new(context.tool("tar"));
                 tar.arg("-xf")
                     .arg(archive)
                     .arg("-C")
