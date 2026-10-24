@@ -17,8 +17,13 @@ Showcase Studio is privately deployed with two replicas on different worker VMs:
 All three workers share Lake as a physical failure domain. This is a development
 runtime, not a Railway production migration.
 
+Shared node-pinned volumes support multiple service attachments. Managed PostgreSQL,
+Redis and RustFS services use persistent local volumes; RustFS buckets have scoped
+application credentials and a Storage-tab file browser. See [storage](docs/storage.md)
+for development limits and qualification status.
+
 **Not implemented:** automatic relocation after node loss, node cordon/drain UI,
-Persistent workload volumes, public DigitalOcean ingress,
+shared-volume file browsing, public DigitalOcean ingress,
 NetBird provisioning, production authentication/backup recovery, and celld fleet
 execution. celld cannot enter the OCI deploy path.
 See [runtime operations and limitations](docs/runtime.md).
@@ -204,6 +209,7 @@ docs                  decisions, threat boundaries, next milestones
 ```
 
 Lake has a development builder VM, three worker VMs, and private Tailscale Serve
-endpoints. DigitalOcean, NetBird, OpenBao, Railway and production databases remain
-untouched. Deployments and telemetry are real; production release gates remain
+endpoints, plus dedicated development OpenBao and ClickHouse instances.
+DigitalOcean, NetBird, Railway and production databases remain untouched.
+Deployments and telemetry are real; production release gates remain
 listed in the architecture document.

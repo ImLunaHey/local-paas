@@ -23,16 +23,33 @@ mod history;
 pub mod host_metrics;
 pub mod logging;
 mod networking;
+mod object_storage;
 mod overview;
 pub mod preview;
 mod projects;
 pub mod runtime;
+mod s3;
 pub mod secrets;
+mod storage_files;
 mod volumes;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route(
+            "/api/services/{id}/storage/files",
+            get(storage_files::get)
+                .put(storage_files::upload)
+                .layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route(
+            "/api/services/{id}/buckets",
+            get(object_storage::list).post(object_storage::create),
+        )
+        .route(
+            "/api/services/{id}/storage-connection",
+            post(object_storage::connect).delete(object_storage::detach),
+        )
         .route("/api/volumes", get(volumes::list).post(volumes::create))
         .route("/api/domains", get(domains::list).post(domains::create))
         .route(
@@ -129,7 +146,8 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                     )
                         .into_response();
                 }
-                let secrets = request.uri().path().ends_with("/secrets");
+                let secrets = request.uri().path().ends_with("/secrets")
+                    || request.uri().path().ends_with("/files");
                 let mut response = next.run(request).await;
                 if secrets {
                     response.headers_mut().insert(

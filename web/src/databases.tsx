@@ -5,12 +5,22 @@ import { Database } from 'lucide-react'
 import { api, type Service, type ServiceSpec } from './api'
 import { Button, Field, Input, Select } from './ui'
 import { ProjectBackLink } from './projects'
-export function DatabaseForm({ service }: { service?: Service }) {
+export function DatabaseForm({
+  service,
+  initialEngine = 'postgres-service',
+}: {
+  service?: Service
+  initialEngine?: 'postgres-service' | 'rustfs-service'
+}) {
   const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
   const navigate = useNavigate(),
     client = useQueryClient()
-  const [engine, setEngine] = useState<'postgres-service' | 'redis-service'>(
-    service?.spec.workload.kind === 'redis-service' ? 'redis-service' : 'postgres-service',
+  const [engine, setEngine] = useState<'postgres-service' | 'redis-service' | 'rustfs-service'>(
+    service?.spec.workload.kind === 'redis-service'
+      ? 'redis-service'
+      : service?.spec.workload.kind === 'rustfs-service'
+        ? 'rustfs-service'
+        : initialEngine,
   )
   const pg = service?.spec.workload.kind === 'postgres-service' ? service.spec.workload : undefined
   const capabilities = useQuery({
@@ -49,7 +59,7 @@ export function DatabaseForm({ service }: { service?: Service }) {
           <div className="page-heading">
             <div>
               <div className="eyebrow">NEW DATABASE</div>
-              <h1>Create a database</h1>
+              <h1>{engine === 'rustfs-service' ? 'Create S3 storage' : 'Create a database'}</h1>
               <p>A private database with a persistent volume on one worker.</p>
             </div>
           </div>
@@ -80,7 +90,13 @@ export function DatabaseForm({ service }: { service?: Service }) {
       >
         <div className="flex items-center gap-3">
           <Database size={21} className="text-accent" />
-          <h2>{service ? 'Database configuration' : 'Choose an engine'}</h2>
+          <h2>
+            {service
+              ? engine === 'rustfs-service'
+                ? 'Object storage configuration'
+                : 'Database configuration'
+              : 'Choose an engine'}
+          </h2>
         </div>
         <Field label="Database engine">
           <Select
@@ -90,6 +106,7 @@ export function DatabaseForm({ service }: { service?: Service }) {
           >
             <option value="postgres-service">PostgreSQL 18 · relational database</option>
             <option value="redis-service">Redis 8 · cache and key-value store</option>
+            <option value="rustfs-service">RustFS · S3 object storage</option>
           </Select>
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -109,7 +126,12 @@ export function DatabaseForm({ service }: { service?: Service }) {
               required
               key={engine}
               defaultValue={
-                service?.spec.name ?? (engine === 'redis-service' ? 'redis' : 'postgres')
+                service?.spec.name ??
+                (engine === 'redis-service'
+                  ? 'redis'
+                  : engine === 'rustfs-service'
+                    ? 'storage'
+                    : 'postgres')
               }
               pattern="[a-z0-9]+(-[a-z0-9]+)*"
             />
@@ -141,9 +163,12 @@ export function DatabaseForm({ service }: { service?: Service }) {
               name="memory"
               required
               type="number"
-              min={256}
+              min={engine === 'rustfs-service' ? 1024 : 256}
+              key={engine}
               max={1400}
-              defaultValue={service?.spec.resources.memory_mib ?? 512}
+              defaultValue={
+                service?.spec.resources.memory_mib ?? (engine === 'rustfs-service' ? 1024 : 512)
+              }
             />
           </Field>
           <Field label="Persistent storage (GiB)">
@@ -155,7 +180,8 @@ export function DatabaseForm({ service }: { service?: Service }) {
               max={2}
               readOnly={!!service}
               defaultValue={
-                service?.spec.workload.kind === 'redis-service'
+                service?.spec.workload.kind === 'redis-service' ||
+                service?.spec.workload.kind === 'rustfs-service'
                   ? service.spec.workload.storage_gib
                   : (pg?.storage_gib ?? 1)
               }
@@ -184,7 +210,9 @@ export function DatabaseForm({ service }: { service?: Service }) {
           {service
             ? 'Save changes'
             : capabilities.data?.database_runtime_ready
-              ? 'Create database'
+              ? engine === 'rustfs-service'
+                ? 'Create S3 storage'
+                : 'Create database'
               : 'Waiting for database workers'}
         </Button>
       </form>

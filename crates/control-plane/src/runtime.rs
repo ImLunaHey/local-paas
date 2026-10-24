@@ -37,7 +37,7 @@ pub(crate) async fn deploy(
             .await?;
     if database_spec
         .as_ref()
-        .is_some_and(|s| s.workload.is_database())
+        .is_some_and(|s| s.workload.is_managed())
     {
         crate::secrets::database_password(&pool, service_id).await?;
     }
@@ -71,9 +71,9 @@ pub(crate) async fn deploy(
     let spec = &resolved_spec;
     let (replicas, database_size) = match spec.workload {
         Workload::OciService { replicas, .. } => (replicas, None),
-        Workload::PostgresService { storage_gib, .. } | Workload::RedisService { storage_gib } => {
-            (1, Some(storage_gib))
-        }
+        Workload::PostgresService { storage_gib, .. }
+        | Workload::RedisService { storage_gib }
+        | Workload::RustfsService { storage_gib } => (1, Some(storage_gib)),
         _ => {
             return Err(ApiError::Conflict(
                 "celld requires its dedicated fleet runtime",
@@ -130,7 +130,7 @@ pub(crate) async fn deploy(
     if preparing {
         return Err(ApiError::Conflict("a deployment is already preparing"));
     }
-    let database_ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1").bind(service_id).fetch_all(&mut *tx).await?;
+    let database_ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 UNION SELECT n.endpoint_base+v.slot FROM storage_bindings c JOIN storage_buckets b ON b.id=c.bucket_id JOIN volumes v ON v.id=b.service_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 AND c.status='ready'").bind(service_id).fetch_all(&mut *tx).await?;
     let nodes = sqlx::query("SELECT * FROM nodes WHERE NOT cordoned AND last_seen>now()-interval '30 seconds' ORDER BY name FOR UPDATE").fetch_all(&mut *tx).await?;
     let mut placements = Vec::new();
     for node in nodes {
@@ -140,6 +140,14 @@ pub(crate) async fn deploy(
                 .get::<Vec<String>, _>("capabilities")
                 .iter()
                 .any(|c| c == "databases-v1")
+        {
+            continue;
+        }
+        if matches!(spec.workload, Workload::RustfsService { .. })
+            && !node
+                .get::<Vec<String>, _>("capabilities")
+                .iter()
+                .any(|c| c == "rustfs-v1")
         {
             continue;
         }

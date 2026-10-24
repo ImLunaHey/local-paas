@@ -47,6 +47,17 @@ const LOCKS: [(&str, &str); 6] = [
 const EXCLUDES: &str = "\n.git\n**/.git\nnode_modules\n**/node_modules\n.env\n.env.*\n**/.env\n**/.env.*\n.npmrc\n**/.npmrc\n.next\n**/.next\nnpm-debug.log*\n";
 
 pub async fn plan(config: &Config, request: &Request) -> Result<BuildPlan, Error> {
+    if matches!(request.spec.workload, Workload::RustfsService { .. }) {
+        request.spec.validate().map_err(|_| Error::Workload)?;
+        return Ok(BuildPlan::Generated {
+            generator:"platform-rustfs-v1".into(),runtime:"RustFS 1.0.3".into(),package_manager:"pinned official image".into(),
+            dockerfile:r#"FROM rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b
+ENV RUSTFS_CONSOLE_ENABLE=false RUSTFS_OBS_LOG_DIRECTORY=/tmp/logs RUSTFS_OBS_LOGGER_LEVEL=warn
+ENTRYPOINT ["/usr/bin/rustfs"]
+CMD ["/data"]
+"#.into(),dockerignore:"*\n".into()
+        });
+    }
     if matches!(request.spec.workload, Workload::RedisService { .. }) {
         request.spec.validate().map_err(|_| Error::Workload)?;
         let script = r#"set -eu; umask 077; printf 'bind 0.0.0.0\nport 6379\ndir /data\nappendonly yes\nappendfsync everysec\nsave ""\nmaxmemory %s\nmaxmemory-policy noeviction\nrequirepass %s\n' "$REDIS_MAXMEMORY" "$REDIS_PASSWORD" > /tmp/platform-redis.conf; exec redis-server /tmp/platform-redis.conf"#;
@@ -65,7 +76,7 @@ pub async fn plan(config: &Config, request: &Request) -> Result<BuildPlan, Error
         request.spec.validate().map_err(|_| Error::Workload)?;
         return Ok(BuildPlan::Generated {
             generator: "platform-postgres-v1".into(), runtime: "PostgreSQL 18.6".into(), package_manager: "pinned official image".into(),
-            dockerfile: "FROM postgres:18.6-bookworm@sha256:bbf83594798e144bff365a9c191c5d779f181fb3135902064ab8ff11918020fc\nENV PGDATA=/var/lib/postgresql/18/docker\nCMD [\"postgres\",\"-c\",\"unix_socket_directories=/tmp\",\"-c\",\"max_connections=50\",\"-c\",\"shared_buffers=64MB\"]\n".into(),
+            dockerfile: "FROM postgres:18.6-bookworm@sha256:bbf83594798e144bff365a9c191c5d779f181fb3135902064ab8ff11918020fc\nRUN sed -i 's/PGHOST= PGHOSTADDR=/PGHOST=\\/tmp PGHOSTADDR=/' /usr/local/bin/docker-entrypoint.sh\nENV PGDATA=/var/lib/postgresql/18/docker\nCMD [\"postgres\",\"-c\",\"unix_socket_directories=/tmp\",\"-c\",\"max_connections=50\",\"-c\",\"shared_buffers=64MB\"]\n".into(),
             dockerignore: "*\n".into(),
         });
     }

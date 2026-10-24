@@ -219,9 +219,9 @@ impl Config {
                     dockerfile.as_str(),
                 )
             }
-            Workload::PostgresService { .. } | Workload::RedisService { .. } => {
-                (String::new(), ".", "Dockerfile")
-            }
+            Workload::PostgresService { .. }
+            | Workload::RedisService { .. }
+            | Workload::RustfsService { .. } => (String::new(), ".", "Dockerfile"),
             _ => return Err(Error::Workload),
         };
         let mut output = format!(
@@ -297,7 +297,7 @@ pub async fn run(
     let metadata = temp.path().join("metadata.json");
     let mut args = config.arguments(&request, &metadata)?;
     prepare_recipe(plan, temp.path(), &mut args).await?;
-    if request.spec.workload.is_database() {
+    if request.spec.workload.is_managed() {
         // A database template has no repository: send only an empty build context.
         let context = temp.path().join("context");
         tokio::fs::create_dir(&context)

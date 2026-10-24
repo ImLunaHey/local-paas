@@ -21,6 +21,9 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+aws-sigv4 = "1.6.3"
+aws-credential-types = "1.3.1"
+quick-xml = { version = "0.42.0", features = ["serialize"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

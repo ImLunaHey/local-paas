@@ -111,6 +111,7 @@ pub(crate) async fn create(
         Workload::OciService { .. }
             | Workload::PostgresService { .. }
             | Workload::RedisService { .. }
+            | Workload::RustfsService { .. }
     ) {
         return Err(ApiError::Conflict(
             "celld applications use a separate fleet deployment path; OCI builds are not supported",
@@ -398,7 +399,7 @@ pub async fn finish(
     };
     if let Completion::Succeeded { repository, digest } = completion {
         let mut pinned = current.spec.0;
-        if !pinned.workload.is_database() {
+        if !pinned.workload.is_managed() {
             let commit = current.resolved_commit.ok_or_else(|| {
                 sqlx::Error::Protocol("successful build has no resolved commit".into())
             })?;

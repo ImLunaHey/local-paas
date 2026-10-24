@@ -52,6 +52,19 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
         .unwrap_or("unmatched")
         .to_string();
     let action = match (method.as_str(), route.as_str()) {
+        ("GET", "/api/services/{id}/storage/files")
+            if request
+                .uri()
+                .query()
+                .is_some_and(|q| q.split('&').any(|p| p == "download=true")) =>
+        {
+            "storage.file.download"
+        }
+        ("PUT", "/api/services/{id}/storage/files") => "storage.file.upload",
+        ("POST", "/api/volumes") => "volume.create",
+        ("POST", "/api/services/{id}/buckets") => "bucket.create",
+        ("DELETE", "/api/services/{id}/storage-connection") => "bucket.detach",
+        ("POST", "/api/services/{id}/storage-connection") => "bucket.attach",
         ("POST", "/api/projects") => "project.create",
         ("POST", "/api/domains") => "domain.register",
         ("POST", "/api/services/{id}/database-connection") => "database.connect",

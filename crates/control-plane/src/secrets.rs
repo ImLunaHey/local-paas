@@ -199,24 +199,46 @@ pub(crate) async fn update(
     Path(id): Path<Uuid>,
     Json(input): Json<Update>,
 ) -> Result<Json<Value>, ApiError> {
-    if !valid_name(&input.name)
-        || input
-            .value
-            .as_ref()
-            .is_some_and(|v| v.len() > 32768 || v.contains('\0'))
+    update_bundle(
+        &pool,
+        id,
+        input.expected_version,
+        std::collections::BTreeMap::from([(input.name, input.value)]),
+    )
+    .await
+}
+pub(crate) async fn own_values(
+    pool: &PgPool,
+    id: Uuid,
+) -> Result<(i32, std::collections::BTreeMap<String, String>), ApiError> {
+    let (_, path) = identity(pool, id).await?;
+    Bao::new()?.read(&path, None, None).await
+}
+pub(crate) async fn update_bundle(
+    pool: &PgPool,
+    id: Uuid,
+    expected_version: i32,
+    changes: std::collections::BTreeMap<String, Option<String>>,
+) -> Result<Json<Value>, ApiError> {
+    if changes.is_empty()
+        || changes.len() > 100
+        || changes.iter().any(|(name, value)| {
+            !valid_name(name)
+                || value
+                    .as_ref()
+                    .is_some_and(|v| v.len() > 32768 || v.contains('\0'))
+        })
     {
-        return Err(ApiError::Conflict(
-            "use an uppercase environment variable name and a value up to 32 KiB without NUL bytes",
-        ));
+        return Err(ApiError::Conflict("invalid secret names or values"));
     }
-    let (_, path) = identity(&pool, id).await?;
+    let (_, path) = identity(pool, id).await?;
     let bao = Bao::new()?;
     let mut tx = pool.begin().await?;
     let mut service: Service = sqlx::query_as("SELECT * FROM services WHERE id=$1 FOR UPDATE")
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
-    if service.spec.workload.is_database() {
+    if service.spec.workload.is_managed() {
         let initialized: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM volumes WHERE id=$1)")
                 .bind(id)
@@ -229,19 +251,21 @@ pub(crate) async fn update(
         }
     }
     let (version, mut values) = bao.read(&path, None, None).await?;
-    if version != input.expected_version {
+    if version != expected_version {
         return Err(ApiError::Conflict(
             "secrets changed; reload the secret list before saving",
         ));
     }
-    if let Some(value) = input.value {
-        values.insert(input.name.clone(), value);
-        if !service.spec.secrets.contains(&input.name) {
-            service.spec.secrets.push(input.name.clone());
+    for (name, value) in changes {
+        if let Some(value) = value {
+            values.insert(name.clone(), value);
+            if !service.spec.secrets.contains(&name) {
+                service.spec.secrets.push(name);
+            }
+        } else {
+            values.remove(&name);
+            service.spec.secrets.retain(|n| n != &name);
         }
-    } else {
-        values.remove(&input.name);
-        service.spec.secrets.retain(|n| n != &input.name);
     }
     service.spec.validate().map_err(ApiError::Invalid)?;
     if serde_json::to_vec(&values)

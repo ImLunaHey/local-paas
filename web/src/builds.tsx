@@ -54,7 +54,8 @@ export function BuildPanel({ service }: { service: Service }) {
   const operation = useRef<{ input: string; id: string } | null>(null)
   const database =
     service.spec.workload.kind === 'postgres-service' ||
-    service.spec.workload.kind === 'redis-service'
+    service.spec.workload.kind === 'redis-service' ||
+    service.spec.workload.kind === 'rustfs-service'
   const enabled = service.spec.workload.kind !== 'celld-service'
   const history = useQuery({
     queryKey: ['builds', service.id],

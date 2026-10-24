@@ -1,4 +1,5 @@
 export type Workload =
+  | { kind: 'rustfs-service'; storage_gib: number }
   | { kind: 'redis-service'; storage_gib: number }
   | { kind: 'postgres-service'; database: string; storage_gib: number }
   | {

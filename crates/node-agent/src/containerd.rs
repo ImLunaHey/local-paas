@@ -378,7 +378,7 @@ impl Runtime for Containerd {
         for (key, value) in &spec.environment {
             if !matches!(
                 key.as_str(),
-                "POSTGRES_DB" | "POSTGRES_USER" | "REDIS_MAXMEMORY"
+                "POSTGRES_DB" | "POSTGRES_USER" | "REDIS_MAXMEMORY" | "RUSTFS_ACCESS_KEY"
             ) || value.is_empty()
                 || !value
                     .bytes()

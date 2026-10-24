@@ -1,0 +1,176 @@
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { ArrowLeft, Folder, File, Download, RefreshCw, Upload } from 'lucide-react'
+import { api, type Service } from './api'
+import { Button, Input } from './ui'
+interface Listing {
+  items: { path: string; kind: 'file' | 'directory'; size?: number; modified?: string }[]
+  cursor?: string | null
+  read_only: boolean
+  limit_bytes: number
+}
+export function FileBrowser({ service, kind }: { service: Service; kind: 'objects' | 'volume' }) {
+  const search = useSearch({ strict: false }) as { path?: string },
+    prefix = search.path ?? ''
+  const navigate = useNavigate(),
+    client = useQueryClient(),
+    [cursor, setCursor] = useState('')
+  const endpoint =
+    '/services/' + service.id + (kind === 'objects' ? '/storage/files' : '/volume/files')
+  const query = useQuery({
+    queryKey: ['storage-files', service.id, kind, prefix, cursor],
+    queryFn: () =>
+      api<Listing>(
+        endpoint + '?' + new URLSearchParams({ path: prefix, ...(cursor ? { cursor } : {}) }),
+      ),
+  })
+  const upload = useMutation({
+    mutationFn: async (files: globalThis.File[]) => {
+      for (const file of files) {
+        if (file.size > (query.data?.limit_bytes ?? 16 * 1024 * 1024))
+          throw new Error(file.name + ' exceeds the 16 MiB transfer limit')
+        await api(endpoint + '?' + new URLSearchParams({ path: prefix + file.name }), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: file,
+        })
+      }
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: ['storage-files', service.id] }),
+  })
+  const change = (path: string) => {
+    setCursor('')
+    void navigate({
+      to: '/services/$serviceId/storage',
+      params: { serviceId: service.id },
+      search: { browse: kind, path },
+    })
+  }
+  const parent = prefix.replace(/[^/]+\/$/, '')
+  return (
+    <section className="panel p-5 sm:p-6 space-y-5">
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+        <div>
+          <h2>Browse {kind === 'objects' ? 'bucket' : 'volume'}</h2>
+          <p className="mt-1 text-xs text-muted break-all">/{prefix}</p>
+        </div>
+        <Link
+          className="text-xs text-muted"
+          to="/services/$serviceId/storage"
+          params={{ serviceId: service.id }}
+          search={{}}
+        >
+          Storage settings
+        </Link>
+      </div>
+      <div className="flex flex-wrap gap-3 items-center">
+        <Button disabled={!prefix} onClick={() => change(parent)}>
+          <ArrowLeft size={14} />
+          Parent folder
+        </Button>
+        <Button aria-label="Refresh files" onClick={() => void query.refetch()}>
+          <RefreshCw size={14} />
+        </Button>
+        {!query.data?.read_only && query.data && (
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-xs">
+            <Upload size={14} />
+            {upload.isPending ? 'Uploading…' : 'Upload files'}
+            <Input
+              className="hidden"
+              aria-label="Upload storage files"
+              type="file"
+              multiple
+              disabled={upload.isPending}
+              onChange={(e) => {
+                if (e.target.files?.length) upload.mutate(Array.from(e.target.files))
+                e.target.value = ''
+              }}
+            />
+          </label>
+        )}
+        {query.data?.read_only && <span className="chip">Read only</span>}
+      </div>
+      {(query.error || upload.error) && (
+        <p role="alert" className="error-notice">
+          {(query.error || upload.error)?.message}
+        </p>
+      )}
+      {query.isPending ? (
+        <p className="text-xs text-muted">Loading files…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-zinc-800 text-muted">
+              <tr>
+                <th className="py-3 font-medium">Name</th>
+                <th className="px-4 font-medium text-right">Size</th>
+                <th className="font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {query.data?.items.map((f) => (
+                <tr key={f.path}>
+                  <td className="py-4 max-w-72">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {f.kind === 'directory' ? (
+                        <Folder size={15} className="shrink-0 text-orange-300" />
+                      ) : (
+                        <File size={15} className="shrink-0 text-muted" />
+                      )}
+                      {f.kind === 'directory' ? (
+                        <button
+                          className="text-left break-all hover:text-orange-300"
+                          onClick={() => change(f.path)}
+                        >
+                          {f.path.slice(prefix.length).replace(/\/$/, '')}
+                        </button>
+                      ) : (
+                        <span className="break-all">{f.path.slice(prefix.length)}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 text-right text-muted whitespace-nowrap">
+                    {f.kind === 'file' ? new Intl.NumberFormat().format(f.size ?? 0) + ' B' : '—'}
+                  </td>
+                  <td className="text-right">
+                    {f.kind === 'file' && (
+                      <a
+                        className="inline-flex p-2 text-muted hover:text-white"
+                        aria-label={'Download ' + f.path}
+                        download={f.path.split('/').pop()}
+                        href={
+                          '/api' +
+                          endpoint +
+                          '?' +
+                          new URLSearchParams({ path: f.path, download: 'true' })
+                        }
+                      >
+                        <Download size={16} />
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {query.data?.items.length === 0 && (
+            <p className="py-8 text-center text-muted text-sm">This folder is empty.</p>
+          )}
+        </div>
+      )}
+      {query.data?.cursor && (
+        <Button onClick={() => setCursor(query.data!.cursor!)}>Next page</Button>
+      )}
+      {upload.isSuccess && (
+        <p role="status" className="text-xs text-emerald-300">
+          Files uploaded.
+        </p>
+      )}
+      <p className="text-xs text-muted">
+        Transfers are limited to 16 MiB per file. Uploads keep existing files intact; use a
+        different filename to add another version.
+      </p>
+    </section>
+  )
+}

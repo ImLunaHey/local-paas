@@ -1,3 +1,5 @@
+import { FileBrowser } from './file-browser'
+import { BucketPanel } from './object-storage'
 import { StoragePanel } from './storage'
 import { CreationScope, WorkspaceBreadcrumbs } from './workspace-context'
 import { DatabaseForm, DatabasePanel } from './databases'
@@ -219,9 +221,11 @@ function ServiceRow({ service }: { service: Service }) {
           <p className="truncate">
             {spec.project} / {spec.environment}
             <span className="mx-2">·</span>
-            {spec.workload.kind === 'postgres-service' || spec.workload.kind === 'redis-service'
-              ? `${spec.workload.kind === 'redis-service' ? 'Redis 8' : 'PostgreSQL 18'} · local volume`
-              : sourceLabel(spec.source)}
+            {spec.workload.kind === 'rustfs-service'
+              ? 'RustFS · S3 storage'
+              : spec.workload.kind === 'postgres-service' || spec.workload.kind === 'redis-service'
+                ? `${spec.workload.kind === 'redis-service' ? 'Redis 8' : 'PostgreSQL 18'} · local volume`
+                : sourceLabel(spec.source)}
           </p>
         </div>
       </div>
@@ -256,19 +260,25 @@ function ServiceRow({ service }: { service: Service }) {
 
 function NewService() {
   const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
-  const [database, setDatabase] = useState(false)
+  const [database, setDatabase] = useState<'app' | 'database' | 'storage'>('app')
   return (
     <CreationScope key={scope.project + ':' + scope.environment}>
       <div className="mb-6 flex gap-3">
-        <Button aria-pressed={!database} onClick={() => setDatabase(false)}>
+        <Button aria-pressed={database === 'app'} onClick={() => setDatabase('app')}>
           Application
         </Button>
-        <Button aria-pressed={database} onClick={() => setDatabase(true)}>
+        <Button aria-pressed={database === 'database'} onClick={() => setDatabase('database')}>
           Database
         </Button>
+        <Button aria-pressed={database === 'storage'} onClick={() => setDatabase('storage')}>
+          S3 storage
+        </Button>
       </div>
-      {database ? (
-        <DatabaseForm key={scope.project + ':' + scope.environment} />
+      {database !== 'app' ? (
+        <DatabaseForm
+          key={scope.project + ':' + scope.environment + database}
+          initialEngine={database === 'storage' ? 'rustfs-service' : 'postgres-service'}
+        />
       ) : (
         <ServiceForm key={scope.project + ':' + scope.environment} />
       )}
@@ -851,7 +861,9 @@ function ServiceDetail() {
                 ? spec.workload.kind === 'redis-service'
                   ? 'Redis database'
                   : 'PostgreSQL database'
-                : 'Dedicated celld application fleet'}
+                : spec.workload.kind === 'rustfs-service'
+                  ? 'RustFS S3 storage'
+                  : 'Dedicated celld application fleet'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -926,62 +938,26 @@ function ServiceDetail() {
         />
       </div>
       <nav className="detail-nav" aria-label="Service tabs">
-        <Link
-          to="/services/$serviceId/networking"
-          params={{ serviceId }}
-          resetScroll={false}
-          activeProps={{ 'aria-current': 'page' }}
-        >
-          Networking
-        </Link>
-        <Link
-          to="/services/$serviceId/builds"
-          params={{ serviceId }}
-          resetScroll={false}
-          activeProps={{ 'aria-current': 'page' }}
-        >
-          {spec.workload.kind !== 'celld-service' ? 'Builds & revisions' : 'Fleet deployments'}
-        </Link>
-        <Link
-          to="/services/$serviceId/logs"
-          params={{ serviceId }}
-          resetScroll={false}
-          activeProps={{ 'aria-current': 'page' }}
-        >
-          Logs
-        </Link>
-        <Link
-          to="/services/$serviceId/metrics"
-          params={{ serviceId }}
-          resetScroll={false}
-          activeProps={{ 'aria-current': 'page' }}
-        >
-          Metrics
-        </Link>
-        <Link
-          to="/services/$serviceId/configuration"
-          params={{ serviceId }}
-          resetScroll={false}
-          activeProps={{ 'aria-current': 'page' }}
-        >
-          Configuration
-        </Link>
-        <Link
-          to="/services/$serviceId/secrets"
-          params={{ serviceId }}
-          resetScroll={false}
-          activeProps={{ 'aria-current': 'page' }}
-        >
-          Secrets
-        </Link>
-        <Link
-          to="/services/$serviceId/activity"
-          params={{ serviceId }}
-          resetScroll={false}
-          activeProps={{ 'aria-current': 'page' }}
-        >
-          Activity
-        </Link>
+        {[
+          ['builds', spec.workload.kind === 'celld-service' ? 'Fleet deployments' : 'Builds'],
+          ['logs', 'Logs'],
+          ['metrics', 'Metrics'],
+          ['activity', 'Activity'],
+          ['configuration', 'Configuration'],
+          ['networking', 'Networking'],
+          ['storage', 'Storage'],
+          ['secrets', 'Secrets'],
+        ].map(([tab, label]) => (
+          <Link
+            key={tab}
+            to={'/services/$serviceId/' + tab}
+            params={{ serviceId }}
+            resetScroll={false}
+            activeProps={{ 'aria-current': 'page' }}
+          >
+            {label}
+          </Link>
+        ))}
       </nav>
       <CurrentService.Provider value={service.data}>
         <Outlet />
@@ -1002,17 +978,35 @@ function ServiceBuilds() {
 
 function ServiceConfiguration() {
   const service = useCurrentService()
-  return service.spec.workload.kind === 'postgres-service' ||
-    service.spec.workload.kind === 'redis-service' ? (
-    <DatabaseForm key={service.id} service={service} />
+  return service.spec.workload.kind === 'oci-service' ||
+    service.spec.workload.kind === 'celld-service' ? (
+    <ServiceForm key={service.id + ':' + service.version} service={service} />
   ) : (
-    <>
-      {' '}
-      <ServiceForm key={service.id + ':' + service.version} service={service} />{' '}
-      {service.spec.workload.kind === 'oci-service' && (
+    <DatabaseForm key={service.id} service={service} />
+  )
+}
+function ServiceStorage() {
+  const service = useCurrentService()
+  const search = useSearch({ strict: false }) as { browse?: 'objects' | 'volume' }
+  if (search.browse && service.spec.workload.kind === 'oci-service')
+    return <FileBrowser service={service} kind={search.browse} />
+  if (service.spec.workload.kind === 'oci-service')
+    return (
+      <>
         <StoragePanel key={service.id + ':' + service.version} service={service} />
-      )}{' '}
-    </>
+        <BucketPanel key={service.id} service={service} />
+      </>
+    )
+  if (service.spec.workload.kind === 'rustfs-service') return <BucketPanel service={service} />
+  return (
+    <section className="panel p-6">
+      <h2>Managed storage</h2>
+      <p className="text-sm text-muted mt-3">
+        {service.spec.workload.kind === 'celld-service'
+          ? 'Durable state is managed by the dedicated celld fleet.'
+          : 'The database owns its persistent volume. Use database connections and engine-aware exports to access its data.'}
+      </p>
+    </section>
   )
 }
 
@@ -1114,6 +1108,15 @@ const networkingRoute = createRoute({
   path: 'networking',
   component: () => {
     const service = useCurrentService()
+    if (service.spec.workload.kind === 'rustfs-service')
+      return (
+        <section className="panel p-6">
+          <h2>Private S3 endpoint</h2>
+          <p className="text-sm text-muted mt-3">
+            Attach buckets to apps from their Storage tab. Public S3 routing is not enabled.
+          </p>
+        </section>
+      )
     return service.spec.workload.kind === 'postgres-service' ||
       service.spec.workload.kind === 'redis-service' ? (
       <DatabasePanel service={service} />
@@ -1181,6 +1184,17 @@ const serviceConfigurationRoute = createRoute({
   path: 'configuration',
   component: ServiceConfiguration,
 })
+const serviceStorageRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'storage',
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { browse?: 'objects' | 'volume'; path?: string } => ({
+    browse: search.browse === 'objects' || search.browse === 'volume' ? search.browse : undefined,
+    path: typeof search.path === 'string' ? search.path : undefined,
+  }),
+  component: ServiceStorage,
+})
 const serviceSecretsRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'secrets',
@@ -1224,6 +1238,7 @@ const router = createRouter({
       serviceBuildsRoute,
       serviceLogsRoute,
       serviceSecretsRoute,
+      serviceStorageRoute,
       serviceMetricsRoute,
       serviceConfigurationRoute,
       serviceActivityRoute,

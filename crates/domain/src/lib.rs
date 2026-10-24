@@ -116,6 +116,9 @@ pub struct Resources {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Workload {
+    RustfsService {
+        storage_gib: u16,
+    },
     RedisService {
         storage_gib: u16,
     },
@@ -167,6 +170,9 @@ pub struct ValidationIssue {
 }
 
 impl Workload {
+    pub fn is_managed(&self) -> bool {
+        self.is_database() || matches!(self, Self::RustfsService { .. })
+    }
     pub fn is_database(&self) -> bool {
         matches!(
             self,
@@ -175,6 +181,7 @@ impl Workload {
     }
     pub fn database_secret(&self) -> &'static str {
         match self {
+            Self::RustfsService { .. } => "RUSTFS_SECRET_KEY",
             Self::RedisService { .. } => "REDIS_PASSWORD",
             _ => "POSTGRES_PASSWORD",
         }
@@ -215,7 +222,7 @@ impl ServiceSpec {
                 "use 1–63 lowercase letters, digits or interior hyphens",
             );
         }
-        if self.workload.is_database() {
+        if self.workload.is_managed() {
             check(
                 self.secrets
                     .iter()
@@ -315,6 +322,28 @@ impl ServiceSpec {
             );
         }
         match &self.workload {
+            Workload::RustfsService { storage_gib } => {
+                check(
+                    (1..=2).contains(storage_gib),
+                    "workload.storage_gib",
+                    "development storage supports 1–2 GiB",
+                );
+                check(
+                    self.resources.memory_mib >= 1024,
+                    "resources.memory_mib",
+                    "RustFS needs at least 1024 MiB for this development template",
+                );
+                check(
+                    self.domains.is_empty(),
+                    "domains",
+                    "RustFS uses private S3 connections",
+                );
+                check(
+                    !self.distinct_nodes,
+                    "distinct_nodes",
+                    "RustFS runs on its persistent volume owner",
+                );
+            }
             Workload::RedisService { storage_gib } => {
                 check(
                     (1..=2).contains(storage_gib),
@@ -473,6 +502,7 @@ impl ServiceSpec {
         match self.workload {
             Workload::OciService { .. } => "oci-service",
             Workload::PostgresService { .. } => "postgres-service",
+            Workload::RustfsService { .. } => "rustfs-service",
             Workload::RedisService { .. } => "redis-service",
             Workload::CelldService { .. } => "celld-service",
         }

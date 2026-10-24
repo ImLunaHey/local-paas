@@ -70,7 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             version: VERSION,
             node_id: config.node_id,
             observations: reports.read().await.values().cloned().collect(),
-            capabilities: vec!["databases-v1".into(), "shared-volumes-v1".into()],
+            capabilities: vec![
+                "databases-v1".into(),
+                "shared-volumes-v1".into(),
+                "rustfs-v1".into(),
+            ],
         };
         match client
             .post(format!("{}/api/agent/sync", config.controller_url))
@@ -133,6 +137,19 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
                 ("POSTGRES_DB".into(), database.clone()),
                 ("POSTGRES_USER".into(), "postgres".into()),
             ]),
+        ),
+        Workload::RustfsService { storage_gib } => (
+            9000,
+            vec![platform_runtime::Mount::Volume {
+                id: a.service_id,
+                destination: "/data".into(),
+                read_only: false,
+                size_gib: *storage_gib,
+            }],
+            std::collections::BTreeMap::from([(
+                "RUSTFS_ACCESS_KEY".into(),
+                a.service_id.simple().to_string(),
+            )]),
         ),
         Workload::RedisService { storage_gib } => (
             6379,
@@ -306,7 +323,11 @@ async fn instance_loop(
                     report.diagnostic = Some("process_exited".into());
                 } else {
                     let default_readiness = platform_domain::Readiness {
-                        path: "/".into(),
+                        path: if matches!(a.spec.workload, Workload::RustfsService { .. }) {
+                            "/health/ready".into()
+                        } else {
+                            "/".into()
+                        },
                         interval_seconds: 5,
                         stabilization_seconds: 10,
                     };

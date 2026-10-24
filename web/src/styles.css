@@ -65,8 +65,8 @@
 }
 .detail-nav {
   display: flex;
-  overflow-x: auto;
-  gap: 26px;
+  flex-wrap: wrap;
+  gap: 12px 26px;
   border-bottom: 1px solid #28282c;
   margin-bottom: 24px;
   font-size: 12px;

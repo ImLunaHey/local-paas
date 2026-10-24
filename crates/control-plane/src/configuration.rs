@@ -49,7 +49,7 @@ pub(crate) async fn update(
         ));
     }
     crate::volumes::validate_scope(&mut tx, &request.spec).await?;
-    if current.spec.workload.is_database() && current.spec.workload != request.spec.workload {
+    if current.spec.workload.is_managed() && current.spec.workload != request.spec.workload {
         let allocated: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM volumes WHERE id=$1)")
                 .bind(id)
