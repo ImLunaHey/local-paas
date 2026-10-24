@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   Activity,
+  Clock3,
   Cable,
   ChartNoAxesCombined,
   HardDrive,
@@ -78,6 +79,9 @@ export function ServiceWorkspace({ service, children }: { service: Service; chil
       label="Service navigation"
       navigation={[
         { path: 'builds', label: fleet ? 'Fleet deployments' : 'Builds', icon: Layers3 },
+        ...(spec.workload.kind === 'oci-service'
+          ? [{ path: 'jobs', label: 'Jobs', icon: Clock3 }]
+          : []),
         { path: 'logs', label: 'Logs', icon: ScrollText },
         { path: 'metrics', label: 'Metrics', icon: ChartNoAxesCombined },
         { path: 'activity', label: 'Activity', icon: Activity },

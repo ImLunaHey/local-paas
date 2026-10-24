@@ -5,6 +5,7 @@ import { ContentBoundary, RouteError } from './error-boundary'
 import { FileBrowser } from './file-browser'
 import { BucketPanel } from './object-storage'
 import { StoragePanel } from './storage'
+import { JobsPanel } from './jobs'
 import { CreationScope, WorkspaceBreadcrumbs } from './workspace-context'
 import { DatabaseForm, DatabasePanel } from './databases'
 import { DatabaseInspector } from './database-inspection'
@@ -1302,6 +1303,11 @@ const serviceBuildsRoute = createRoute({
   path: 'builds',
   component: ServiceBuilds,
 })
+const serviceJobsRoute = createRoute({
+  getParentRoute: () => detailRoute,
+  path: 'jobs',
+  component: () => <JobsPanel service={useCurrentService()} />,
+})
 const serviceDatabaseRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'overview',
@@ -1372,6 +1378,7 @@ const router = createRouter({
       serviceSetupRoute,
       networkingRoute,
       serviceBuildsRoute,
+      serviceJobsRoute,
       serviceDatabaseRoute,
       serviceLogsRoute,
       serviceSecretsRoute,

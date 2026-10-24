@@ -230,3 +230,8 @@ endpoints, plus dedicated development OpenBao and ClickHouse instances.
 DigitalOcean, NetBird, Railway and production databases remain untouched.
 Deployments and telemetry are real; production release gates remain
 listed in the architecture document.
+
+OCI applications also have a **Jobs** page for one-off commands and interval
+schedules against built revisions, with time limits, cancellation, retained logs
+and exit results. Schedules prevent overlapping jobs and skip missed ticks. See
+[the execution guarantees](docs/runtime.md#one-off-jobs-and-interval-schedules).
