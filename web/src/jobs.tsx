@@ -422,7 +422,7 @@ export function JobsPanel({ service }: { service: Service }) {
                 <span
                   className={cn(
                     'text-xs font-medium',
-                    run.status === 'succeeded'
+                    ['running', 'succeeded'].includes(run.status)
                       ? 'text-emerald-300'
                       : ['failed', 'timed_out', 'uncertain'].includes(run.status)
                         ? 'text-red-300'
@@ -474,6 +474,12 @@ export function JobsPanel({ service }: { service: Service }) {
               {run.error_code === 'job_setup_failed' && (
                 <p className="text-xs text-red-300">
                   Job setup failed. Review the instance logs and secret availability.
+                </p>
+              )}
+              {run.result?.outcome === 'failed' && run.result.exit_code == null && (
+                <p className="text-xs text-red-300">
+                  The job could not be prepared. Check image availability, attached storage, and
+                  credentials before retrying.
                 </p>
               )}
             </div>
