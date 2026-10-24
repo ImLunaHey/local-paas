@@ -101,6 +101,22 @@ test('RustFS file browser uploads, downloads and preserves existing objects', as
   const chunks: Buffer[] = []
   for await (const chunk of stream!) chunks.push(chunk)
   expect(Buffer.concat(chunks).toString()).toBe(body)
+  const restored = 'restored-' + name
+  await page
+    .getByLabel('Upload storage files')
+    .setInputFiles({ name: restored, mimeType: 'text/plain', buffer: Buffer.concat(chunks) })
+  await expect(page.getByText(restored, { exact: true })).toBeVisible()
+  const restoredBody = await page.evaluate(
+    async ({ id, restored }) =>
+      (
+        await fetch(
+          `/api/services/${id}/storage/files?download=true&path=${encodeURIComponent(restored)}`,
+        )
+      ).text(),
+    { id, restored },
+  )
+  expect(restoredBody).toBe(body)
+
   await page
     .getByLabel('Upload storage files')
     .setInputFiles({ name, mimeType: 'text/plain', buffer: Buffer.from('should not replace') })
@@ -109,4 +125,60 @@ test('RustFS file browser uploads, downloads and preserves existing objects', as
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
   await page.screenshot({ path: '../.local/s3-files-mobile.png', fullPage: true })
+})
+
+test('shared volume browser restores downloaded files and enforces read-only attachments', async ({
+  page,
+}) => {
+  const writer = process.env.E2E_VOLUME_WRITER_ID,
+    reader = process.env.E2E_VOLUME_READER_ID
+  test.skip(!writer || !reader, 'Requires disposable services sharing a mounted volume')
+  const name = `volume-browser-${Date.now()}.txt`,
+    body = 'shared browser restore canary\n'
+  await page.goto(`/services/${writer}/storage`)
+  await page.getByRole('link', { name: 'Browse files', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Browse volume' })).toBeVisible()
+  await page
+    .getByLabel('Upload storage files')
+    .setInputFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(body) })
+  await expect(page.getByText(name, { exact: true })).toBeVisible()
+  const download = page.waitForEvent('download')
+  await page.getByRole('link', { name: 'Download ' + name, exact: true }).click()
+  const stream = await (await download).createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of stream!) chunks.push(chunk)
+  const backup = Buffer.concat(chunks)
+  expect(backup.toString()).toBe(body)
+  const restored = 'restored-' + name
+  await page
+    .getByLabel('Upload storage files')
+    .setInputFiles({ name: restored, mimeType: 'text/plain', buffer: backup })
+  await expect(page.getByText(restored, { exact: true })).toBeVisible()
+  await page.screenshot({ path: '../.local/volume-browser-desktop.png', fullPage: true })
+  await page.goto(`/services/${reader}/storage`)
+  await page.getByRole('link', { name: 'Browse files', exact: true }).click()
+  await expect(page.getByText('Read only', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Upload storage files')).toHaveCount(0)
+  await expect(page.getByText(restored, { exact: true })).toBeVisible()
+  const verified = await page.evaluate(
+    async ({ reader, restored }) => {
+      const path = `/api/services/${reader}/volume/files?path=${encodeURIComponent(restored)}`
+      return {
+        body: await (await fetch(path + '&download=true')).text(),
+        upload: (
+          await fetch(path, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: 'must not replace',
+          })
+        ).status,
+      }
+    },
+    { reader: reader!, restored },
+  )
+  expect(verified.body).toBe(body)
+  expect(verified.upload).toBe(409)
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: '../.local/volume-browser-mobile.png', fullPage: true })
 })

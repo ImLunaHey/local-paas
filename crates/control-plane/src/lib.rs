@@ -14,6 +14,8 @@ use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 
 mod audit;
+#[cfg(test)]
+mod backup_drills;
 pub mod builds;
 mod configuration;
 mod database_inspection;

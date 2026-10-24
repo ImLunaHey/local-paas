@@ -29,9 +29,10 @@ mounted nodev/nosuid/noexec, and persist on worker NVMe virtual disks. No data i
 placed on Lake's ZFS array. A volume is not a backup. Automatic backups, expansion,
 delete/restore workflows and physical-worker failover remain unimplemented.
 
-Runtime qualification is in progress: unit, SQL and browser tests validate the
-model and UI; database engines and shared filesystem access require VM smoke and
-persistence tests before this is treated as usable production storage.
+Development qualification includes real VM deployments, shared read/write and
+read-only filesystem access, and a worker stop/start with byte-for-byte file
+retention. The three VMs still share one physical failure domain. Production
+backup automation and loss-of-host recovery are separate release gates.
 
 ## RustFS and the Storage tab
 
@@ -55,7 +56,8 @@ no credentials. Upload/download actions are audited without file contents.
 Live development checks passed for RustFS bucket isolation, denial of admin APIs,
 object upload/download and conditional-write conflicts, and object retention
 through a confirmed stop and replacement deployment. Redis and PostgreSQL reached
-health-gated active deployments; database data backup/restore drills remain open.
+health-gated active deployments. The disposable PostgreSQL dump/restore and
+Redis key export/restore drills below have passed.
 PostgreSQL's pinned entrypoint directs its initialization client to the explicit
 /tmp socket, matching the hardened container's writable tmpfs layout.
 
@@ -102,3 +104,37 @@ per page. Payloads remain in memory and are excluded from audit/database records
 The broker is intentionally ephemeral: a controller restart interrupts transfers
 without stopping workloads. After an uncertain upload, refresh before retrying;
 create-only publication prevents a retry from overwriting a completed file.
+
+
+## Reproducible recovery drills
+
+Opt-in Rust tests in `crates/control-plane/src/backup_drills.rs` reject any service
+outside the `platform-storage-canary` project. Set `DATABASE_URL` for the platform,
+`OPENBAO_ADDR`, `OPENBAO_CA_FILE`, and `OPENBAO_TOKEN_FILE`, plus the explicit
+`PLATFORM_DATABASE_SMOKE_POSTGRES` and/or `PLATFORM_DATABASE_SMOKE_REDIS` service IDs.
+No credential values belong in shell arguments or test logs. Then run:
+
+`cargo test -p control-plane --lib backup_drills -- --ignored`
+
+The PostgreSQL test inserts a unique marker, makes a custom-format `pg_dump`,
+removes the source marker, restores into a new database, verifies its content,
+and removes the restored database and temporary archive. The archive is in a
+private temporary directory. Tool paths default to NixOS's system binaries;
+`PLATFORM_PG_DUMP` and `PLATFORM_PG_RESTORE` can supply absolute paths elsewhere.
+This tests a database dump; role/global configuration recovery and off-site backup
+retention are not covered.
+
+The Redis test exports one expiring canary key with DUMP, deletes it, uses RESTORE
+under a new name, compares its value, and removes the fixture keys. This verifies
+logical key recovery, **not a consistent whole-database RDB/AOF restore**. Full
+Redis disaster recovery remains a production gate.
+
+`web/tests/storage.spec.ts` checks file export/reupload under a new name for S3
+and shared volumes, content equality, create-only uploads, and read-only access.
+Supply `E2E_BUCKET_SERVICE_ID`, `E2E_VOLUME_WRITER_ID`, and `E2E_VOLUME_READER_ID`
+for disposable fixtures. A manual worker-2 stop/start additionally confirmed both
+shared app processes read the same retained file after their volume remounted.
+File-level export is not a filesystem snapshot or a complete bucket backup.
+
+These drills passed on 2026-10-24. They do not provide scheduled backups,
+off-site copies, backup browsing, or a product restore workflow.

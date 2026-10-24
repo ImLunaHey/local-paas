@@ -9,8 +9,9 @@ images, deploy OCI revisions across three isolated worker VMs, gate traffic on
 readiness, stop deployments, and view application logs and CPU/memory/PID metrics.
 Rust node agents authenticate through a private mTLS gateway and reconcile durable
 assignments. Healthy containers survive controller restarts. Failed candidates
-leave the previous active deployment intact. Sources support branches, tags and
-commits; supported Node/Bun apps can generate Dockerfiles with command overrides.
+leave the previous active deployment intact. Sources support branches, tags,
+commits, and validated ZIP/local file uploads; supported Node/Bun apps can
+generate Dockerfiles with command overrides.
 
 Showcase Studio is privately deployed with two replicas on different worker VMs:
 **https://lake.tail3275e2.ts.net:5201**. The dashboard remains on port 5188.
@@ -19,12 +20,13 @@ runtime, not a Railway production migration.
 
 Shared node-pinned volumes support multiple service attachments. Managed PostgreSQL,
 Redis and RustFS services use persistent local volumes; RustFS buckets have scoped
-application credentials and a Storage-tab file browser. See [storage](docs/storage.md)
-for development limits and qualification status.
+application credentials and a Storage-tab file browser. Shared volumes also provide
+file browsing with upload/download and read-only access enforcement. See
+[storage](docs/storage.md) for development limits and qualification status.
 
 **Not implemented:** automatic relocation after node loss, node cordon/drain UI,
-shared-volume file browsing, public DigitalOcean ingress,
-NetBird provisioning, production authentication/backup recovery, and celld fleet
+public DigitalOcean ingress, NetBird provisioning, production authentication/backup
+recovery, and celld fleet
 execution. celld cannot enter the OCI deploy path.
 See [runtime operations and limitations](docs/runtime.md).
 
