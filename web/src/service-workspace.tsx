@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { Service } from './api'
+import { ContentBoundary } from './error-boundary'
 
 interface NavigationItem {
   path: string
@@ -62,7 +63,9 @@ export function WorkspaceLayout({
           ))}
         </dl>
       </aside>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0">
+        <ContentBoundary scope="tab">{children}</ContentBoundary>
+      </div>
     </div>
   )
 }

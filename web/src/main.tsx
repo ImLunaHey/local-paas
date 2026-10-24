@@ -1,3 +1,4 @@
+import { ContentBoundary, RouteError } from './error-boundary'
 import { FileBrowser } from './file-browser'
 import { BucketPanel } from './object-storage'
 import { StoragePanel } from './storage'
@@ -152,15 +153,17 @@ function Shell() {
           <CommandMenu />
         </header>
         <main>
-          <Outlet />
-          {import.meta.env.DEV && (
-            <TanStackDevtools
-              plugins={[
-                { name: 'TanStack Query', render: <ReactQueryDevtoolsPanel /> },
-                { name: 'TanStack Router', render: <TanStackRouterDevtoolsPanel /> },
-              ]}
-            />
-          )}
+          <ContentBoundary>
+            <Outlet />
+            {import.meta.env.DEV && (
+              <TanStackDevtools
+                plugins={[
+                  { name: 'TanStack Query', render: <ReactQueryDevtoolsPanel /> },
+                  { name: 'TanStack Router', render: <TanStackRouterDevtoolsPanel /> },
+                ]}
+              />
+            )}
+          </ContentBoundary>
         </main>
         <footer>
           Built for a smaller cloud.
@@ -1164,6 +1167,7 @@ const serviceActivityRoute = createRoute({
   component: ServiceActivity,
 })
 const router = createRouter({
+  defaultErrorComponent: RouteError,
   routeTree: rootRoute.addChildren([
     indexRoute,
     projectsRoute,
