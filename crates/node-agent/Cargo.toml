@@ -3,6 +3,7 @@ name = "node-agent"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 [dependencies]
 chrono = "0.4"
 platform-domain = { path = "../domain" }

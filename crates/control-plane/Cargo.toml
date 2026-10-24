@@ -4,6 +4,7 @@ default-run = "control-plane"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 platform-sources = { path = "../sources" }
