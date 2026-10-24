@@ -18,6 +18,8 @@ pub struct Assignment {
     pub desired_state: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub recovery_allowed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<JobExecution>,
     pub image_repository: String,
     pub image_digest: ImageDigest,
     pub spec: ServiceSpec,
@@ -50,10 +52,36 @@ pub struct InstanceReport {
     pub observed_unix_ms: i64,
     #[serde(default)]
     pub process_started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_result: Option<JobResult>,
     pub state: String,
     pub diagnostic: Option<String>,
     pub metrics: Option<Metrics>,
     pub logs: Vec<LogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobExecution {
+    /// Empty uses the image command. Otherwise replaces both entrypoint and CMD.
+    pub command: Vec<String>,
+    pub deadline_unix_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobResult {
+    pub outcome: JobOutcome,
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobOutcome {
+    Succeeded,
+    Failed,
+    TimedOut,
+    Unknown,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

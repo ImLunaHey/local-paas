@@ -171,3 +171,12 @@ production state. The builder's later inspection does not establish worker capac
 - TanStack Router: https://tanstack.com/router/latest/docs/quick-start
 - TanStack Query: https://tanstack.com/query/latest/docs/framework/react/quick-start
 - celld constraints: https://celld.dev/docs/limitations/ and https://celld.dev/docs/security/
+
+### One-off execution
+
+OCI applications can launch jobs from pinned image revisions without replacing the
+app. Jobs use separate deployment records and immutable command/timeout/configuration
+snapshots. Nodes reserve each start durably, report exit outcomes, and require
+confirmed cleanup before another job for that service. Unknown outcomes never retry
+automatically. Interval schedules persist due times and unique occurrences in
+PostgreSQL, forbid overlap, and skip missed ticks. See [runtime.md](runtime.md#one-off-jobs-and-interval-schedules).

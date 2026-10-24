@@ -24,6 +24,7 @@ mod domains;
 mod environments;
 mod history;
 pub mod host_metrics;
+pub mod jobs;
 pub mod logging;
 mod networking;
 mod object_storage;
@@ -124,6 +125,11 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
         )
         .route("/api/deployments/{id}/stop", post(runtime::stop))
         .route("/api/services/{id}/runtime", get(runtime::status))
+        .route("/api/services/{id}/jobs", get(jobs::list).post(jobs::run))
+        .route(
+            "/api/services/{id}/job-schedule",
+            axum::routing::put(jobs::schedule),
+        )
         .route("/api/services/{id}/runtime/logs", get(logging::logs))
         .route("/api/log-storage", get(logging::status))
         .route("/api/services/{id}/runtime/metrics", get(runtime::metrics))

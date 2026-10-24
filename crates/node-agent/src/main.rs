@@ -1,4 +1,5 @@
 mod containerd;
+mod jobs;
 mod network;
 mod recovery;
 mod secrets;
@@ -84,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "volume-files-v1".into(),
                 "recovery-v1".into(),
                 "workers-v1".into(),
+                "jobs-v1".into(),
             ],
         };
         match client
@@ -126,6 +128,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
+    if let Some(job) = &a.job
+        && (!a.spec.workload.is_worker()
+            || a.recovery_allowed
+            || job.command.len() > 64
+            || job
+                .command
+                .iter()
+                .any(|v| v.len() > 4096 || v.contains('\0'))
+            || job.command.first().is_some_and(|v| v.is_empty())
+            || job.deadline_unix_ms < 0)
+    {
+        return None;
+    }
     if a.spec.validate().is_err() || !(20000..20004).contains(&a.published_port) || a.generation < 1
     {
         return None;
@@ -192,6 +207,11 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
             controller_epoch: 1,
         },
         PrepareSpec {
+            command: a
+                .job
+                .as_ref()
+                .map(|j| j.command.clone())
+                .unwrap_or_default(),
             identity: Identity {
                 project: a.spec.project.clone(),
                 environment: a.spec.environment.clone(),
@@ -277,6 +297,7 @@ async fn instance_loop(
             generation: a.generation,
             observed_unix_ms: now_millis(),
             process_started_at: None,
+            job_result: None,
             state: "starting".into(),
             diagnostic: None,
             metrics: None,
@@ -298,6 +319,44 @@ async fn instance_loop(
             } else {
                 report.state = "unknown".into();
                 report.diagnostic = Some("cleanup_failed".into());
+            }
+        } else if a.desired_state == "running" && a.job.is_some() {
+            if !a.spec.secrets.is_empty() && values.is_empty() {
+                match secrets::obtain(&client, &config, &a).await {
+                    Ok(received) => match secrets::install(&runtime, id, &received).await {
+                        Ok(()) => values = received,
+                        Err(()) => failed = Some("secret_materialization_failed".into()),
+                    },
+                    Err(()) => failed = Some("secret_delivery_failed".into()),
+                }
+            }
+            if let Some(code) = &failed {
+                report.state = "failed".into();
+                report.diagnostic = Some(code.clone());
+            } else {
+                match jobs::step(&runtime, &op, &spec, a.job.as_ref().unwrap()).await {
+                    Ok(result) => {
+                        report.job_result = result;
+                        if report.job_result.is_some() {
+                            report.state = "failed".into(); // Terminal observation; result determines outcome.
+                        }
+                    }
+                    Err(()) => {
+                        report.state = "unknown".into();
+                        report.diagnostic = Some("job_state_unavailable".into());
+                    }
+                }
+                if let Ok(info) = runtime.info(id).await {
+                    report.process_started_at = info["State"]["StartedAt"]
+                        .as_str()
+                        .filter(|s| !s.starts_with("0001-"))
+                        .map(str::to_string);
+                    if info["State"]["Running"] == true {
+                        report.metrics =
+                            measure(info["State"]["Pid"].as_u64().unwrap_or(0), &mut previous)
+                                .await;
+                    }
+                }
             }
         } else if a.desired_state == "running" {
             // Promotion can arrive one heartbeat after a process exit observation.

@@ -26,6 +26,8 @@ pub struct Identity {
 
 #[derive(Debug, Clone)]
 pub struct PrepareSpec {
+    /// Explicit argv override; empty preserves the image entrypoint and CMD.
+    pub command: Vec<String>,
     pub identity: Identity,
     pub image: ImageDigest,
     pub registry_repository: String,

@@ -416,19 +416,21 @@ impl Runtime for Containerd {
             }
             args.extend(["--env".into(), format!("{key}={value}")]);
         }
-        let mut original = Vec::new();
+        let mut original = spec.command.clone();
         if !spec.secret_names.is_empty() {
             let dir = crate::secrets::directory(op.instance_id);
             if !dir.join(".environment").is_file() {
                 return Err(RuntimeError::Rejected("secret_files_missing"));
             }
-            let config = self
-                .image_config(&spec.registry_repository, &String::from(spec.image.clone()))
-                .await?;
-            for key in ["Entrypoint", "Cmd"] {
-                if let Some(parts) = config[key].as_array() {
-                    for part in parts {
-                        original.push(part.as_str().ok_or_else(failure)?.to_string());
+            if original.is_empty() {
+                let config = self
+                    .image_config(&spec.registry_repository, &String::from(spec.image.clone()))
+                    .await?;
+                for key in ["Entrypoint", "Cmd"] {
+                    if let Some(parts) = config[key].as_array() {
+                        for part in parts {
+                            original.push(part.as_str().ok_or_else(failure)?.to_string());
+                        }
                     }
                 }
             }
@@ -446,6 +448,8 @@ impl Runtime for Containerd {
                 "--entrypoint".into(),
                 "/.platform-secret-exec".into(),
             ]);
+        } else if !original.is_empty() {
+            args.extend(["--entrypoint".into(), original.remove(0)]);
         }
         args.extend(["--read-only".into(), "--no-healthcheck".into(), image]);
         args.extend(original);

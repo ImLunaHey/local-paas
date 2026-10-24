@@ -54,6 +54,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    let schedule_pool = pool.clone();
+    let schedules = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            if control_plane::jobs::tick(&schedule_pool).await.is_err() {
+                tracing::error!("job schedule reconciliation failed");
+            }
+        }
+    });
     let renewal = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(3600));
         loop {
@@ -85,6 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     host_metrics.abort();
     upkeep.abort();
+    schedules.abort();
     archive.abort();
     renewal.abort();
     preview.abort();

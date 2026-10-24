@@ -241,3 +241,51 @@ upgraded separately; the seven existing application/database/storage instances
 returned to ready. `make check` and the disposable-database integration suite
 passed. The initial drill exposed stale CNI reservations after VM reboot; moving
 the reservations to the worker's `/run` filesystem resolved that startup failure.
+
+## One-off jobs and interval schedules
+
+An OCI app's **Jobs** page runs a built revision as a separate, one-shot instance.
+Jobs do not replace the app or acquire a public port. An optional executable plus
+argument array replaces the image entrypoint and CMD without shell interpolation;
+an empty array uses the image command. Pass credentials through OpenBao, never
+literal command arguments. Each run snapshots current service resources, volume,
+connections and secret version references alongside the pinned image revision.
+
+`POST /api/services/{id}/jobs` accepts `operation_id`, `revision_id` and
+`options: {command: string[], timeout_seconds: number}`. Retries return the same
+run; changing its inputs with the same operation ID is a conflict. One unfinished
+job is allowed per service, including queued, unknown and cleanup-pending runs.
+An unreachable node does not release ownership. Normal app deployments and jobs
+remain independent; shared volumes still require the owning node.
+
+The agent advertises `jobs-v1`. Before preparation/start it fsyncs a local job
+reservation. It never retries that reservation after a process exit or agent
+restart. Running processes are re-observed; exit codes and outcomes are persisted
+before reporting. A reservation with no provable process outcome is **uncertain**,
+not successful and not restarted. Review effects before explicitly retrying.
+This prevents automatic duplicate starts but does not promise exactly-once
+application effects. Applications still need idempotent external operations.
+
+The 10–86400 second time limit begins at allocation and includes image preparation.
+The agent checks deadlines every five seconds and kills overdue running processes.
+Deadline enforcement requires a functioning node agent; it resumes after restart.
+Cancellation requests graceful stop and waits for confirmed cleanup. The terminal
+result survives cleanup; logs use the existing retained logging pipeline. The API
+stores only result metadata and secret references, not secret values.
+
+`PUT /api/services/{id}/job-schedule` configures one interval schedule per app using
+an operation ID, expected `version` (0 initially), `revision_id`, `options`,
+`interval_minutes` (1–10080) and `enabled`. Saving restarts the interval from now.
+The interval is elapsed UTC time, not a timezone-dependent calendar or cron rule.
+Pausing affects future ticks, not an already queued/running job. Schedules pin an
+image/command, while each occurrence snapshots current app settings and secrets.
+Schedules are separate resources and are not inherited by shadow environments.
+
+PostgreSQL transactions and the scheduler advisory lock serialize due ticks across
+controller processes. Each occurrence is unique. Ticks over 30 seconds late are
+recorded as missed and advanced to the next future interval, with a skipped count;
+there is no catch-up burst. An occupied service skips the occurrence. Failed secret
+snapshot/configuration is recorded as failed-to-queue instead of repeatedly firing
+that tick. Schedule edits, runs and skipped occurrences have transactional audit
+records. The Jobs page shows the latest 50 runs and 20 schedule occurrences; records
+remain in PostgreSQL and instance logs remain in dedicated ClickHouse storage.

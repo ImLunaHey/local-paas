@@ -46,13 +46,15 @@ pub(crate) async fn deploy(
     sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
         .execute(&mut *tx)
         .await?;
-    if let Some(row) =
-        sqlx::query("SELECT id,service_id,revision_id FROM deployments WHERE operation_id=$1")
-            .bind(input.operation_id)
-            .fetch_optional(&mut *tx)
-            .await?
+    if let Some(row) = sqlx::query(
+        "SELECT id,service_id,revision_id,job_options FROM deployments WHERE operation_id=$1",
+    )
+    .bind(input.operation_id)
+    .fetch_optional(&mut *tx)
+    .await?
     {
-        if row.get::<Uuid, _>("service_id") != service_id
+        if row.get::<Option<DbJson<Value>>, _>("job_options").is_some()
+            || row.get::<Uuid, _>("service_id") != service_id
             || row.get::<Uuid, _>("revision_id") != input.revision_id
         {
             return Err(ApiError::Conflict(
@@ -81,7 +83,7 @@ pub(crate) async fn deploy(
         }
     };
     if !spec.workload.is_worker() && (database_size.is_some() || spec.volume.is_some()) {
-        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped')").bind(service_id).fetch_one(&mut *tx).await?;
+        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND d.job_options IS NULL AND i.state<>'stopped')").bind(service_id).fetch_one(&mut *tx).await?;
         if occupied {
             return Err(ApiError::Conflict(
                 "stop this service and wait for confirmed shutdown before deploying a volume-backed revision; other attached services keep running",
@@ -140,12 +142,21 @@ pub(crate) async fn deploy(
         .bind(service_id)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id IN(SELECT id FROM deployments WHERE service_id=$1) AND desired_state<>'stopped'").bind(service_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id IN(SELECT id FROM deployments WHERE service_id=$1 AND job_options IS NULL) AND desired_state<>'stopped'").bind(service_id).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::new_v4()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
         tx.commit().await?;
         return Ok(Json(json!({"id":deployment})));
     }
-    let placements = place(&mut tx, service_id, spec, &database_ports, volume, shared).await?;
+    let placements = place(
+        &mut tx,
+        service_id,
+        spec,
+        &database_ports,
+        volume,
+        shared,
+        false,
+    )
+    .await?;
     if placements.len() != replicas as usize {
         return Err(ApiError::Conflict(
             "insufficient healthy worker capacity for the requested replicas and placement; the current deployment is unchanged",
@@ -179,13 +190,14 @@ pub(crate) async fn deploy(
     Ok(Json(json!({"id":deployment})))
 }
 
-async fn place(
+pub(crate) async fn place(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     service_id: Uuid,
     spec: &ServiceSpec,
     database_ports: &[i32],
     volume: Option<(Uuid, i32, i32)>,
     shared: Option<(Option<Uuid>, i32)>,
+    job: bool,
 ) -> Result<Vec<(Uuid, i32)>, sqlx::Error> {
     let replicas = match spec.workload {
         Workload::OciService { replicas, .. } => replicas,
@@ -201,6 +213,14 @@ async fn place(
     let mut placements = Vec::new();
     for node in nodes {
         let id: Uuid = node.get("id");
+        if job
+            && !node
+                .get::<Vec<String>, _>("capabilities")
+                .iter()
+                .any(|c| c == "jobs-v1")
+        {
+            continue;
+        }
         if spec.workload.is_worker()
             && !node
                 .get::<Vec<String>, _>("capabilities")
@@ -297,7 +317,7 @@ async fn reconcile_workers(
         let DbJson(spec): DbJson<ServiceSpec> = row.get("spec");
         // Unknown, stale and failed instances all retain ownership until the
         // assigned agent confirms cleanup at the current generation.
-        let occupied: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped')").bind(service).fetch_one(&mut **tx).await?;
+        let occupied: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND d.job_options IS NULL AND i.state<>'stopped')").bind(service).fetch_one(&mut **tx).await?;
         if occupied {
             continue;
         }
@@ -314,7 +334,7 @@ async fn reconcile_workers(
             None
         };
         let ports: Vec<i32> = row.get("database_ports");
-        let placements = place(tx, service, &spec, &ports, None, shared).await?;
+        let placements = place(tx, service, &spec, &ports, None, shared, false).await?;
         if placements.len() != 1 {
             sqlx::query("UPDATE deployments SET error_code='waiting_for_capacity' WHERE id=$1 AND error_code IS DISTINCT FROM 'waiting_for_capacity'").bind(id).execute(&mut **tx).await?;
             continue;
@@ -341,12 +361,18 @@ pub(crate) async fn stop(
     sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
         .execute(&mut *tx)
         .await?;
-    let row = sqlx::query("SELECT service_id FROM deployments WHERE id=$1 FOR UPDATE")
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    sqlx::query("UPDATE deployments SET status='stopped' WHERE id=$1")
+    let row =
+        sqlx::query("SELECT service_id,job_options,status FROM deployments WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    if row.get::<Option<DbJson<Value>>, _>("job_options").is_some()
+        && row.get::<String, _>("status") != "job"
+    {
+        return Ok(Json(json!({"id":id})));
+    }
+    sqlx::query("UPDATE deployments SET status=CASE WHEN job_options IS NULL THEN 'stopped' ELSE 'cancelled' END,completed_at=CASE WHEN job_options IS NOT NULL THEN now() ELSE completed_at END WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
         .await?;
@@ -361,6 +387,7 @@ pub async fn reconcile(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
         .execute(&mut *tx)
         .await?;
+    crate::jobs::reconcile(&mut tx).await?;
     reconcile_workers(&mut tx).await?;
     let pending = sqlx::query("SELECT id,service_id,deadline<now() AS expired FROM deployments WHERE status='preparing' FOR UPDATE").fetch_all(&mut *tx).await?;
     for d in pending {
@@ -428,6 +455,11 @@ pub async fn sync(
         .filter(|x| x.len() == 64)
         .ok_or((StatusCode::UNAUTHORIZED, "node credentials required"))?;
     let mut tx = pool.begin().await.map_err(db_error)?;
+    // Use the same lock order for result acceptance, cancellation and placement.
+    sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?;
     let known =
         sqlx::query("UPDATE nodes SET last_seen=now(),capabilities=$3 WHERE id=$1 AND token_hash=$2 RETURNING id")
             .bind(input.node_id)
@@ -472,6 +504,28 @@ pub async fn sync(
         if updated.is_none() {
             continue;
         }
+        if let Some(result) = &o.job_result {
+            use platform_protocol::JobOutcome;
+            if o.state != "failed"
+                || match result.outcome {
+                    JobOutcome::Succeeded => result.exit_code != Some(0),
+                    JobOutcome::Failed => result.exit_code == Some(0),
+                    JobOutcome::TimedOut | JobOutcome::Unknown => result.exit_code.is_some(),
+                }
+            {
+                return Err((StatusCode::BAD_REQUEST, "invalid job result"));
+            }
+            let status = match result.outcome {
+                JobOutcome::Succeeded => "succeeded",
+                JobOutcome::Failed => "failed",
+                JobOutcome::TimedOut => "timed_out",
+                JobOutcome::Unknown => "uncertain",
+            };
+            let completed = sqlx::query("UPDATE deployments d SET status=$2,job_result=$3,completed_at=now(),error_code=NULL FROM instances i WHERE i.id=$1 AND i.deployment_id=d.id AND d.status='job' AND d.job_options IS NOT NULL RETURNING d.id").bind(o.instance_id).bind(status).bind(DbJson(result)).fetch_optional(&mut *tx).await.map_err(db_error)?;
+            if completed.is_some() {
+                sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE id=$1 AND desired_state<>'stopped'").bind(o.instance_id).execute(&mut *tx).await.map_err(db_error)?;
+            }
+        }
         if let Some(started) = &o.process_started_at {
             let started = started
                 .parse::<DateTime<Utc>>()
@@ -504,11 +558,20 @@ pub async fn sync(
             sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line,level,message,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).bind(level).bind(message).bind(fields.map(DbJson)).execute(&mut *tx).await.map_err(db_error)?;
         }
     }
-    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.status AS deployment_status,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
+    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.status AS deployment_status,d.job_options,d.deadline,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut assignments = Vec::new();
     for r in rows {
         let spec = r.get::<DbJson<ServiceSpec>, _>("spec").0;
         if spec.workload.is_worker() && !input.capabilities.iter().any(|c| c == "workers-v1") {
+            continue;
+        }
+        let job = r
+            .get::<Option<DbJson<crate::jobs::Options>>, _>("job_options")
+            .map(|options| platform_protocol::JobExecution {
+                command: options.0.command,
+                deadline_unix_ms: r.get::<DateTime<Utc>, _>("deadline").timestamp_millis(),
+            });
+        if job.is_some() && !input.capabilities.iter().any(|c| c == "jobs-v1") {
             continue;
         }
         let digest = r
@@ -516,6 +579,7 @@ pub async fn sync(
             .try_into()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "invalid stored image"))?;
         assignments.push(Assignment {
+            job,
             instance_id: r.get("id"),
             deployment_id: r.get("deployment_id"),
             revision_id: r.get("revision_id"),
@@ -559,7 +623,7 @@ pub(crate) async fn status(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     service_exists(&pool, id).await?;
-    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT to_jsonb(d) FROM (SELECT id,revision_id,status,error_code,created_at FROM deployments WHERE service_id=$1 ORDER BY created_at DESC LIMIT 20) d").bind(id).fetch_all(&pool).await?;
+    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT to_jsonb(d) FROM (SELECT id,revision_id,status,error_code,created_at FROM deployments WHERE service_id=$1 AND job_options IS NULL ORDER BY created_at DESC LIMIT 20) d").bind(id).fetch_all(&pool).await?;
     let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deployment_id',i.deployment_id,'node_id',n.id,'node_name',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desired_state',i.desired_state,'diagnostic',i.diagnostic,'observed_at',i.observed_at,'cpu_millis',i.cpu_millis,'memory_bytes',i.memory_bytes,'pids',i.pids,'io_read_bytes_per_second',i.io_read_bytes_per_second,'io_write_bytes_per_second',i.io_write_bytes_per_second,'network_rx_bytes_per_second',i.network_rx_bytes_per_second,'network_tx_bytes_per_second',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
     let nodes: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM nodes WHERE last_seen>now()-interval '30 seconds' AND NOT cordoned",
