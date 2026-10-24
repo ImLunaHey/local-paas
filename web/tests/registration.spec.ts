@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { newApp } from './fixtures'
 
 // These exercise the real Rust API/PostgreSQL path; no network mocks.
 // They leave uniquely named specifications in the development database.
@@ -8,12 +9,11 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   const name = `browser-oci-${Date.now()}`
   await page.goto('/')
   await expect(page.getByText('Connected locally')).toBeVisible()
-  await page.goto('/services/new')
-  await page.getByLabel('Project', { exact: true }).fill('browser-tests')
+  await newApp(page)
   await page.getByLabel('Service name').fill(name)
   await page.getByLabel('Git repository').fill('https://github.com/example/web-canary.git')
   await page.getByLabel('Commit SHA').fill('a'.repeat(40))
-  await page.getByRole('button', { name: 'Register service', exact: true }).click()
+  await page.getByRole('button', { name: 'Create and build', exact: true }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
   await expect(page.getByText('Not deployed', { exact: true })).toBeVisible()
   await expect(page).toHaveURL(/\/builds$/)
@@ -21,9 +21,11 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   await expect(page).toHaveURL(/\/activity$/)
   await expect(page.getByLabel('Service builds', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Service registered', exact: true })).toBeVisible()
-  await page.getByRole('link', { name: 'Builds & revisions', exact: true }).click()
+  await page.getByRole('link', { name: 'Builds', exact: true }).click()
   // The queue/cancel suite runs with the build worker stopped. No fake images.
   await expect(page.getByText('Waiting for builder', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel build', exact: true }).click()
+  await expect(page.getByTestId('build-status')).toHaveText('cancelled')
   await page.getByLabel('Bypass build cache').check()
   await page.getByRole('button', { name: 'Queue build', exact: true }).click()
   await expect(page.getByTestId('build-status')).toHaveText('queued')
@@ -54,8 +56,6 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   await page.getByLabel('Build method').selectOption('generated')
   await page.getByLabel('Build command (optional)').fill('npm run build -- --mode production')
   await page.getByLabel('Start command (optional)').fill('node dist/server.js')
-  await page.getByLabel('Domains (optional)').fill('canary.example.com')
-  await page.getByLabel('Secret names (optional)').fill('DATABASE_URL, SESSION_SECRET')
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByRole('status')).toHaveText('Configuration saved.')
   await stale.getByLabel('Memory per instance (MiB)').fill('2048')
@@ -73,35 +73,31 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
     'npm run build -- --mode production',
   )
   await expect(page.getByLabel('Start command (optional)')).toHaveValue('node dist/server.js')
-  await expect(page.getByLabel('Secret names (optional)')).toHaveValue(
-    'DATABASE_URL, SESSION_SECRET',
-  )
-  await page.getByRole('link', { name: 'Builds & revisions', exact: true }).click()
+  await page.getByRole('link', { name: 'Builds', exact: true }).click()
   await expect(page.getByLabel('Build branch')).toHaveValue('feature/forms')
   await page.getByRole('button', { name: 'Queue build', exact: true }).click()
   await expect(page.getByTestId('build-status')).toHaveText('queued')
   await page.getByRole('button', { name: 'Cancel build', exact: true }).click()
   await expect(page.getByTestId('build-status')).toHaveText('cancelled')
   await page.getByRole('link', { name: 'Project services' }).click()
-  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  await expect(page.getByRole('link').filter({ hasText: name })).toBeVisible()
 })
 
 test('register a separate celld fleet and surface backend validation failures', async ({
   page,
 }) => {
   const name = `browser-celld-${Date.now()}`
-  await page.goto('/services/new')
+  await newApp(page)
   await page.getByRole('button', { name: /celld application/ }).click()
-  await page.getByLabel('Project', { exact: true }).fill('browser-tests')
   await page.getByLabel('Service name').fill(name)
   await page.getByLabel('Git repository').fill('https://github.com/example/durable-canary.git')
   await page.getByLabel('Commit SHA').fill('b'.repeat(40))
   await page.getByLabel('Wrangler configuration').fill('../wrangler.jsonc')
   await page.getByLabel('Bucket configuration reference').fill('browser-test-bucket')
-  await page.getByRole('button', { name: 'Register service', exact: true }).click()
+  await page.getByRole('button', { name: 'Create service', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('workload.wrangler')
   await page.getByLabel('Wrangler configuration').fill('wrangler.jsonc')
-  await page.getByRole('button', { name: 'Register service', exact: true }).click()
+  await page.getByRole('button', { name: 'Create service', exact: true }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
   await expect(page.getByText('Dedicated celld application fleet')).toBeVisible()
   await page.getByRole('link', { name: 'Configuration', exact: true }).click()
@@ -121,8 +117,7 @@ test('register a separate celld fleet and surface backend validation failures', 
 
 test('mobile registration remains usable without horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/services/new')
-  await expect(page.getByRole('heading', { name: 'Give your application a home.' })).toBeVisible()
+  await newApp(page)
   await page.getByRole('button', { name: /celld application/ }).click()
   await expect(page.getByLabel('Bucket configuration reference')).toBeVisible()
   const overflow = await page.evaluate(
@@ -206,7 +201,7 @@ test('show live application logs, measured usage and the private preview', async
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,
   )
-  await page.getByRole('link', { name: 'Builds & revisions', exact: true }).click()
+  await page.getByRole('link', { name: 'Builds', exact: true }).click()
   const href = await page
     .getByRole('link', { name: 'Open application', exact: true })
     .getAttribute('href')
@@ -379,7 +374,7 @@ test('audit table filters within headers and expands actions without HTTP traffi
   page,
 }) => {
   const project = `audit-browser-${Date.now()}`
-  await page.goto('/')
+  await page.goto('/projects')
   await page.getByLabel('Project name', { exact: true }).fill(project)
   await page.getByRole('button', { name: 'Create project', exact: true }).click()
   await expect(page.getByRole('heading', { name: project, exact: true })).toBeVisible()

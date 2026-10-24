@@ -22,7 +22,7 @@ export default defineConfig({
   // Run make db and make api separately. The API must use a disposable DB.
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:5188',
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
   },
 })

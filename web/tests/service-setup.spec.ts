@@ -78,7 +78,9 @@ test('new service selects registered domains and saves OpenBao secrets before bu
     if (route.request().method() === 'POST' && ++builds === 1) {
       // The build committed, but its response was lost. Retrying must not duplicate it.
       const response = await route.fetch({
-        url: 'http://127.0.0.1:5188' + new URL(route.request().url()).pathname,
+        url:
+          (process.env.E2E_BASE_URL || 'http://127.0.0.1:5188') +
+          new URL(route.request().url()).pathname,
       })
       expect(response.ok()).toBe(true)
       await route.fulfill({ status: 503, json: { error: 'Response interrupted' } })

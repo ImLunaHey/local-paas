@@ -1196,7 +1196,7 @@ function ServiceConfiguration() {
   const service = useCurrentService()
   return service.spec.workload.kind === 'oci-service' ||
     service.spec.workload.kind === 'celld-service' ? (
-    <ServiceForm key={service.id + ':' + service.version} service={service} />
+    <ServiceForm key={service.id} service={service} />
   ) : (
     <DatabaseForm key={service.id} service={service} />
   )
@@ -1209,7 +1209,7 @@ function ServiceStorage() {
   if (service.spec.workload.kind === 'oci-service')
     return (
       <>
-        <StoragePanel key={service.id + ':' + service.version} service={service} />
+        <StoragePanel key={service.id} service={service} />
         <BucketPanel key={service.id} service={service} />
       </>
     )

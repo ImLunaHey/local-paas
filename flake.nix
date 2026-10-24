@@ -11,6 +11,7 @@
     ];
   in {
     packages = each (system: let pkgs = import nixpkgs { inherit system; }; in {
+      browser-test-tools = pkgs.symlinkJoin { name = "local-paas-browser-test-tools"; paths = [ pkgs.openbao ]; };
       default = pkgs.symlinkJoin { name = "local-paas-host-tools"; paths = tools pkgs; };
     });
     devShells = each (system: let pkgs = import nixpkgs { inherit system; }; in {

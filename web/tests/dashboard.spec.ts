@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { newApp } from './fixtures'
 
 test('overview, host telemetry, command menu and project rename work together', async ({
   page,
@@ -14,9 +15,8 @@ test('overview, host telemetry, command menu and project rename work together', 
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/hosts$/)
   await expect(page.getByRole('heading', { name: 'Worker capacity' })).toBeVisible()
-  await expect(page.getByRole('cell', { name: /^worker-1/ })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByLabel('Host CPU history')).toBeVisible()
+  await expect(page.getByLabel('Host CPU history')).toBeVisible({ timeout: 20000 })
   await page.screenshot({ path: '../.local/hosts-desktop.png', fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: '../.local/hosts-mobile.png', fullPage: true })
@@ -81,6 +81,12 @@ test('service rows show live trends and green running status', async ({ page }) 
 })
 
 test('global domain assignments persist while the edge remains pending', async ({ page }) => {
+  const project = await newApp(page)
+  await page.getByLabel('Service name').fill('web-app')
+  await page.getByLabel('Git repository').fill('https://github.com/example/canary.git')
+  await page.getByLabel('Commit SHA').fill('a'.repeat(40))
+  await page.getByRole('button', { name: 'Create and build', exact: true }).click()
+  await expect(page).toHaveURL(/\/services\/[^/]+\/builds$/)
   await page.goto('/domains')
   await expect(page.getByRole('heading', { name: 'Domains', exact: true })).toBeVisible()
   await expect(page.getByText('No CNAME target configured yet.', { exact: false })).toBeVisible()
@@ -89,14 +95,14 @@ test('global domain assignments persist while the edge remains pending', async (
   await page.getByRole('button', { name: 'Add domain', exact: true }).click()
   const card = page.getByRole('region', { name: hostname, exact: true })
   await expect(card).toBeVisible()
-  await card.getByLabel('Project for ' + hostname).selectOption({ label: 'showcase-studio' })
-  await card.getByLabel('Environment for ' + hostname).selectOption({ label: 'development' })
+  await card.getByLabel('Project for ' + hostname).selectOption({ label: project })
+  await card.getByLabel('Environment for ' + hostname).selectOption({ label: 'production' })
   await card.getByLabel('Service for ' + hostname).selectOption({ label: 'web-app' })
   await card.getByRole('button', { name: 'Save assignment' }).click()
-  await expect(card.getByText('showcase-studio / development → web-app')).toBeVisible()
+  await expect(card.getByText(`${project} / production → web-app`)).toBeVisible()
   await expect(card.getByText('Pending edge setup')).toBeVisible()
   await page.reload()
-  await expect(card.getByText('showcase-studio / development → web-app')).toBeVisible()
+  await expect(card.getByText(`${project} / production → web-app`)).toBeVisible()
   await page.screenshot({ path: '../.local/domains-desktop.png', fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()

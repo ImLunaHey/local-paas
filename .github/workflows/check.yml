@@ -24,11 +24,11 @@ jobs:
     env:
       DATABASE_URL: postgres://platform_test:local_test_only@localhost:5432/platform_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt, clippy
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -38,8 +38,14 @@ jobs:
       - run: make check
       - run: make test-db
       - run: cargo build -p control-plane
-      - run: ./target/debug/control-plane > /tmp/local-paas-api.log 2>&1 &
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
+      - run: nix build .#browser-test-tools --out-link /tmp/browser-test-tools
       - run: npx playwright install --with-deps chromium
         working-directory: web
-      - run: npm run test:e2e
-        working-directory: web
+      - run: PATH="/tmp/browser-test-tools/bin:$PATH" bash infra/tests/browser.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: browser-failures-${{ matrix.os }}
+          path: web/test-results/
+          retention-days: 7
