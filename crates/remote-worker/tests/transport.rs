@@ -192,6 +192,35 @@ fn real_bidirectional_tls_and_registry_write_rejection() {
     let mut bytes = [0; 64];
     assert!(!matches!(bad.read(&mut bytes), Ok(n) if n > 0));
     assert_eq!(controller_requests.load(Ordering::SeqCst), before);
+    // A server with the expected IP but a different key is not the controller.
+    let impostor = temp.path().join("impostor");
+    certificate(&impostor, "10.91.0.1");
+    fs::copy(worker.join("identity.crt"), impostor.join("peer.crt")).unwrap();
+    let impostor_config = routes(tunnel_config(&plan, true).unwrap(), "127.0.0.3")
+        .split("\n[registry]")
+        .next()
+        .unwrap()
+        .replace("accept = 127.0.0.3:30400", "accept = 127.0.0.5:30400")
+        .replace(&plan.directory(true), impostor.to_str().unwrap());
+    fs::write(impostor.join("stunnel.conf"), impostor_config).unwrap();
+    let _impostor = start("stunnel", &impostor.join("stunnel.conf"));
+    let untrusted_server_client = routes(tunnel_config(&plan, false).unwrap(), "127.0.0.6")
+        .split("\n[registry]")
+        .next()
+        .unwrap()
+        .replace("connect = 127.0.0.3:30400", "connect = 127.0.0.5:30400");
+    fs::write(
+        worker.join("untrusted-server.conf"),
+        untrusted_server_client,
+    )
+    .unwrap();
+    let _untrusted = start("stunnel", &worker.join("untrusted-server.conf"));
+    wait("127.0.0.6:18443");
+    let mut bad = TcpStream::connect("127.0.0.6:18443").unwrap();
+    bad.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    bad.write_all(b"do not trust this controller").unwrap();
+    assert!(!matches!(bad.read(&mut bytes), Ok(n) if n > 0));
+    assert_eq!(controller_requests.load(Ordering::SeqCst), before);
     // The real generated Caddy policy rejects push/delete/non-registry paths.
     let registry = registry_config(&plan)
         .unwrap()
