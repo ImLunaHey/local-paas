@@ -253,6 +253,26 @@ impl Runtime for Containerd {
             ports.push(rule.port);
         }
         crate::network::apply(&self.root, op.instance_id, Some(ip), &ports).await?;
+        // Container metadata survives a VM reboot; loop mounts do not. Restore
+        // every volume before the existing-container shortcut or start can run.
+        for mount in &spec.mounts {
+            let Mount::Volume {
+                id,
+                destination,
+                size_gib,
+                ..
+            } = mount
+            else {
+                return Err(RuntimeError::Unsupported);
+            };
+            if !destination
+                .to_str()
+                .is_some_and(platform_domain::volume_mount_path)
+            {
+                return Err(RuntimeError::Unsupported);
+            }
+            crate::volumes::prepare(&self.root, *id, *size_gib).await?;
+        }
         match self.info(op.instance_id).await {
             Ok(_) => return Ok(()),
             Err(RuntimeError::NotFound) => {}
