@@ -92,8 +92,16 @@ recent 15 minutes. CPU and memory measurements describe application cgroups,
 not configured limits. Stale nodes and observations are excluded from ingress.
 
 The private preview proxy listens on loopback port 8090, accepts only authorities
-registered in `preview_routes`, and supports HTTP requests up to 8 MiB with a
-60-second upstream timeout. It does not yet support WebSocket upgrades. Public
+registered in `preview_routes`, and supports HTTP requests up to 8 MiB. Request
+bodies and upstream response headers have 30-second deadlines; connection setup
+has a two-second deadline. HTTP responses stream without a total request timeout,
+with a five-minute upstream read timeout. WebSocket handshakes preserve Origin,
+cookies and subprotocol negotiation and forward upgraded bytes in both directions
+for up to 24 hours. Up to 256 requests/streams share a bounded connection budget;
+exhaustion returns 503. Disconnects release capacity. All Connection-nominated
+headers are stripped case-insensitively, and trusted forwarding headers replace
+client-supplied values. Loopback protocol tests cover upgrades, streaming, disconnect
+cleanup and a real 65-second SSE stream. Public
 edge routing, production authentication, backup/restore and fleet management
 remain separate release gates.
 
