@@ -2,7 +2,7 @@
 # Supervise only this checkout's development PostgreSQL, outside the invoking thread.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+source infra/services/config.sh
 umask 077
 unit=local-paas-postgres.service
 owner=$(systemctl --user show "$unit" --property=WorkingDirectory --value 2>/dev/null || true)

@@ -1,200 +1,103 @@
 # local-paas
 
-A personal application platform, built from scratch. Rust control plane and
-runtime contract; Vite, React, Tailwind, TanStack Router and Query frontend.
-Independent of Anvil. Working project name; no remote repository created yet.
+An experimental, self-hosted application platform. Rust controller and node agents;
+React, Vite, Tailwind and TanStack frontend. Licensed under [MIT](LICENSE).
 
-**Implemented:** register and edit OCI or celld specifications, build digest-addressed
-images, deploy OCI revisions across three isolated worker VMs, gate traffic on
-readiness, stop deployments, and view application logs and CPU/memory/PID metrics.
-Rust node agents authenticate through a private mTLS gateway and reconcile durable
-assignments. Healthy containers survive controller restarts. Active services use
-a persisted, bounded retry budget to recover locally from process exits. Failed candidates
-leave the previous active deployment intact. Sources support branches, tags,
-commits, and validated ZIP/local file uploads; supported Node/Bun apps can
-generate Dockerfiles with command overrides.
+Deploy Dockerfiles or supported Node/Bun projects from Git branches, tags, commits,
+or local uploads. Builds run in an isolated BuildKit VM and produce immutable OCI
+images. Three isolated worker VMs run applications through containerd. Management
+services run outside the cluster they control.
 
-Background workers are available as an OCI process type, with one replica and no
-HTTP port. Replacements wait for confirmed shutdown of the previous instance;
-an unreachable node blocks replacement. See [worker lifecycle](docs/runtime.md#background-workers).
+## Install on Linux
 
-Showcase Studio is privately deployed with two replicas on different worker VMs:
-**https://lake.tail3275e2.ts.net:5201**. The dashboard remains on port 5188.
-All three workers share Lake as a physical failure domain. This is a development
-runtime, not a Railway production migration.
+The installation tooling targets **x86-64 and ARM64 Linux**, including Ubuntu,
+Debian, Fedora and NixOS. It requires systemd, cgroup v2, KVM and the Nix package
+manager. Nix provides pinned tools and VM images; the host does **not** need to run
+NixOS. Installations currently use one architecture throughout the builder and
+workers; mixed-architecture clusters and cross-building are not supported.
 
-Shared node-pinned volumes support multiple service attachments. Managed PostgreSQL,
-Redis and RustFS services use persistent local volumes; RustFS buckets have scoped
-application credentials and a Storage-tab file browser. Shared volumes also provide
-file browsing with upload/download and read-only access enforcement. See
-[storage](docs/storage.md) for development limits and qualification status.
+Read **[the installation guide](docs/install.md)** first. It covers prerequisites,
+private access, provisioning, reboot recovery, upgrades and removal.
 
-Node maintenance supports cordon, drain and opt-in relocation of stateless HTTP
-services after node loss. Pinned storage and singleton workers block relocation.
-See [node maintenance](docs/nodes.md). Independent Rust ingress keeps healthy
-previews available while the controller restarts. See [ingress and edge integration](docs/ingress.md).
-
-**Not implemented:** public DigitalOcean ingress, NetBird provisioning, production authentication and
-complete off-site disaster recovery, and celld fleet
-execution. celld cannot enter the OCI deploy path.
-See [runtime operations and limitations](docs/runtime.md).
-
-Encrypted development backups cover control-plane PostgreSQL, active managed
-PostgreSQL/Redis databases and OpenBao. Daily restore drills use disposable
-instances and check pinned secret versions. The repository currently remains on
-Lake; see [backup scope, scheduling and recovery limits](docs/backups.md).
-
-Projects contain services and their own environments. New environments can copy
-service configuration and inherit secrets from another environment in the same
-project. OpenBao stores secret values; deployments pin their resolved version.
-The Audit log uses TanStack Table with column filters and records platform actions,
-excluding HTTP access traffic. See [projects, secrets and auditing](docs/projects-secrets-audit.md).
-
-See [architecture decisions and release gates](docs/architecture.md). Backend
-uses Rust; frontend uses TypeScript as explicitly requested by Luna.
-
-## Run locally
-
-Prerequisites: recent stable Rust (tested with 1.98.1), Node 24 and npm,
-PostgreSQL 18 tools (`postgres`, `initdb`, `pg_ctl`, `psql`, `createdb`), Make, and
-a systemd user manager. Run development commands as an ordinary user.
+From a fresh clone on a dedicated host/operator account:
 
 ```sh
-cd web
-npm ci
-cd ..
+nix develop
+install -d -m 700 .local
+cp platform.example.json .local/platform.json
+# Edit .local/platform.json if using a private HTTPS dashboard/preview hostname.
+make setup-check
+make setup-install
+```
+
+`setup-check` is read-only. `setup-install` explicitly provisions the builder and
+three workers, a dedicated PostgreSQL database, OpenBao, ClickHouse, registry,
+node gateway and persistent systemd units. It uses sudo for VM isolation and host
+units. It does not alter an existing Railway deployment, configure public DNS,
+or enable off-site backups. Never run it to adopt an existing manually installed
+stack; it refuses detected conflicts.
+
+Open **http://localhost:5188**. For another machine, forward it over SSH or use
+private HTTPS access as documented. The installed frontend serves built assets
+through Caddy; it does not run the Vite development server.
+
+This is a **private, single-operator alpha**, not a public multi-user PaaS. There
+is no application-level administrator login yet. Keep management listeners on
+loopback and restrict SSH/tailnet access to trusted operators. Three VMs on one
+host are three scheduling nodes, not three physical failure domains.
+
+## What works
+
+- Projects, per-project environments, shadowed configuration and secrets.
+- Dockerfile builds, supported Node/Bun generated recipes, build/start overrides.
+- Health-gated deployments, retained revisions, failed-candidate rollback,
+  independent ingress, cordon/drain and opt-in stateless relocation.
+- Singleton workers, one-off jobs, interval schedules and pre-deployment commands.
+- OpenBao-backed workload secrets; dedicated ClickHouse runtime log retention.
+- Structured log columns/search, retained instance logs, metrics and audit events.
+- Managed PostgreSQL, Redis and RustFS; shared node-pinned volumes and file browsing.
+- Encrypted local backups and restore drills for the documented subset of state.
+
+Public VPS/NetBird integration has configuration templates but is not an automated
+installation feature. celld declarations are modeled separately, but fleet
+execution is not implemented. Storage remains node-pinned. See
+[architecture and release limits](docs/architecture.md), [runtime](docs/runtime.md),
+[storage](docs/storage.md), [ingress](docs/ingress.md) and [backups](docs/backups.md).
+
+## Develop without provisioning VMs
+
+Use `nix develop` for the pinned Rust, Node and PostgreSQL toolchain, or supply
+compatible tools yourself (Rust 2024 edition, Node 24, PostgreSQL 18, Make/systemd).
+
+```sh
+npm ci --prefix web
 make db
 make api
 make web
 ```
 
-`make db`, `make api`, `make web`, and `make build-worker` start independent
-background services and return to the terminal. They survive closing the terminal
-or restarting T3 Code. On the already provisioned Lake checkout, use `make up`
-to start the database, API, frontend, and build worker together:
+These targets supervise background development processes independently of the
+terminal. The API binds `127.0.0.1:8080`; Vite binds `127.0.0.1:5188` and proxies the
+API. Basic API/UI development works without OpenBao, ClickHouse or VMs; unavailable
+infrastructure does not become fake successful builds or deployments.
 
-```sh
-make up
-```
+For foreground processes use `make api-foreground` / `make web-foreground`.
+Checkout-specific operator configuration belongs in ignored `.local/platform.env`
+(see [configuration](docs/install.md#configuration)). Application dotenv files are
+never loaded by the controller. [Background services](docs/background-services.md)
+explains installed and development service lifecycles.
 
-The VM, gateway, OpenBao, and ClickHouse services remain independently supervised.
-See [background services](docs/background-services.md) for status, logs, and restart
-commands. For deliberate foreground development, use `make api-foreground` or
-`make web-foreground`.
-
-Open **http://localhost:5188**. The API listens at `127.0.0.1:8080`, proxied by
-Vite. The UI uses real database state, not seeded deployments or fake metrics.
-
-`make db` initializes only `.local/postgres` in this checkout and listens on
-the private `.local/socket` Unix socket, with TCP disabled. `.local` has mode
-0700. The local development database uses the current OS user's PostgreSQL
-role. It runs under `local-paas-postgres.service`, with graceful shutdown and
-restart-on-failure. This setup is not a production database/backup configuration.
-`make db-stop` stops it without deleting its data. The checkout path should not
-contain spaces when using the supplied Makefile PostgreSQL startup options.
-
-To use a different **development** database:
-
-```sh
-export DATABASE_URL='postgresql://user:password@localhost/local_paas'
-cargo run -p control-plane --bin control-plane
-```
-
-Startup applies embedded SQL migrations. The API does not load `.env` files or
-log the database URL. `PORT` changes its loopback port; update Vite's proxy to
-match. `BROWSER_ORIGIN` defaults to `http://localhost:5188`; set it to the exact
-frontend origin if you change that URL. `PUBLIC_ORIGIN` adds one exact trusted
-proxy origin alongside localhost. There is deliberately no CORS allowance.
-
-## Access over Tailscale
-
-On Lake, open **https://lake.tail3275e2.ts.net:5188** from a device on the tailnet.
-Local access at http://localhost:5188 continues to work. Tailscale Serve forwards
-HTTPS to the Vite listener on `127.0.0.1:5188`; Vite proxies `/api` to the Rust
-listener on `127.0.0.1:8080`. HTTPS is needed for the registration form's browser
-UUID API. The existing Tailscale routes on port 443 are unchanged.
-
-The checkout-local `.local/development.mk` contains:
-
-```make
-PUBLIC_ORIGIN := https://lake.tail3275e2.ts.net:5188
-```
-
-`make api` and `make web` both load this setting. On another machine, use its
-actual Tailscale DNS name. Vite allows only that additional hostname, and the API
-accepts only the exact public origin plus its configured local browser origin.
-The proxy rewrites Host for the loopback API while preserving browser Origin.
-
-To enable the private HTTPS endpoint after starting the app:
-
-```sh
-tailscale serve --bg --https=5188 http://127.0.0.1:5188
-```
-
-Use `sudo` for this command if the local Tailscale daemon requires it (as on Lake).
-To remove only this endpoint: `tailscale serve --https=5188 off`.
-See [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve).
-Serve configuration persists, but the API and frontend must still be running.
-No Funnel/public endpoint is enabled. Tailnet access rules control who can reach
-the app; application-level administrator authentication is not implemented yet.
-
-## Use the API
-
-- `GET /api/health`: database readiness and implemented capabilities.
-- `POST /api/specs/validate`: validates a specification without persisting it.
-- `POST /api/services`: `{ "operation_id": "UUID", "spec": { ... } }`.
-  Returns 201 on creation or 200 for an identical retry. Reusing an operation ID
-  with different configuration, or a service name in the same project/environment,
-  returns 409. Keep the same operation ID if a response is lost.
-- `GET /api/services?offset=0`: `{ "items": [...], "total": N }`, 50 per page.
-- `GET /api/services/{id}`: persisted configuration, version and registration time.
-- `PUT /api/services/{id}`: `{ "operation_id": "UUID", "expected_version": 1, "spec": { ... } }`.
-  Saves validated configuration and an audit event atomically, incrementing the
-  version. A stale version returns 409; reload before retrying your edits. Identical
-  retries with the same operation ID return their original result. Workload kind
-  cannot change after registration. Existing builds and revisions are immutable.
-- `GET /api/services/{id}/events`: latest 100 audit events.
-
-Requests use JSON with a 64 KiB body limit. Semantic validation returns 422 with
-field-specific issues. Unknown fields are rejected. The Configuration tab edits source, build and runtime
-settings, build/start command overrides, domains and secret names. Saving affects future builds and does not
-trigger a build or deployment. Secret values never belong in a specification.
-No delete API is exposed.
-
-See [build execution, API endpoints and builder operations](docs/builds.md) to
-start the isolated builder and Rust worker. On a service page, **Queue build**
-resolves the selected branch/tag/commit and builds it; successful pushes appear under **Image revisions**.
-
-Examples: [OCI](examples/oci-service.json) and [celld](examples/celld-service.json).
-These contain placeholder repositories/hashes; validation checks their shape,
-not existence. They cannot establish a reproducible build. The separate
-[build-only canary](examples/build-canary.json) uses a real pinned public source.
-It is not a web deployment candidate. Wrangler validation, bucket qualification
-and secret resolution belong to subsequent execution stages.
-
-## Checks
+## Validate
 
 ```sh
 make check
-make db
+# DATABASE_URL must point to a disposable PostgreSQL test database, with CREATEDB.
 make test-db
 ```
 
-`make check` runs Rust/TypeScript formatting checks, Clippy, unit tests and the
-production frontend build.
-Database tests are explicitly ignored in the default unit-test run. `make test-db`
-runs them against actual PostgreSQL; SQLx creates and drops an isolated database
-per test. The configured role therefore needs CREATEDB. **Use a disposable
-development server**, never a production connection, for integration tests.
-
-Integration coverage: persistent registration and event visibility; concurrent
-retry deduplication; operation-ID conflicts and name conflicts; invalid specs
-performing no writes; separate celld configuration; rejected cross-site writes;
-missing services; host-header rebinding; and complete rollback when audit
-persistence fails. CI runs both ordinary and database tests.
-
-The browser tests use the real API and add uniquely named test services to the
-development database. With `make api` running and the build worker stopped:
+Checks include Rust formatting, Clippy, workspace tests, frontend formatting and
+production build. Database tests create isolated SQLx databases. Browser tests
+require a separate development API/database and a stopped build worker:
 
 ```sh
 cd web
@@ -202,54 +105,21 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Set `E2E_BASE_URL=https://lake.tail3275e2.ts.net:5188` to run the same browser
-registration checks through the actual Tailscale HTTPS endpoint.
-Lake itself does not accept Tailscale DNS; on that host also set
-`E2E_RESOLVE_IP=100.94.132.48`. This overrides only the test browser's DNS lookup;
-certificate verification stays enabled. Other tailnet devices using MagicDNS
-resolve the hostname normally.
-
-On NixOS, use a Nix-provided Chromium instead of the downloaded Linux binary by
-setting `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable. Browser coverage
-includes OCI registration, build queue/cancel/reload, celld validation/registration,
-and mobile layout. Set `E2E_COMPLETED_BUILD_SERVICE_ID` to a service with a real
-successful build to check its digest and build output. Set `E2E_RUNNING_SERVICE_ID`
-to a running service with a private preview to check live logs, measured usage,
-charts and application access. These tests observe existing deployments; they do
-not deploy any workload. Restart the build worker after queue/cancel checks.
+CI is configured for Ubuntu 22.04 and 24.04 on x86-64, and Ubuntu 24.04 on ARM64.
+Native ARM64 CI and fresh-host deployment results must be observed before claiming
+those platforms are qualified; configuration/evaluation alone is not an end-to-end
+installation test. See [validation status](docs/install.md#validation-status).
 
 ## Layout
 
-```text
-crates/domain         service specifications, validation, immutable image digest
-crates/runtime        agent-owned OCI runtime trait; no runtime implementation
-crates/control-plane  Axum API, desired deployments, private preview, persistence
-crates/node-agent     outbound node protocol, containerd adapter, health and telemetry
-crates/protocol       versioned runtime-independent assignments and observations
-crates/build-runner    bounded mTLS buildctl client, no local Dockerfile execution
-infra/builder         pinned NixOS builder VM and explicit development setup
-infra/workers         three pinned NixOS workers, private identities and mTLS gateway
-web                   Vite / React / Tailwind / TanStack UI
-examples              small OCI and celld manifests
-docs                  decisions, threat boundaries, next milestones
-```
+| Directory | Purpose |
+| --- | --- |
+| `crates/domain`, `crates/protocol`, `crates/runtime` | Workload model and runtime-independent contracts |
+| `crates/control-plane` | API, reconciliation, scheduling, ingress, operator commands |
+| `crates/node-agent` | Privileged worker runtime, networking, health and telemetry |
+| `crates/build-runner` | Isolated BuildKit execution and source detection |
+| `infra` | Pinned tools, worker/builder images, service launchers and edge templates |
+| `web` | React dashboard and shared controls |
+| `docs`, `examples` | Operations, design constraints and canary fixtures |
 
-Lake has a development builder VM, three worker VMs, and private Tailscale Serve
-endpoints, plus dedicated development OpenBao and ClickHouse instances.
-DigitalOcean, NetBird, Railway and production databases remain untouched.
-Deployments and telemetry are real; production release gates remain
-listed in the architecture document.
-
-OCI applications also have a **Jobs** page for one-off commands and interval
-schedules against built revisions, with time limits, cancellation, retained logs
-and exit results. Schedules prevent overlapping jobs and skip missed ticks. See
-[the execution guarantees](docs/runtime.md#one-off-jobs-and-interval-schedules).
-
-Dockerfile builds accept **build arguments and named targets** in Configuration.
-Applications can also configure a **pre-deploy command** that gates rollout on a
-successful job and retains its logs/results. Failed migrations leave the old app
-running. Database changes must remain compatible with that app; they cannot be
-undone automatically. **Networking → Private service connections** injects URLs
-for explicitly selected apps in the same environment, following healthy instances
-across deployments. See [builds](docs/builds.md) and
-[runtime guarantees](docs/runtime.md#pre-deploy-commands).
+This project is independent of Anvil and has no dependency on it.

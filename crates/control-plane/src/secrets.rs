@@ -17,7 +17,7 @@ pub struct Bao {
 }
 impl Bao {
     pub fn configured() -> bool {
-        std::env::var_os("OPENBAO_ADDR").is_some()
+        std::env::var("OPENBAO_ADDR").is_ok_and(|value| !value.is_empty())
     }
     pub fn new() -> Result<Self, ApiError> {
         let url = std::env::var("OPENBAO_ADDR")

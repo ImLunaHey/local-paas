@@ -33,7 +33,8 @@ this does not provide independent recovery custody or an off-site backup.
 After restarting sealed OpenBao, run this command to unseal it. Auto-unseal and
 production recovery procedures remain release gates. The controller renews its
 24-hour periodic identity hourly; extended downtime may require identity renewal
-through the private recovery procedure.
+by rerunning the initializer: it preserves valid tokens and atomically replaces
+expired/revoked controller identities without printing their values.
 
 Values live in KV v2 at `platform/data/workloads/<environment-id>/<service-id>`.
 Deployment bundles live under that exact workload's `/snapshots` path. PostgreSQL

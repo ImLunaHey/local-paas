@@ -1,4 +1,7 @@
-# Image builds and the Lake development builder
+# Image builds and the isolated development builder
+
+For a complete fresh-host installation use [install.md](install.md). The manual
+commands below are component operations and historical Lake qualification notes.
 
 Registration saves configuration. **Queue build** snapshots that configuration,
 optionally overrides its branch, tag or commit for this build, and writes a durable PostgreSQL
@@ -77,7 +80,7 @@ skip an application's default build script. Commands execute through `/bin/sh -c
 inside the builder/runtime and are JSON-encoded in the Dockerfile, never executed
 on the controller. Use `exec` in a custom start command when appropriate for
 signal forwarding. Commands are visible configuration: never put secret values
-in them. Application secret delivery remains a separate, unimplemented stage.
+in them. Runtime secret delivery uses OpenBao; build-time secrets are not supported.
 
 The initial generator supports standalone Node/Bun applications with one package
 manager's committed lockfile: npm (package-lock/shrinkwrap), pnpm, Yarn, or Bun
@@ -144,7 +147,7 @@ before cancellation is persisted.
 
 ## Start the disposable VM
 
-Luna explicitly authorized this builder VM on Lake. These commands create a
+These explicit component provisioning commands create a
 dedicated host system user, task-specific nftables table and transient systemd
 service. They do not rebuild Lake or provision the three workload workers.
 
@@ -215,7 +218,9 @@ sudo systemctl show local-paas-builder -p MemoryCurrent -p CPUUsageNSec
 sudo systemctl stop local-paas-builder
 ```
 
-The VM unit is transient: after a host reboot, explicitly run `start.sh` again.
+The standalone launcher creates a transient unit: after a reboot run `start.sh`
+again. `make setup-install` instead creates persistent units with boot-time firewall
+ordering; use systemctl for that installation.
 It reinstalls the dedicated egress policy before boot. Stop the Rust worker before
 stopping the VM for maintenance. VM restart preserves cache and dev registry;
 discarding `builder.qcow2` while stopped removes both. Never delete it while QEMU
@@ -257,8 +262,8 @@ source .local/builder.env
 cargo test -p platform-build-runner --test vm -- --ignored
 ```
 
-The fixture targets Lake's current Tailscale IP; update that target deliberately
-when running on another host. Set `E2E_COMPLETED_BUILD_SERVICE_ID` to the build
+The fixture probes a CGNAT address as a denied-network canary; no personal
+tailnet address is required. Set `E2E_COMPLETED_BUILD_SERVICE_ID` to the build
 canary service UUID to additionally verify its actual logs/digest in the browser.
 
 Verified on Lake on 2026-10-23: real Git → VM build → registry push → persisted

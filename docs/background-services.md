@@ -1,4 +1,14 @@
-# Background development services
+# Background services
+
+## Installed hosts
+
+`make setup-install` creates persistent management units under `local-paas.target`
+and persistent system units for the builder/workers, with firewall setup before VM
+startup. It enables user lingering. These survive logout and host reboot. The
+installed web unit runs Caddy against built frontend assets. OpenBao starts sealed;
+run `make unseal` after reboot. See [installation and recovery](install.md).
+
+## Development and the existing Lake checkout
 
 The platform runs independently of T3 Code and its agent threads. `make db`,
 `make api`, `make web`, and `make build-worker` use the systemd user manager;
@@ -37,7 +47,7 @@ again, run `make db`; a bare `pg_ctl start` would reintroduce thread ownership.
 The database launcher migrates an old unsupervised instance with a graceful
 stop/start, retaining the existing `.local/postgres` directory.
 
-The current units are transient development units. They survive T3/thread/terminal
+The standalone launchers use transient development units. They survive T3/thread/terminal
 restarts, but are not a host-reboot bootstrap system. Lake already has user
 lingering enabled, so logging out does not stop its user manager. A reboot still
 requires the documented infrastructure startup sequence, including OpenBao
@@ -45,8 +55,8 @@ unsealing; this change does not introduce automatic secret recovery.
 
 For a deliberately attached process, use `make api-foreground` or
 `make web-foreground`. The API foreground target reads the Makefile's database and
-origin settings; the supervised API uses Lake's dedicated-service settings from
-`infra/services/api.sh`. Keep the supervised targets for normal use.
+origin settings; the supervised API loads `.local/platform.env` when present,
+otherwise exported settings and available local service files. Keep the supervised targets for normal use.
 
 ## 2026-10-24 restart incident
 

@@ -28,8 +28,8 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
 - Start with JSON as the machine-readable manifest format; explicit numeric
   units avoid ambiguous CPU/memory parsing. Dockerfile/context/port/readiness
   are explicit. Do not infer a safe readiness check from EXPOSE.
-- Start with stateless OCI services. Node-pinned volumes are a later explicit
-  feature, not silently movable storage. celld durable state is a separate
+- Stateless OCI services and node-pinned shared volumes are implemented. Local
+  volumes prevent cross-node relocation. celld durable state is a separate
   fleet-specific object-storage concern.
 - OCI configuration records a credential-free HTTPS Git URL and full commit
   hash, branch or tag. Mutable refs resolve once per build, before BuildKit receives
@@ -74,9 +74,9 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
   future work. Assignments carry stable identities and generations; the agent
   durably fences stale generations and reconciles after restart. No SSH or raw
   runtime socket is exposed as the operating protocol.
-- Propose CNCF Distribution for the OCI registry; retain all digests referenced
-  by active deployments and the rollback window. GC must be coordinated with
-  writers and use the registry's supported mode; never delete layers by hand.
+- CNCF Distribution runs beside BuildKit as the private development registry.
+  Authenticated production registry operation and coordinated garbage collection
+  remain release gates; never delete layers by hand.
 - Propose Caddy at the DigitalOcean edge, ACME certificate state backed up,
   health-checked upstreams over NetBird. Initial edge is a single point of
   failure. No DNS-based or second-edge failover claim until designed and tested.
@@ -85,16 +85,20 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
   controller epoch allocation remain necessary before running multiple active
   controllers. Work and results persist; request handlers never execute a build
   or start a container inline.
-- Propose OTEL collection; defer telemetry storage selection until ingest,
-  retention and maintenance budgets are measured. Product analytics stays
-  separate. No unbounded log buffers or local disk growth.
+- Dedicated ClickHouse archives runtime logs; PostgreSQL stores host/service
+  measurements and audit history. Broader OTEL collection and product analytics
+  remain separate work. Configure retention and monitor disk consumption.
 - celld object-store provider/region remains a required deployment-time choice;
   prefer one bucket per app initially. Use only an upstream-qualified provider
   and re-run its storage probe. No default to Spaces, B2 or unqualified MinIO.
-- First canary remains unselected: reconfirm whether the superseded blog should
-  remain live; otherwise review vote or showcase-studio. No Railway changes.
+- Showcase Studio and disposable fixtures have exercised the private Lake stack.
+  This is not a Railway cutover; no Railway changes have been made.
 
-## Runtime and deployment boundaries
+## Runtime boundaries and target deployment design
+
+The following acknowledged-edge flow describes the production target. Current
+private routing uses transactional database state and independently refreshed,
+leased ingress snapshots; there is no external edge acknowledgement protocol yet.
 
 The runtime interface covers prepare/start/stop/kill/inspect/exec/logs/destroy.
 Prepare takes an immutable image digest, limits, explicit mounts, network policy,
@@ -142,7 +146,10 @@ spreading does not guarantee distinct hardware.
   encrypted trusted peer network, supported storage probe, traffic removal and
   graceful ownership handoff before stopping. Hard-loss tests are separate.
 
-## Next milestones and release gates
+## Original milestone sequence and release gates
+
+Milestones 1–3 and parts of 4 are implemented; see README for current capability.
+The remaining items below are qualification gates, not claims of completion.
 
 1. Isolated BuildKit build → registry digest → immutable revision; bounded build
    logs and retry-safe build job execution.
@@ -202,3 +209,13 @@ backends are advertised. Short route leases fence slot reuse; connection grants
 are enforced per source workload. Shadow environments remap target references.
 This private VM transport does not implement the future NetBird/physical-node or
 public ingress design. See the execution and networking limits in runtime.md.
+
+## Portable installation
+
+The repository now includes an MIT license, a pinned development shell and an
+explicit Rust bootstrap command. It targets native x86-64 and ARM64 systemd Linux
+hosts with KVM, including Ubuntu; NixOS is only the guest OS. Installed management
+services use persistent user units, with persistent system units for isolated VMs.
+The installed dashboard serves built assets with Caddy. OpenBao requires explicit
+unsealing after reboot. See [installation](install.md) for prerequisites, remaining
+qualification work and the private single-operator trust boundary.

@@ -10,7 +10,7 @@ worker_vm=$(readlink -f ".local/worker-$worker_index-vm")
 test -x "$worker_vm/bin/run-$worker_name-vm"
 if sudo -n systemctl is-active --quiet "$worker_name"; then echo 'Worker already running; stop it before changing its configuration.' >&2; exit 1; fi
 if ! getent group "$worker_name" >/dev/null; then sudo -n groupadd --system "$worker_name"; fi
-if ! id "$worker_name" >/dev/null 2>&1; then sudo -n useradd --system --uid "$((61000 + worker_index))" --gid "$worker_name" --no-create-home --home-dir "/var/lib/$worker_name" --shell /run/current-system/sw/bin/nologin "$worker_name"; fi
+if ! id "$worker_name" >/dev/null 2>&1; then sudo -n useradd --system --uid "$((61000 + worker_index))" --gid "$worker_name" --no-create-home --home-dir "/var/lib/$worker_name" --shell "$(command -v nologin)" "$worker_name"; fi
 worker_uid=$(id -u "$worker_name")
 test "$worker_uid" = "$((61000 + worker_index))" || { echo 'Unexpected worker UID; refusing to reuse an isolation identity.' >&2; exit 1; }
 sudo -n install -d -m 0700 -o "$worker_name" -g "$worker_name" "/var/lib/$worker_name" "/var/lib/$worker_name/tmp"
@@ -35,6 +35,10 @@ table inet local_paas_worker_$worker_index {
 RULES
 sudo -n "$worker_tools/bin/nft" -c -f "$worker_rules"
 sudo -n "$worker_tools/bin/nft" -f "$worker_rules"
+# Root-owned rules live outside the VM user's writable state directory.
+sudo -n install -d -m 0755 -o root -g root /var/lib/local-paas /var/lib/local-paas/firewall
+sudo -n install -m 0600 -o root -g root "$worker_rules" "/var/lib/local-paas/firewall/${worker_name:-local-paas-builder}.nft"
+if [ "${2:-}" = --prepare ]; then exit 0; fi
 sudo -n systemd-run --unit="$worker_name" --collect \
   --property="User=$worker_name" --property="Group=$worker_name" \
   --property="WorkingDirectory=/var/lib/$worker_name" \

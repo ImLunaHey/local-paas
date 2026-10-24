@@ -42,12 +42,9 @@ No VPS was selected or modified, no public DNS was changed, and no NetBird clien
 was enrolled by this increment. Caddy adaptation was checked with explicit dummy
 addresses and file paths; it is not a live certificate/connectivity test.
 
-The separate `nixos-configs-netbird` checkout currently prepares the management
-server at `netbird.flaked.org`, with the control plane on Lake and an independent
-WireGuard bootstrap path through DigitalOcean. Its NetBird services were inactive
-on Lake during inspection on 2026-10-24. That checkout is not imported by this
-platform and was not modified. Do not make NetBird's own public management endpoint
-depend on an already-working NetBird tunnel.
+NetBird management is an external prerequisite. Do not make its own public
+management endpoint depend on an already-working NetBird tunnel. This repository
+does not depend on any separate personal infrastructure checkout.
 
 Deployment needs the actual VPS/SSH target, its current proxy/service layout,
 NetBird management readiness and enrollment, the two peer addresses, and the

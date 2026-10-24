@@ -2,7 +2,7 @@
 # Keep Vite outside the terminal/T3 process group. make supplies PUBLIC_ORIGIN.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+source infra/services/config.sh
 if [ "${1:-}" = --run ]; then
   exec make web-foreground
 fi

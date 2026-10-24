@@ -2,7 +2,7 @@
 -include .local/development.mk
 
 DATABASE_URL ?= postgresql:///local_paas?host=$(CURDIR)/.local/socket&port=55432
-export DATABASE_URL PUBLIC_ORIGIN
+export DATABASE_URL PUBLIC_ORIGIN PREVIEW_HOST PREVIEW_PORTS
 
 .PHONY: db db-stop api api-foreground build-worker web web-foreground up check test-db
 db:
@@ -41,3 +41,13 @@ check:
 
 test-db:
 	cargo test -p control-plane --tests -- --ignored
+
+.PHONY: setup-check setup-prepare setup-install unseal
+setup-check:
+	cargo run -p control-plane --bin platform-setup -- check
+setup-prepare:
+	cargo run -p control-plane --bin platform-setup -- prepare
+setup-install:
+	cargo run -p control-plane --bin platform-setup -- install
+unseal:
+	cargo run -p control-plane --bin initialize-openbao -- "$(CURDIR)/.local/platform-services"

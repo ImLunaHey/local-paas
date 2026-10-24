@@ -111,7 +111,11 @@ checks keep healthy applications reachable during controller downtime; bounded
 database route leases fence stale endpoints and slot reuse. Public VPS/NetBird
 activation remains pending. See [independent ingress](ingress.md).
 
-## Development workers on Lake
+## Development worker topology
+
+The portable installer provisions this same topology on native x86-64 or ARM64
+Linux with KVM. See [installation](install.md); historical Lake results below
+qualify the existing deployment, not every possible host.
 
 Three reproducible NixOS worker VMs use 2 GiB RAM, one vCPU and a 16 GiB NVMe
 virtual disk each. Host cgroups cap each QEMU at one CPU and 2600 MiB. Each node

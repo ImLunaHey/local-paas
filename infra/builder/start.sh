@@ -13,7 +13,7 @@ fi
 if ! getent group local-paas-builder >/dev/null; then sudo -n groupadd --system local-paas-builder; fi
 if ! id local-paas-builder >/dev/null 2>&1; then
   sudo -n useradd --system --uid 61000 --gid local-paas-builder --no-create-home \
-    --home-dir /var/lib/local-paas-builder --shell /run/current-system/sw/bin/nologin local-paas-builder
+    --home-dir /var/lib/local-paas-builder --shell "$(command -v nologin)" local-paas-builder
 fi
 builder_uid=$(id -u local-paas-builder)
 test "$builder_uid" = 61000 || { echo 'Unexpected builder UID; refusing to reuse an isolation identity.' >&2; exit 1; }
@@ -45,6 +45,10 @@ table inet local_paas_builder {
 EOF
 sudo -n "$builder_tools/bin/nft" -c -f "$builder_rules"
 sudo -n "$builder_tools/bin/nft" -f "$builder_rules"
+# Root-owned rules live outside the VM user's writable state directory.
+sudo -n install -d -m 0755 -o root -g root /var/lib/local-paas /var/lib/local-paas/firewall
+sudo -n install -m 0600 -o root -g root "$builder_rules" "/var/lib/local-paas/firewall/${builder_name:-local-paas-builder}.nft"
+if [ "${1:-}" = --prepare ]; then exit 0; fi
 sudo -n systemd-run --unit=local-paas-builder --collect \
   --property=User=local-paas-builder --property=Group=local-paas-builder \
   --property=WorkingDirectory=/var/lib/local-paas-builder \

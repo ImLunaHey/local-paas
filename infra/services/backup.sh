@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 umask 077
+source infra/services/config.sh
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export OPENBAO_ADDR=https://127.0.0.1:18200
 export OPENBAO_CA_FILE="$PWD/.local/platform-services/tls/ca.pem"
@@ -21,6 +22,7 @@ Description=Local PaaS encrypted backup and restore drill
 Type=oneshot
 WorkingDirectory=$PWD
 Environment=XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
+Environment=PATH=$PATH
 Environment=OPENBAO_ADDR=$OPENBAO_ADDR
 Environment=OPENBAO_CA_FILE=$OPENBAO_CA_FILE
 Environment=OPENBAO_TOKEN_FILE=$OPENBAO_TOKEN_FILE

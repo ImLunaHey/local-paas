@@ -53,7 +53,7 @@ UID and a dedicated nftables table. Worker-3's other canaries also experience th
 VM outage. Use only this development topology with no other maintenance in flight.
 
 ```sh
-PLATFORM_NODE_CANARY=<disposable recovery service UUID> \
+PLATFORM_CANARY_HOST=your-private-host:5201 PLATFORM_NODE_CANARY=<disposable recovery service UUID> \
 DATABASE_URL="postgresql:///local_paas?host=$PWD/.local/socket&port=55432" \
 cargo test -p control-plane --test node_fault_canary -- --ignored --nocapture
 ```

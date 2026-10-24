@@ -44,6 +44,10 @@ HCL
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 for service_kind in clickhouse openbao; do
   if systemctl --user is-active --quiet "local-paas-$service_kind"; then continue; fi
+  if [ -f "$HOME/.config/systemd/user/local-paas-$service_kind.service" ]; then
+    systemctl --user start "local-paas-$service_kind"
+    continue
+  fi
   if [ "$service_kind" = clickhouse ]; then
     set -- "$PWD/.local/service-tools/bin/clickhouse" server "--config-file=$service_root/clickhouse.xml"
     service_memory=2G

@@ -59,6 +59,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?)?)
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
+    let mut ready = false;
+    for _ in 0..60 {
+        if client
+            .get("https://127.0.0.1:18200/v1/sys/init")
+            .send()
+            .await
+            .is_ok_and(|r| r.status().is_success())
+        {
+            ready = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    if !ready {
+        return Err("OpenBao did not become ready; inspect its service journal".into());
+    }
     let initialized =
         call(&client, "sys/init", reqwest::Method::GET, None, None).await?["initialized"] == true;
     let recovery = root.join("recovery/initialization.json");
@@ -133,6 +149,7 @@ path "platform/data/workloads/*" { capabilities = ["create","update","read"] }
 path "sys/policies/acl/platform-workload-*" { capabilities = ["create","update"] }
 path "auth/token/create/platform-workload" { capabilities = ["update"] }
 path "auth/token/renew-self" { capabilities = ["update"] }
+path "auth/token/lookup-self" { capabilities = ["read"] }
 "#;
     call(
         &client,
@@ -143,15 +160,38 @@ path "auth/token/renew-self" { capabilities = ["update"] }
     )
     .await?;
     call(&client,"auth/token/roles/platform-workload",reqwest::Method::POST,Some(token),Some(json!({"allowed_policies_glob":["platform-workload-*"],"disallowed_policies":["root","default","platform-controller"],"orphan":true,"renewable":false,"token_explicit_max_ttl":60}))).await?;
-    if !root.join("controller.token").exists() {
+    let identity = root.join("controller.token");
+    let needs_identity = if identity.exists() {
+        let current = std::fs::read_to_string(&identity)?;
+        let response = client
+            .get("https://127.0.0.1:18200/v1/auth/token/lookup-self")
+            .header("X-Vault-Token", current.trim())
+            .send()
+            .await
+            .map_err(|_| "controller identity check unavailable")?;
+        match response.status() {
+            reqwest::StatusCode::OK => false,
+            reqwest::StatusCode::FORBIDDEN => true,
+            _ => {
+                return Err(
+                    "controller identity check failed; existing credentials were preserved".into(),
+                );
+            }
+        }
+    } else {
+        true
+    };
+    if needs_identity {
         let issued=call(&client,"auth/token/create",reqwest::Method::POST,Some(token),Some(json!({"policies":["platform-controller"],"no_default_policy":true,"period":"24h","display_name":"local-paas-controller"}))).await?;
-        save(
-            &root.join("controller.token"),
-            issued["auth"]["client_token"]
-                .as_str()
-                .ok_or("controller identity was not issued")?
-                .as_bytes(),
-        )?;
+        let value = issued["auth"]["client_token"]
+            .as_str()
+            .ok_or("controller identity was not issued")?;
+        // Atomic replacement also recovers a controller identity expired during downtime.
+        let mut file = tempfile::NamedTempFile::new_in(&root)?;
+        file.write_all(value.as_bytes())?;
+        file.as_file().sync_all()?;
+        file.persist(&identity)
+            .map_err(|_| "could not persist controller identity")?;
     }
     println!(
         "Dedicated OpenBao initialized and unsealed. Controller identity and recovery material were saved privately; no credentials were printed."
