@@ -52,7 +52,11 @@ export function runtimeLabel(data?: RuntimeStatus): string {
     return data.instances.some((i) => i.deployment_id === active.id && i.state === 'ready')
       ? 'Running'
       : 'Unavailable'
-  if (data.deployments.some((d) => d.status === 'waiting')) return 'Waiting to replace'
+  const waiting = data.deployments.find((d) => d.status === 'waiting')
+  if (waiting)
+    return waiting.error_code === 'waiting_for_capacity'
+      ? 'Waiting for capacity'
+      : 'Waiting for shutdown'
   if (data.deployments.some((d) => d.status === 'preparing')) return 'Deploying'
   if (data.deployments[0]?.status === 'failed') return 'Deployment failed'
   return data.deployments.length ? 'Stopped' : 'Not deployed'
@@ -160,7 +164,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
           </div>
           {['waiting', 'preparing', 'active'].includes(d.status) && (
             <Button disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
-              Stop deployment
+              {d.status === 'waiting' ? 'Cancel replacement' : 'Stop deployment'}
             </Button>
           )}
         </div>
