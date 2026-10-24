@@ -1,8 +1,9 @@
 import { Button, Input, Select, Field } from './ui'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearch } from '@tanstack/react-router'
-import { Pause, Play, Terminal } from 'lucide-react'
+import { ChevronRight, Pause, Play, Terminal } from 'lucide-react'
+import { cn } from 'cn'
 import { api, type Service } from './api'
 import { useRuntime } from './runtime'
 
@@ -275,6 +276,7 @@ function LogFeed({
   const client = useQueryClient()
   const key = ['runtime-logs', serviceId, filters]
   const [paused, setPaused] = useState(false)
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
   const output = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
   const query = (cursor?: { after?: number; before?: number }) => {
@@ -325,6 +327,22 @@ function LogFeed({
     if (output.current && follow.current && !paused)
       output.current.scrollTop = output.current.scrollHeight
   }, [logs.data?.next_cursor, paused])
+  const structure = useMemo(() => {
+    const fields = new Set<string>()
+    let message = false
+    for (const log of logs.data?.entries ?? []) {
+      if (logMessage(log) !== null) message = true
+      for (const [name, value] of Object.entries(log.fields ?? {})) {
+        if (['msg', 'message'].includes(name) && typeof value === 'string') continue
+        if (['level', 'severity', 'severity_text'].includes(name) && log.level !== 'unclassified')
+          continue
+        fields.add(name)
+      }
+    }
+    // Bound the table width for arbitrary application JSON; details retain every field.
+    return { columns: [...fields].slice(0, 12), extra: Math.max(0, fields.size - 12), message }
+  }, [logs.data?.entries])
+  const columnCount = 4 + structure.columns.length + Number(structure.message)
   const first = logs.data?.entries[0]
   const timeline = [
     ...(logs.data?.entries ?? []).map((log) => ({
@@ -376,6 +394,11 @@ function LogFeed({
           Showing 5,000 entries. Narrow the time range or filters to inspect more history.
         </p>
       )}
+      {structure.extra > 0 && (
+        <p className="text-xs text-muted">
+          Showing the first 12 structured fields. Expand a row to see all fields.
+        </p>
+      )}
       {logs.data?.entries.length ||
       (timeline.length &&
         !filters.search &&
@@ -391,65 +414,144 @@ function LogFeed({
             follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
           }}
         >
-          <div className="log-line log-columns" aria-hidden="true">
-            <span>Time</span>
-            <span>Level</span>
-            <span className="log-stream">Stream</span>
-            <span className="log-instance">Instance</span>
-            <span>Message</span>
-          </div>
-          {timeline.map((entry) => {
-            if (entry.kind === 'marker')
-              return (
-                <div className="log-lifecycle" key={entry.marker.id}>
-                  <time>{new Date(entry.timestamp).toLocaleTimeString('en-GB')}</time>
-                  <span>{entry.marker.message}</span>
-                </div>
-              )
-            const l = entry.log
-            return (
-              <details key={l.sequence} className="runtime-log-row" data-level={l.level}>
-                <summary className="log-line" aria-label={'Expand log ' + l.sequence}>
-                  <time dateTime={l.timestamp} title={new Date(l.timestamp).toLocaleString()}>
-                    {new Date(l.timestamp).toLocaleTimeString('en-GB', { hour12: false })}
-                  </time>
-                  <span className="log-level">{l.level === 'unclassified' ? '—' : l.level}</span>
-                  <span className="log-stream">{l.stream}</span>
-                  <span className="log-instance" title={l.node + ' / ' + l.instance_id}>
-                    {l.instance_id.slice(0, 8)}
-                  </span>
-                  <span className="log-message">{l.message || l.line || ' '}</span>
-                </summary>
-                <div className="log-detail">
-                  <div className="text-muted mb-3">
-                    {new Date(l.timestamp).toLocaleString()} · {l.node} · {l.instance_id}
-                  </div>
-                  <pre>{l.message || l.line}</pre>
-                  {l.fields && (
-                    <>
-                      <h4 className="mt-4 mb-2 text-muted">Structured fields</h4>
-                      <div className="log-field-list">
-                        {flatFields(l.fields).map(([field, value]) => (
-                          <Button
-                            key={field}
-                            title={'Filter ' + field}
-                            onClick={() => selectField(field, value)}
+          <table className="runtime-log-table" aria-label="Runtime log entries">
+            <thead>
+              <tr>
+                {[
+                  'Time',
+                  'Level',
+                  'Stream',
+                  'Instance',
+                  ...structure.columns,
+                  ...(structure.message ? ['Message'] : []),
+                ].map((name, index) => (
+                  <th key={index} scope="col" title={name}>
+                    {name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {timeline.map((entry) => {
+                if (entry.kind === 'marker')
+                  return (
+                    <tr key={entry.marker.id}>
+                      <td colSpan={columnCount}>
+                        <div className="log-lifecycle">
+                          <time>{new Date(entry.timestamp).toLocaleTimeString('en-GB')}</time>
+                          <span>{entry.marker.message}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                const l = entry.log
+                return (
+                  <Fragment key={l.sequence}>
+                    <tr className="runtime-log-row" data-level={l.level}>
+                      <td>
+                        <Button
+                          variant="ghost"
+                          className="min-h-0 gap-1 p-0 text-[11px] font-normal text-muted"
+                          aria-label={'Expand log ' + l.sequence}
+                          aria-expanded={expanded.has(l.sequence)}
+                          aria-controls={'log-detail-' + l.sequence}
+                          onClick={() =>
+                            setExpanded((old) => {
+                              const next = new Set(old)
+                              if (next.has(l.sequence)) next.delete(l.sequence)
+                              else next.add(l.sequence)
+                              return next
+                            })
+                          }
+                        >
+                          <ChevronRight
+                            size={12}
+                            className={cn(
+                              'shrink-0 transition-transform',
+                              expanded.has(l.sequence) && 'rotate-90',
+                            )}
+                          />
+                          <time
+                            dateTime={l.timestamp}
+                            title={new Date(l.timestamp).toLocaleString()}
                           >
-                            <span>{field}</span>
-                            <code>{value}</code>
-                          </Button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                  <details className="mt-3 text-muted">
-                    <summary>Original output</summary>
-                    <pre>{l.line}</pre>
-                  </details>
-                </div>
-              </details>
-            )
-          })}
+                            {new Date(l.timestamp).toLocaleTimeString('en-GB', { hour12: false })}
+                          </time>
+                        </Button>
+                      </td>
+                      <td className="log-level">{l.level === 'unclassified' ? '—' : l.level}</td>
+                      <td className="log-stream">{l.stream}</td>
+                      <td className="log-instance" title={l.node + ' / ' + l.instance_id}>
+                        {l.instance_id.slice(0, 8)}
+                      </td>
+                      {structure.columns.map((field) => {
+                        const value =
+                          l.fields && Object.hasOwn(l.fields, field) ? l.fields[field] : undefined
+                        const text =
+                          value === undefined
+                            ? '—'
+                            : typeof value === 'string'
+                              ? value
+                              : JSON.stringify(value)
+                        return (
+                          <td
+                            key={field}
+                            className={cn('log-value', value === undefined && 'text-muted')}
+                            title={text}
+                          >
+                            {text}
+                          </td>
+                        )
+                      })}
+                      {structure.message && (
+                        <td className="log-value" title={logMessage(l) ?? undefined}>
+                          {logMessage(l) ?? '—'}
+                        </td>
+                      )}
+                    </tr>
+                    {expanded.has(l.sequence) && (
+                      <tr id={'log-detail-' + l.sequence}>
+                        <td colSpan={columnCount}>
+                          <div
+                            className="log-detail"
+                            role="region"
+                            aria-label={'Log ' + l.sequence + ' details'}
+                          >
+                            <div className="text-muted mb-3">
+                              {new Date(l.timestamp).toLocaleString()} · {l.node} · {l.instance_id}
+                            </div>
+                            <pre>{logMessage(l)}</pre>
+                            {l.fields && (
+                              <>
+                                <pre>{JSON.stringify(l.fields, null, 2)}</pre>
+                                <h4 className="mt-4 mb-2 text-muted">Structured fields</h4>
+                                <div className="log-field-list">
+                                  {flatFields(l.fields).map(([field, value]) => (
+                                    <Button
+                                      key={field}
+                                      title={'Filter ' + field}
+                                      onClick={() => selectField(field, value)}
+                                    >
+                                      <span>{field}</span>
+                                      <code>{value}</code>
+                                    </Button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            <details className="mt-3 text-muted">
+                              <summary>Original output</summary>
+                              <pre>{l.line}</pre>
+                            </details>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="console-empty">
@@ -464,6 +566,12 @@ function LogFeed({
       )}
     </>
   )
+}
+function logMessage(log: Log): string | null {
+  if (!log.fields) return log.message || log.line || ' '
+  if (typeof log.fields.msg === 'string') return log.fields.msg
+  if (typeof log.fields.message === 'string') return log.fields.message
+  return null
 }
 function flatFields(object: Record<string, unknown>, prefix = '', depth = 0): [string, string][] {
   return Object.entries(object).flatMap(([key, value]) => {

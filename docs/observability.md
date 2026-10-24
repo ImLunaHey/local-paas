@@ -44,7 +44,13 @@ Checked with Rust formatting, Clippy, unit tests, disposable PostgreSQL integrat
 tests, frontend compilation and real browser checks through Tailscale HTTPS.
 
 The runtime log view applies filters automatically (text input waits 250 ms), with
-sticky column headings and expandable structured fields. Activity lists paginated
+sticky column headings and expandable structured fields. JSON keys such as `event`
+and `elapsed` become columns automatically; recognized severity and message fields
+use their existing columns. Plain stdout/stderr text remains in Message. Missing
+fields display a dash; objects and arrays use compact JSON. The table shows up to
+12 additional fields and scrolls horizontally on narrow screens. Expanding a row
+retains every field, the original output, and nested scalar filter actions.
+Activity lists paginated
 deployment history and links to an instance's archived logs using a `?instance=`
 URL; this does not require the container or node to still exist. Retention limits
 and pre-ingestion loss limitations described above still apply.
