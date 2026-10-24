@@ -4,6 +4,9 @@ import { newApp } from './fixtures'
 
 for (const theme of ['dark', 'light'] as const) {
   test(`workspace and service creation are accessible in ${theme} mode`, async ({ page }) => {
+    // Fifteen full-page axe scans across three viewports are substantially more
+    // work than a single UI interaction, especially on native ARM Firefox.
+    test.setTimeout(120_000)
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
     for (const width of [390, 768, 1440]) {
       await page.setViewportSize({ width, height: 1000 })
