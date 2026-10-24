@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/telemetry", "crates/domain", "crates/runtime", "crates/build-runner", "crates/control-plane", "crates/protocol", "crates/sources", "crates/node-agent"]
+members = ["crates/telemetry", "crates/domain", "crates/runtime", "crates/build-runner", "crates/control-plane", "crates/protocol", "crates/sources", "crates/node-agent", "crates/remote-worker"]
 resolver = "3"
 
 [workspace.package]

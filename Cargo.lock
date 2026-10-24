@@ -1633,6 +1633,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-remote-worker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "platform-runtime"
 version = "0.1.0"
 dependencies = [
