@@ -74,7 +74,10 @@ jobs:
       - run: nix build .#quality-tools --out-link /tmp/quality-tools
       - run: echo /tmp/quality-tools/bin >> "$GITHUB_PATH"
       - run: pnpm install --frozen-lockfile
-      - run: cargo audit
+      # lucid-auth compiles jsonwebtoken's RustCrypto ECDSA backend, but local-paas only
+      # configures username/password auth. Remove this exception once jsonwebtoken moves
+      # from crypto-bigint 0.5 or lucid-auth makes that backend optional.
+      - run: cargo audit --ignore RUSTSEC-2026-0387
       - run: cargo deny check
       - run: pnpm audit --audit-level high
       - run: gitleaks git --redact --no-banner

@@ -69,7 +69,7 @@ function Shell() {
   const path = useRouterState({ select: (s) => s.location.pathname })
   const navClass = (active: boolean) =>
     cn(
-      'flex min-h-11 items-center gap-3 rounded-md border px-3 py-2.5 text-xs transition-colors',
+      'flex min-h-11 items-center gap-3 rounded-md border px-3 py-2.5 text-xs transition-colors max-[720px]:shrink-0',
       active
         ? 'border-orange-400/20 bg-orange-400/10 text-orange-300'
         : 'border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200',
@@ -98,7 +98,10 @@ function Shell() {
           </div>
         </div>
         <div className="nav-label">WORKSPACE</div>
-        <nav aria-label="Workspace navigation" className="flex gap-2 py-2 min-[721px]:flex-col">
+        <nav
+          aria-label="Workspace navigation"
+          className="flex gap-2 py-2 max-[720px]:flex-1 max-[720px]:flex-nowrap max-[720px]:overflow-x-auto max-[720px]:pb-2 min-[721px]:flex-col"
+        >
           <Link to="/" className={navClass(path === '/')}>
             <Box size={17} />
             <span>Overview</span>
@@ -131,7 +134,7 @@ function Shell() {
             <span>Organization</span>
           </Link>
         </nav>
-        <div className="sidebar-bottom sidebar-status">
+        <div className="sidebar-bottom mt-auto">
           <span className="tiny-label">CONTROL PLANE</span>
           <span className="flex items-center gap-2 text-xs mt-2">
             <i className={cn('status-dot', { online: health.isSuccess })} />

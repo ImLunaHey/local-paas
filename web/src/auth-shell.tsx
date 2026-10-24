@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { cn } from 'cn'
 import { Layers3, LogOut } from 'lucide-react'
 import { authClient } from './auth-client'
 import { Button } from './components/button'
@@ -111,11 +112,20 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   const session = authClient.useSession()
   const activeOrganization = authClient.useActiveOrganization()
   return (
-    <div className={compact ? 'mobile-account-menu' : 'sidebar-bottom'}>
+    <div
+      className={cn({
+        'hidden items-center gap-1.5 max-[720px]:flex': compact,
+        'sidebar-bottom': !compact,
+      })}
+    >
       {!compact && (
         <span className="tiny-label">{activeOrganization.data?.name || 'ORGANIZATION'}</span>
       )}
-      <span className="mt-2 flex items-center justify-between gap-2 text-xs">
+      <span
+        className={cn('flex items-center justify-between gap-2 text-xs', {
+          'mt-2': !compact,
+        })}
+      >
         <span className="min-w-0 truncate">{session.data?.user.name}</span>
         <Button
           aria-label="Sign out"
