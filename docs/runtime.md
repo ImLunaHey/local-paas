@@ -410,9 +410,18 @@ legacy-agent exclusion, environment scope and shadow remapping. Shared forms wer
 checked in the collaborative browser at desktop and 390px mobile widths, including
 retained migration logs.
 
-One initial live run hit a CNI address-allocation conflict on worker-2 after the
-agent rollout. Restarting that worker cleared the condition; subsequent repeated
-slot reuse and the full drill passed. The intermittent allocation issue is not
-proven permanently fixed. Runtime diagnostics now preserve the relevant CNI address
-instead of truncating it behind nested error wrappers. Further CNI fault testing
-remains a production qualification requirement.
+Address cleanup now verifies host-local reservations before acknowledging a freed
+slot or creating its replacement. An orphan is reclaimed through the pinned CNI
+plugin's owner-checked DEL operation only when both container metadata and the
+independent containerd task inventory confirm that its owner is absent. Unknown
+owners, live/stopped containers, inventory failures, and malformed leases block
+reuse. Acknowledged cleanup does not repeat after the slot has been reassigned.
+Failed creates without a running task proceed directly to removal, rather than
+getting stuck trying to stop a nonexistent task. Cleanup failures retain diagnostics.
+
+The pinned host-local plugin regression reproduces an occupied address and verifies
+ten reuse cycles, including delayed old-owner deletion after a replacement acquires
+the address. The live recovery canary passed five crash/restart cycles, bounded
+exhaustion, redeployment and stop-during-backoff (579.89 seconds). This closes the
+orphan cleanup/reuse gap; it does not establish that every possible CNI failure has
+been eliminated. Further network fault testing remains a production requirement.

@@ -121,7 +121,8 @@ in {
     wantedBy = [ "multi-user.target" ];
     after = [ "network-online.target" "containerd.service" "node-credentials.service" "workload-network-policy.service" "apparmor.service" ];
     requires = [ "containerd.service" ]; wants = [ "network-online.target" ];
-    path = with pkgs; [ nerdctl runc iproute2 iptables coreutils util-linux e2fsprogs nftables ];
+    path = with pkgs; [ nerdctl containerd runc iproute2 iptables coreutils util-linux e2fsprogs nftables ];
+    environment.HOST_LOCAL_PLUGIN = "${pkgs.cni-plugins}/bin/host-local";
     serviceConfig = {
       ExecStart = "${agent}/bin/node-agent";
       Restart = "always"; RestartSec = 3;

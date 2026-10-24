@@ -163,6 +163,38 @@ impl Containerd {
             .cloned()
             .ok_or(RuntimeError::NotFound)
     }
+    pub async fn release_orphan_address(&self, ip: std::net::Ipv4Addr) -> Result<(), RuntimeError> {
+        let Some(lease) = crate::ipam::reservation(ip).await? else {
+            return Ok(());
+        };
+        // A stopped container still owns its address until removed. An absent container
+        // alone is insufficient: independently check containerd's task inventory.
+        match self
+            .command(&["inspect".into(), lease.runtime_id.clone()])
+            .await
+        {
+            Err(RuntimeError::NotFound) => {}
+            Ok(bytes) => {
+                let entries: Value = serde_json::from_slice(&bytes).map_err(|_| failure())?;
+                let owner = entries[0]["Config"]["Labels"]["platform.instance"]
+                    .as_str()
+                    .and_then(|s| s.parse::<Uuid>().ok());
+                return Err(RuntimeError::Diagnostic(match owner {
+                    Some(id) => format!("address {ip} still owned by instance {id}"),
+                    None => format!("address {ip} still owned by an unknown container"),
+                }));
+            }
+            Err(error) => return Err(error),
+        }
+        if !crate::ipam::task_absent(&lease.runtime_id).await? {
+            return Err(RuntimeError::Rejected("workload_address_task_present"));
+        }
+        crate::ipam::release(ip, &lease).await?;
+        if crate::ipam::reservation(ip).await?.is_some() {
+            return Err(RuntimeError::Rejected("workload_address_still_reserved"));
+        }
+        Ok(())
+    }
     async fn record(&self, id: Uuid) -> Result<Record, RuntimeError> {
         serde_json::from_slice(
             &tokio::fs::read(self.root.join(format!("{id}.json")))
@@ -257,6 +289,11 @@ impl Runtime for Containerd {
                 return Err(RuntimeError::Unsupported);
             }
             ports.push(rule.port);
+        }
+        match self.info(op.instance_id).await {
+            Err(RuntimeError::NotFound) => self.release_orphan_address(ip).await?,
+            Ok(_) => {}
+            Err(error) => return Err(error),
         }
         crate::network::apply(op.instance_id, Some(ip), &ports).await?;
         // Container metadata survives a VM reboot; loop mounts do not. Restore
@@ -496,7 +533,7 @@ impl Runtime for Containerd {
     async fn stop(&self, op: &Operation, grace: Duration) -> Result<(), RuntimeError> {
         self.fence(op).await?;
         match self.info(op.instance_id).await {
-            Ok(_) => {
+            Ok(info) if info["State"]["Running"] == true => {
                 self.command(&[
                     "stop".into(),
                     "--time".into(),
@@ -505,6 +542,7 @@ impl Runtime for Containerd {
                 ])
                 .await?;
             }
+            Ok(_) => {} // Failed creates have metadata but no task to stop; destroy still runs.
             Err(RuntimeError::NotFound) => {}
             Err(e) => return Err(e),
         }

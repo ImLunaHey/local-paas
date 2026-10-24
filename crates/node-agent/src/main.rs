@@ -1,5 +1,6 @@
 mod containerd;
 mod discovery;
+mod ipam;
 mod jobs;
 mod network;
 mod recovery;
@@ -318,7 +319,10 @@ async fn instance_loop(
             metrics: None,
             logs: vec![],
         };
-        if a.desired_state == "stopped" {
+        if a.desired_state == "stopped" && stopped {
+            // The slot may already belong to a replacement after our acknowledgement.
+            report.state = "stopped".into();
+        } else if a.desired_state == "stopped" {
             let result = match runtime.info(id).await {
                 Ok(_) => match runtime.stop(&op, Duration::from_secs(20)).await {
                     Ok(()) => runtime.destroy(&op).await,
@@ -327,15 +331,31 @@ async fn instance_loop(
                 Err(platform_runtime::RuntimeError::NotFound) => Ok(()),
                 Err(e) => Err(e),
             };
-            let network_cleanup = network::apply(id, None, &[]).await;
+            let network_cleanup = if result.is_ok() {
+                match network::address(spec.network.published_port - 20000) {
+                    Ok(ip) => match runtime.release_orphan_address(ip).await {
+                        Ok(()) => network::apply(id, None, &[]).await,
+                        Err(error) => Err(error),
+                    },
+                    Err(error) => Err(error),
+                }
+            } else {
+                Err(platform_runtime::RuntimeError::Rejected("cleanup_pending"))
+            };
             if result.is_ok() && network_cleanup.is_ok() {
                 report.state = "stopped".into();
                 stopped = true;
             } else {
                 report.state = "unknown".into();
-                report.diagnostic = Some("cleanup_failed".into());
+                report.diagnostic = Some(match result.err().or_else(|| network_cleanup.err()) {
+                    Some(platform_runtime::RuntimeError::Diagnostic(message)) => message,
+                    Some(platform_runtime::RuntimeError::Rejected(message)) => message.into(),
+                    _ => "cleanup_failed".into(),
+                });
             }
-        } else if a.desired_state == "running" && a.job.is_some() {
+        } else if a.desired_state == "running"
+            && let Some(job) = &a.job
+        {
             if !a.spec.secrets.is_empty() && values.is_empty() {
                 match secrets::obtain(&client, &config, &a).await {
                     Ok(received) => match secrets::install(&runtime, id, &received).await {
@@ -349,7 +369,7 @@ async fn instance_loop(
                 report.state = "failed".into();
                 report.diagnostic = Some(code.clone());
             } else {
-                match jobs::step(&runtime, &op, &spec, a.job.as_ref().unwrap()).await {
+                match jobs::step(&runtime, &op, &spec, job).await {
                     Ok(result) => {
                         report.job_result = result;
                         if report.job_result.is_some() {
