@@ -157,7 +157,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
         <div key={d.id} className="revision-row flex flex-wrap items-center justify-between gap-3">
           <div>
             <span className="chip" data-state={d.status === 'active' ? 'succeeded' : d.status}>
-              {d.status}
+              {d.status === 'releasing' ? 'Pre-deploy' : d.status}
             </span>
             <code className="text-xs ml-3">{d.id.slice(0, 8)}</code>
             <p className="text-xs text-muted mt-2">

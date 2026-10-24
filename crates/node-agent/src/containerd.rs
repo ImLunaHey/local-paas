@@ -82,6 +82,12 @@ impl Containerd {
                 }
                 let text = text.lines().last().unwrap_or("runtime command failed");
                 let message = text.split("msg=").last().unwrap_or(text).trim_matches('"');
+                // Preserve the actionable address instead of spending the whole
+                // diagnostic budget on nested CNI error wrappers.
+                let message = message
+                    .find("requested IP address")
+                    .map(|i| &message[i..])
+                    .unwrap_or(message);
                 let stage = args.first().map(String::as_str).unwrap_or("runtime");
                 let mut diagnostic = format!("{stage}: {message}");
                 diagnostic.truncate(diagnostic.floor_char_boundary(128));

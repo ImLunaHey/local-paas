@@ -54,7 +54,7 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
           <details key={d.id} className="history-deployment" open>
             <summary>
               <span className="chip" data-state={d.status === 'active' ? 'succeeded' : d.status}>
-                {d.status}
+                {d.status === 'releasing' ? 'Pre-deploy' : d.status}
               </span>
               <code>{d.id.slice(0, 8)}</code>
               <time dateTime={d.created_at}>{new Date(d.created_at).toLocaleString()}</time>

@@ -6,11 +6,23 @@ export interface ReleaseJob {
   instance_id: string | null
 }
 export function PreDeployResult({ job, serviceId }: { job: ReleaseJob; serviceId: string }) {
+  const labels: Record<string, string> = {
+    succeeded: 'Succeeded',
+    failed: 'Failed',
+    timed_out: 'Timed out',
+    cancelled: 'Cancelled',
+    uncertain: 'Outcome unknown',
+  }
+  const failed = ['failed', 'timed_out', 'uncertain'].includes(job.status)
   return (
     <div className="flex flex-wrap items-center gap-3 mt-3 text-xs">
       <span className="text-muted">Pre-deploy task</span>
-      <span className="chip" data-state={job.status}>
-        {job.status === 'job' ? 'In progress' : job.status}
+      <span className="chip" data-state={failed ? 'failed' : job.status}>
+        {job.status === 'job'
+          ? job.instance_id
+            ? 'In progress'
+            : 'Queued'
+          : (labels[job.status] ?? job.status)}
         {job.result?.exit_code != null && ` · exit ${job.result.exit_code}`}
       </span>
       {job.instance_id && (
