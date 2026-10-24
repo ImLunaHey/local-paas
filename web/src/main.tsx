@@ -17,7 +17,7 @@ import { ServiceTrends } from './metrics'
 import { CommandMenu } from './command-menu'
 import { AuditLog } from './audit'
 import { cn } from 'cn'
-import { Button, Input, Select, Field } from './ui'
+import { Button, Input, Select, Field, Textarea } from './ui'
 import { Projects, ProjectWorkspace, ProjectBackLink, ProjectSettings } from './projects'
 import { SecretManager } from './secrets'
 import { TanStackDevtools } from '@tanstack/react-devtools'
@@ -431,6 +431,20 @@ function ServiceForm({ service }: { service?: Service }) {
     const data = new FormData(event.currentTarget)
     const text = (key: string) => String(data.get(key) ?? '').trim()
     const number = (key: string) => Number(text(key))
+    const buildArgsInput = event.currentTarget.elements.namedItem(
+      'build_args',
+    ) as HTMLTextAreaElement | null
+    const lines = text('build_args').split('\n').filter(Boolean)
+    const keys = lines.map((line) => line.slice(0, line.indexOf('=')))
+    if (buildArgsInput) {
+      buildArgsInput.setCustomValidity(
+        lines.some((line) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(line)) ||
+          new Set(keys).size !== keys.length
+          ? 'Use unique NAME=value entries, one per line.'
+          : '',
+      )
+      if (!buildArgsInput.reportValidity()) return
+    }
     const workload: Workload =
       kind === 'oci-service'
         ? {
@@ -440,6 +454,13 @@ function ServiceForm({ service }: { service?: Service }) {
               buildMode === 'dockerfile' ? undefined : text('build_command') || undefined,
             start_command:
               buildMode === 'dockerfile' ? undefined : text('start_command') || undefined,
+            build_args: Object.fromEntries(
+              lines.map((line) => {
+                const split = line.indexOf('=')
+                return [line.slice(0, split), line.slice(split + 1)]
+              }),
+            ),
+            build_target: text('build_target') || undefined,
             dockerfile: text('dockerfile'),
             context: text('context'),
             execution: worker ? 'worker' : undefined,
@@ -680,6 +701,32 @@ function ServiceForm({ service }: { service?: Service }) {
                           </Field>
                         </>
                       )}
+                      <Field
+                        label="Dockerfile target (optional)"
+                        hint="Build a named stage, such as api or production. Requires a repository Dockerfile."
+                      >
+                        <Input
+                          name="build_target"
+                          defaultValue={oci?.build_target}
+                          placeholder="production"
+                          maxLength={128}
+                        />
+                      </Field>
+                      <Field
+                        label="Build arguments (optional)"
+                        hint="One NAME=value per line. These are public build configuration and may appear in image metadata and build logs. Never enter secrets here."
+                      >
+                        <Textarea
+                          onChange={(e) => e.currentTarget.setCustomValidity('')}
+                          name="build_args"
+                          defaultValue={Object.entries(oci?.build_args ?? {})
+                            .map(([k, v]) => `${k}=${v}`)
+                            .join('\n')}
+                          placeholder="BINARY=api"
+                          rows={3}
+                          maxLength={20000}
+                        />
+                      </Field>
                       <div className="grid sm:grid-cols-2 gap-4">
                         <Field label="Dockerfile path">
                           <Input

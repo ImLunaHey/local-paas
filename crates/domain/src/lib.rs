@@ -1,6 +1,6 @@
 //! Runtime-independent desired state. Contains references, never secret values.
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -138,6 +138,10 @@ pub enum Workload {
         build_command: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         start_command: Option<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        build_args: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        build_target: Option<String>,
         dockerfile: String,
         context: String,
         replicas: u16,
@@ -462,7 +466,44 @@ impl ServiceSpec {
                 build_mode,
                 build_command,
                 start_command,
+                build_args,
+                build_target,
             } => {
+                check(
+                    build_args.len() <= 32
+                        && build_args.iter().all(|(key, value)| {
+                            !key.is_empty()
+                                && key.len() <= 128
+                                && !key.starts_with("BUILDKIT_")
+                                && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                                && !key.as_bytes()[0].is_ascii_digit()
+                                && value.len() <= 4096
+                                && !value.chars().any(char::is_control)
+                        })
+                        && build_args.values().map(String::len).sum::<usize>() <= 16384,
+                    "workload.build_args",
+                    "use at most 32 non-secret build arguments (16 KiB total); BUILDKIT_ names are reserved",
+                );
+                if let Some(target) = build_target {
+                    check(
+                        !target.is_empty()
+                            && target.len() <= 128
+                            && target
+                                .bytes()
+                                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+                            && !target.starts_with('-'),
+                        "workload.build_target",
+                        "use a Dockerfile stage name up to 128 characters",
+                    );
+                }
+                check(
+                    (build_args.is_empty() && build_target.is_none())
+                        || (*build_mode != BuildMode::Generated
+                            && build_command.is_none()
+                            && start_command.is_none()),
+                    "workload.build_args",
+                    "build arguments and targets require a repository Dockerfile without generated command overrides",
+                );
                 for (field, command) in [
                     ("workload.build_command", build_command),
                     ("workload.start_command", start_command),

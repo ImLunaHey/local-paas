@@ -295,3 +295,15 @@ Generated build references: [npm ci](https://docs.npmjs.com/cli/v11/commands/npm
 [npm start](https://docs.npmjs.com/cli/v11/commands/npm-start/),
 [pnpm install](https://pnpm.io/cli/install), [Yarn install](https://yarnpkg.com/cli/install),
 [BuildKit Dockerfile selection](https://github.com/moby/buildkit/blob/v0.30.0/frontend/dockerui/config.go).
+
+## Dockerfile arguments and stages
+
+OCI configuration accepts `workload.build_args` (a map of non-secret strings)
+ and `workload.build_target` (a named Dockerfile stage). Both are editable in the
+configuration form and captured in each immutable build specification. Arguments
+are passed literally to BuildKit, without host shell evaluation. `BUILDKIT_`
+names are reserved. At most 32 arguments and 16 KiB of values are accepted.
+These settings require a repository Dockerfile; automatic detection fails clearly
+if it cannot find one rather than silently generating an incompatible recipe.
+Build arguments may appear in layers, provenance and logs: use runtime secrets
+for credentials, never build arguments. Build-time secret mounts are not supported.

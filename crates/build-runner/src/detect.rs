@@ -83,6 +83,8 @@ CMD ["/data"]
 
     let Workload::OciService {
         build_mode,
+        build_args,
+        build_target,
         build_command,
         start_command,
         dockerfile,
@@ -127,6 +129,9 @@ CMD ["/data"]
             if source.exists(&lower).await? {
                 return Ok(BuildPlan::Dockerfile { path: lower });
             }
+        }
+        if !build_args.is_empty() || build_target.is_some() {
+            return Err(Error::Detection("dockerfile_required_for_build_options"));
         }
         let path = |file: &str| {
             if context == "." {

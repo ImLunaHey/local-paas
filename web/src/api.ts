@@ -8,6 +8,8 @@ export type Workload =
       build_mode?: 'auto' | 'dockerfile' | 'generated'
       build_command?: string
       start_command?: string
+      build_args?: Record<string, string>
+      build_target?: string
       dockerfile: string
       context: string
       replicas: number

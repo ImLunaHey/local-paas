@@ -274,6 +274,19 @@ impl Config {
             "--metadata-file".into(),
             metadata.to_string_lossy().into(),
         ];
+        if let Workload::OciService {
+            build_args,
+            build_target,
+            ..
+        } = &request.spec.workload
+        {
+            for (key, value) in build_args {
+                args.extend(["--opt".into(), format!("build-arg:{key}={value}")]);
+            }
+            if let Some(target) = build_target {
+                args.extend(["--opt".into(), format!("target={target}")]);
+            }
+        }
         if request.no_cache {
             args.push("--no-cache".into());
         }
@@ -597,6 +610,32 @@ mod tests {
             .unwrap();
         assert!(args.contains(&"contextsubdir=app".into()));
         assert!(args.contains(&"filename=deploy/Dockerfile".into()));
+    }
+    #[test]
+    fn build_arguments_are_literal_and_reserved_options_cannot_be_overridden() {
+        let mut request = request();
+        if let Workload::OciService {
+            build_args,
+            build_target,
+            ..
+        } = &mut request.spec.workload
+        {
+            build_args.insert("BINARY".into(), "api $(false) = literal".into());
+            *build_target = Some("production".into());
+        }
+        let args = config()
+            .arguments(&request, Path::new("/tmp/meta"))
+            .unwrap();
+        assert!(args.contains(&"build-arg:BINARY=api $(false) = literal".into()));
+        assert!(args.contains(&"target=production".into()));
+        if let Workload::OciService { build_args, .. } = &mut request.spec.workload {
+            build_args.insert("BUILDKIT_CACHE_MOUNT_NS".into(), "other".into());
+        }
+        assert!(
+            config()
+                .arguments(&request, Path::new("/tmp/meta"))
+                .is_err()
+        );
     }
     #[test]
     fn private_fetch_targets_and_celld_are_rejected() {
