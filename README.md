@@ -16,6 +16,25 @@ manager. Nix provides pinned tools and VM images; the host does **not** need to 
 NixOS. Installations currently use one architecture throughout the builder and
 workers; mixed-architecture clusters and cross-building are not supported.
 
+### Minimum host requirements
+
+These requirements cover the default installation: one builder VM, three worker
+VMs, and management services on the host.
+
+| Resource | Requirement |
+| --- | --- |
+| CPU | x86-64 or ARM64 with hardware virtualization accessible through `/dev/kvm`; VM hosts need nested virtualization |
+| Memory | At least **16 GiB available RAM** before installation, after existing host services |
+| Storage | At least **100 GiB free** on healthy local SSD/NVMe; check both the checkout and `/var/lib` filesystems |
+| OS | Linux with systemd and cgroup v2, plus the Nix package manager |
+| Access | An operator account with sudo and a working systemd user session; Internet access to download dependencies and images |
+
+The builder uses 3 GiB RAM and 2 vCPUs; each worker uses 2 GiB RAM and 1 vCPU.
+Each VM has a 16 GiB virtual disk. Allow additional memory and disk headroom for
+compilation, application builds, databases, image caches, logs and retained
+backups. These are installation requirements, not a workload capacity guarantee.
+All four VMs initially share one physical host and failure domain.
+
 Read **[the installation guide](docs/install.md)** first. It covers prerequisites,
 private access, provisioning, reboot recovery, upgrades and removal.
 
@@ -148,5 +167,3 @@ pending; CI configuration and Nix evaluation do not substitute for it. See
 | `infra` | Pinned tools, worker/builder images, service launchers and edge templates |
 | `web` | React dashboard and shared controls |
 | `docs`, `examples` | Operations, design constraints and canary fixtures |
-
-This project is independent of Anvil and has no dependency on it.
