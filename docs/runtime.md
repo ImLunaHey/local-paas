@@ -289,3 +289,34 @@ snapshot/configuration is recorded as failed-to-queue instead of repeatedly firi
 that tick. Schedule edits, runs and skipped occurrences have transactional audit
 records. The Jobs page shows the latest 50 runs and 20 schedule occurrences; records
 remain in PostgreSQL and instance logs remain in dedicated ClickHouse storage.
+
+The disposable fixture in `examples/job-canary` exits successfully, fails with
+code 7, or sleeps long enough to exercise cancellation and deadlines. After
+building it as a secret-free, volume-free `job-canary-*` service in the
+`platform-storage-canary` project, the opt-in live drill is:
+
+```sh
+DATABASE_URL="postgresql:///local_paas?host=$PWD/.local/socket&port=55432" \
+PLATFORM_JOB_CANARY=<service-uuid> PLATFORM_JOB_VM_RESTART=1 \
+  cargo test -p control-plane --test job_canary -- --ignored --nocapture
+```
+
+The drill restarts the development API and, with the optional VM flag, the assigned
+worker VM. It checks one recorded process start, exit status, retained structured
+logs, cleanup, survival of a controller restart, no repeat execution after VM loss,
+and a real interval-triggered run. It pauses its canary schedule afterward. A VM
+restart can affect other workloads on that worker; it is an explicit fault drill.
+
+The reboot drill also requires every existing active application instance to
+recover. `PLATFORM_JOB_VM_ONLY=1` runs just that fault/recovery check. Unset runtime
+start timestamps are omitted from reports and cannot establish job success.
+Workload network grants, like CNI address reservations, live under `/run`: they
+survive an agent restart but are rebuilt from assignments after a VM reboot.
+
+Live development verification on 2026-10-24 covered the image default command,
+entrypoint override, exit codes 0 and 7, timeout, cancellation, controller restart,
+VM-loss uncertainty without another start, and an actual scheduled occurrence.
+The strengthened reboot check confirmed all seven existing application instances
+recovered. Playwright exercised running a job, opening retained logs, saving and
+pausing a schedule, and the desktop/mobile forms. The disposable schedule was
+left paused and its instances stopped.
