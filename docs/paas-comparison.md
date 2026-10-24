@@ -32,6 +32,7 @@ operator's servers, network, backups and upgrade practices.
 | [Heroku](https://devcenter.heroku.com/) | Managed PaaS | **Yes** — buildpacks and container builds | **Yes** | **Yes** — releases, Preboot and rolling deploys | **Yes** — pipelines and review apps | **Yes** — process types, one-off dynos and scheduler add-ons | **Yes** — add-on ecosystem; dyno filesystems are ephemeral | **Yes** | **Limited** — autoscaling is tier and workload dependent | **Limited** — regions and Private Spaces | **Yes** | **Yes** |
 | [Northflank](https://northflank.com/docs/) | Managed container platform | **Yes** — Dockerfiles and buildpacks | **Yes** | **Yes** — release flows and immutable deployments | **Yes** — full-stack preview blueprints | **Yes** — jobs and scheduled workflows | **Yes** — add-ons, databases and volumes | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 | [Koyeb](https://www.koyeb.com/docs/) | Managed serverless PaaS | **Yes** — Git and container images | **Yes** — global edge | **Yes** — immutable service deployments | **Limited** | **Yes** — web services and workers | **Limited** — volumes and managed PostgreSQL | **Yes** | **Yes** — metric autoscaling and scale to zero | **Yes** — multiple regions | **Yes** | **Yes** |
+| [Unkey](https://www.unkey.com/) | Managed API platform and container PaaS | **Yes** — GitHub, images, CLI and automatic multi-language builds | **Yes** — global gateway, custom domains and TLS | **Yes** — immutable deployments, promotion and time-limited rollback | **Yes** — branch and pull-request previews | **Limited** — long-running API containers; no documented general job or cron primitive | **External** — ephemeral runtime storage and external data services | **Yes** — configurable instance ranges | **Limited** — idle previews scale to zero | **Yes** — multiple regions | **Yes** — API keys, rate limits, policies, request logs and runtime metrics | **Yes** — teams, roles and scoped root keys |
 | [Google Cloud Run](https://cloud.google.com/run/docs/overview/what-is-cloud-run) | Managed serverless containers | **External/Yes** — images or source builds through Google Cloud | **Yes** | **Yes** — immutable revisions, traffic splitting and rollback | **External** — normally CI/CD projects and revisions | **Yes** — services, jobs, worker pools and scheduled integrations | **External** — cloud databases and storage | **Yes** | **Yes** | **Yes** — regional services composed behind global infrastructure | **Yes** — Google Cloud services | **Yes** — Google Cloud IAM |
 | [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/overview) | Managed serverless containers | **External/Yes** — registries and Azure build tooling | **Yes** | **Yes** — revisions, probes and traffic splitting | **External** — normally CI/CD environments and revision labels | **Yes** — services and scheduled or event-driven jobs | **External** — Azure data services and volumes | **Yes** | **Yes** — KEDA-based scaling and scale to zero | **Yes** — regional environments composed through Azure | **Yes** — Azure services | **Yes** — Azure RBAC |
 | [DigitalOcean App Platform](https://docs.digitalocean.com/products/app-platform/) | Managed PaaS | **Yes** — Git, buildpacks and images | **Yes** | **Yes** | **Limited** | **Yes** — services, workers and deployment/cron jobs | **Yes** — managed database integration | **Yes** | **Yes** on supported components | **Limited** — per-app regional placement | **Yes** | **Yes** |
@@ -92,6 +93,7 @@ Progress across all capabilities is collected in
 | Git-driven PR preview lifecycle | Environments and private preview URLs exist without automatic PR creation and cleanup | [#12](https://github.com/ImLunaHey/local-paas/issues/12) |
 | Broader source-build support | Generated recipes support Node/Bun; other languages require Dockerfiles | [#14](https://github.com/ImLunaHey/local-paas/issues/14) |
 | Multi-container application definitions | Services are explicit platform resources; Docker Compose import is unsupported | [#16](https://github.com/ImLunaHey/local-paas/issues/16) |
+| API gateway keys, rate limits and request policies | Ingress routes ready workloads but has no application-facing API management layer | [#19](https://github.com/ImLunaHey/local-paas/issues/19) |
 
 ## Source notes
 
@@ -120,6 +122,12 @@ headline feature names:
   See [Northflank environments](https://northflank.com/docs/v1/application/getting-started/set-up-environments).
 - Koyeb supports fixed scaling, metric-based autoscaling and scale to zero. See
   [Koyeb scaling](https://www.koyeb.com/docs/reference/scaling).
+- Unkey combines Git and container deployment with previews, multiple regions,
+  API keys, rate limits, request policies, logs and metrics. Its compute product
+  is in public beta, previews can sleep when idle, and production rollback is
+  time-limited. See the [Unkey product overview](https://www.unkey.com/),
+  [June 2026 release notes](https://www.unkey.com/changelog/2026-06-12) and
+  [October 2026 runtime settings](https://www.unkey.com/changelog/2026-10-23).
 
 The local implementation claims are derived from the repository's
 [architecture](architecture.md), [runtime](runtime.md), [ingress](ingress.md),
