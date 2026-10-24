@@ -10,9 +10,9 @@ import { api, type Service } from './api'
 interface Environment {
   id: string
   name: string
-  parent_id: string | null
-  parent_name: string | null
-  service_count: number
+  parentId: string | null
+  parentName: string | null
+  serviceCount: number
 }
 interface Project {
   id: string
@@ -111,7 +111,7 @@ export function ProjectWorkspace({
       api('/environments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project: project.data?.name, name, parent_id: parent || null }),
+        body: JSON.stringify({ project: project.data?.name, name, parentId: parent || null }),
       }),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ['projects'] })
@@ -161,9 +161,9 @@ export function ProjectWorkspace({
         </p>
       )}
       <div className="flex flex-wrap gap-5 items-center mb-6">
-        {env?.parent_name && (
+        {env?.parentName && (
           <p className="text-xs text-muted">
-            Shadows {env.parent_name} · local secrets override inherited values
+            Shadows {env.parentName} · local secrets override inherited values
           </p>
         )}
       </div>
@@ -274,7 +274,7 @@ export function ProjectSettings() {
   })
   const save = useMutation({
     mutationFn: (name: string) =>
-      updateProject(projectId, { name, expected_name: project.data!.name }),
+      updateProject(projectId, { name, expectedName: project.data!.name }),
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: ['projects'] }),

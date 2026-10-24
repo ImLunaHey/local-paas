@@ -5,7 +5,7 @@ import { api } from './api'
 import { Button, Field, Input, Select } from './ui'
 interface Domain {
   hostname: string
-  service_id: string | null
+  serviceId: string | null
   service: string | null
 }
 export function ServiceDomains({
@@ -25,7 +25,7 @@ export function ServiceDomains({
   useEffect(() => onReadyChange(query.isSuccess), [query.isSuccess, onReadyChange])
   const selected =
     selection ??
-    query.data?.items.filter((d) => d.service_id === serviceId).map((d) => d.hostname) ??
+    query.data?.items.filter((d) => d.serviceId === serviceId).map((d) => d.hostname) ??
     []
   return (
     <div className="space-y-3">
@@ -52,10 +52,10 @@ export function ServiceDomains({
               <option
                 key={d.hostname}
                 value={d.hostname}
-                disabled={!!d.service_id && d.service_id !== serviceId}
+                disabled={!!d.serviceId && d.serviceId !== serviceId}
               >
                 {d.hostname}
-                {d.service_id && d.service_id !== serviceId ? ` · assigned to ${d.service}` : ''}
+                {d.serviceId && d.serviceId !== serviceId ? ` · assigned to ${d.service}` : ''}
               </option>
             ))}
         </Select>

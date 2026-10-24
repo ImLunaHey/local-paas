@@ -1,3 +1,4 @@
+mod http_errors;
 pub mod openapi;
 use axum::{
     Json, Router,
@@ -177,7 +178,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                 if !local_host {
                     return (
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error":"local Host header required"})),
+                        Json(json!({"code":"forbidden","error":"local Host header required"})),
                     )
                         .into_response();
                 }
@@ -190,7 +191,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                 }) {
                     return (
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error":"untrusted browser origin"})),
+                        Json(json!({"code":"forbidden","error":"untrusted browser origin"})),
                     )
                         .into_response();
                 }
@@ -212,6 +213,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
             pool.clone(),
             audit::record_action,
         ))
+        .layer(middleware::from_fn(http_errors::normalize))
         .with_state(pool)
 }
 
@@ -310,6 +312,7 @@ impl IntoResponse for ApiError {
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Service {
     pub id: Uuid,
     pub operation_id: Uuid,
@@ -321,6 +324,7 @@ pub struct Service {
 
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateService {
     pub operation_id: Uuid,
     pub spec: ServiceSpec,

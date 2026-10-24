@@ -33,7 +33,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     let (_, s) = call(
         pool,
         "/api/services",
-        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"buildOnCreate":false,"operationId":Uuid::new_v4(),"spec":spec}),
         None,
     )
     .await;
@@ -41,7 +41,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     call(
         pool,
         &format!("/api/services/{service}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        json!({"operationId":Uuid::new_v4(),"noCache":false}),
         None,
     )
     .await;
@@ -74,7 +74,7 @@ async fn active(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     let (status, value) = call(
         pool,
         &format!("/api/services/{service}/deployments"),
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;
@@ -92,7 +92,7 @@ async fn action(pool: &PgPool, node: Uuid, action: &str) {
         call(
             pool,
             &format!("/api/nodes/{node}/actions"),
-            json!({"operation_id":Uuid::new_v4(),"action":action}),
+            json!({"operationId":Uuid::new_v4(),"action":action}),
             None
         )
         .await
@@ -293,9 +293,9 @@ async fn pinned_volumes_workers_and_jobs_never_relocate_even_with_policy_enabled
     .unwrap()
     .0;
     for workload in [
-        json!({"kind":"postgres-service","database":"test","storage_gib":1}),
-        json!({"kind":"redis-service","storage_gib":1}),
-        json!({"kind":"rustfs-service","storage_gib":1}),
+        json!({"kind":"postgres-service","database":"test","storageGib":1}),
+        json!({"kind":"redis-service","storageGib":1}),
+        json!({"kind":"rustfs-service","storageGib":1}),
         {
             let mut w = original["workload"].clone();
             w["execution"] = json!("worker");
@@ -314,7 +314,7 @@ async fn pinned_volumes_workers_and_jobs_never_relocate_even_with_policy_enabled
         assert_eq!(count(&pool).await, 0);
     }
     let mut spec = original;
-    spec["volume"] = json!({"id":Uuid::new_v4(),"mount_path":"/data","read_only":true});
+    spec["volume"] = json!({"id":Uuid::new_v4(),"mountPath":"/data","readOnly":true});
     sqlx::query("UPDATE deployments SET spec=$2 WHERE id=$1")
         .bind(deployment)
         .bind(sqlx::types::Json(spec))
@@ -331,7 +331,7 @@ async fn cordon_is_idempotent_and_no_capacity_never_stops_the_original(pool: PgP
     enabled(&pool, service).await;
     let path = format!("/api/nodes/{}/actions", nodes[2]);
     let op = Uuid::new_v4();
-    let body = json!({"operation_id":op,"action":"cordon"});
+    let body = json!({"operationId":op,"action":"cordon"});
     let a = call(&pool, &path, body.clone(), None).await;
     let b = call(&pool, &path, body, None).await;
     assert_eq!(a, b);
@@ -339,7 +339,7 @@ async fn cordon_is_idempotent_and_no_capacity_never_stops_the_original(pool: PgP
         call(
             &pool,
             &path,
-            json!({"operation_id":op,"action":"drain"}),
+            json!({"operationId":op,"action":"drain"}),
             None
         )
         .await

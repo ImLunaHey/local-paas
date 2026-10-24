@@ -9,7 +9,7 @@ docs/architecture.md before changing platform behaviour.
 - Backend and node-agent code is Rust. Frontend is TypeScript with Vite, React,
   Tailwind CSS, TanStack Router, and TanStack Query.
 - Keep OCI services and dedicated celld application fleets distinct.
-- Never equate the three Lake worker VMs with three physical failure domains.
+- Never equate the three co-located worker VMs with three physical failure domains.
 - Persist desired state and audit events transactionally in PostgreSQL. Do not
   fake successful builds, deployments, nodes, or runtime health in the UI.
 - Never persist or log secret values. Configuration contains references only.

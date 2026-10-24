@@ -330,7 +330,7 @@ function ServiceForm({ service }: { service?: Service }) {
   const [sourceKind, setSourceKind] = useState<SourceKind>(initialRef.kind)
   const [sourceValue, setSourceValue] = useState(initialRef.value)
   const [buildMode, setBuildMode] = useState<'auto' | 'dockerfile' | 'generated'>(
-    oci?.build_mode ?? 'auto',
+    oci?.buildMode ?? 'auto',
   )
   const [execution, setExecution] = useState<'http' | 'worker'>(oci?.execution ?? 'http')
   const [dirty, setDirty] = useState(false)
@@ -363,10 +363,10 @@ function ServiceForm({ service }: { service?: Service }) {
           method: baseline ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            operation_id: pending.current!.id,
-            expected_version: baseline?.version,
+            operationId: pending.current!.id,
+            expectedVersion: baseline?.version,
             spec,
-            ...(!baseline ? { build_on_create: false } : {}),
+            ...(!baseline ? { buildOnCreate: false } : {}),
           }),
         }))
       if (baseline) return saved
@@ -377,7 +377,7 @@ function ServiceForm({ service }: { service?: Service }) {
         await api(`/services/${saved.id}/secrets`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: entry.name, value: entry.value, expected_version: version }),
+          body: JSON.stringify({ name: entry.name, value: entry.value, expectedVersion: version }),
         })
         entry.value = ''
         secretsDraft.current!.saved(entry.id)
@@ -386,7 +386,7 @@ function ServiceForm({ service }: { service?: Service }) {
         await api(`/services/${saved.id}/builds`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ operation_id: pending.current!.id }),
+          body: JSON.stringify({ operationId: pending.current!.id }),
         })
       return saved
     },
@@ -410,7 +410,7 @@ function ServiceForm({ service }: { service?: Service }) {
       const saved = await api<Service>(`/services/${baseline.id}`)
       setBaseline(saved)
       if (saved.spec.workload.kind === 'oci-service')
-        setBuildMode(saved.spec.workload.build_mode ?? 'auto')
+        setBuildMode(saved.spec.workload.buildMode ?? 'auto')
       const ref = sourceReference(saved.spec.source)
       setSourceKind(ref.kind)
       setSourceValue(ref.value)
@@ -437,9 +437,9 @@ function ServiceForm({ service }: { service?: Service }) {
     const text = (key: string) => String(data.get(key) ?? '').trim()
     const number = (key: string) => Number(text(key))
     const buildArgsInput = event.currentTarget.elements.namedItem(
-      'build_args',
+      'buildArgs',
     ) as HTMLTextAreaElement | null
-    const lines = text('build_args').split('\n').filter(Boolean)
+    const lines = text('buildArgs').split('\n').filter(Boolean)
     const keys = lines.map((line) => line.slice(0, line.indexOf('=')))
     if (buildArgsInput) {
       buildArgsInput.setCustomValidity(
@@ -454,26 +454,26 @@ function ServiceForm({ service }: { service?: Service }) {
       kind === 'oci-service'
         ? {
             kind,
-            build_mode: buildMode,
-            private_connections: oci?.private_connections,
-            build_command:
-              buildMode === 'dockerfile' ? undefined : text('build_command') || undefined,
-            start_command:
-              buildMode === 'dockerfile' ? undefined : text('start_command') || undefined,
-            build_args: Object.fromEntries(
+            buildMode: buildMode,
+            privateConnections: oci?.privateConnections,
+            buildCommand:
+              buildMode === 'dockerfile' ? undefined : text('buildCommand') || undefined,
+            startCommand:
+              buildMode === 'dockerfile' ? undefined : text('startCommand') || undefined,
+            buildArgs: Object.fromEntries(
               lines.map((line) => {
                 const split = line.indexOf('=')
                 return [line.slice(0, split), line.slice(split + 1)]
               }),
             ),
-            build_target: text('build_target') || undefined,
-            pre_deploy: text('pre_deploy_executable')
+            buildTarget: text('buildTarget') || undefined,
+            preDeploy: text('pre_deploy_executable')
               ? {
                   command: [
                     text('pre_deploy_executable'),
                     ...text('pre_deploy_arguments').split('\n').filter(Boolean),
                   ],
-                  timeout_seconds: number('pre_deploy_timeout'),
+                  timeoutSeconds: number('pre_deploy_timeout'),
                 }
               : undefined,
             dockerfile: text('dockerfile'),
@@ -485,18 +485,18 @@ function ServiceForm({ service }: { service?: Service }) {
               ? undefined
               : {
                   path: text('readiness'),
-                  interval_seconds: number('interval'),
-                  stabilization_seconds: number('stabilization'),
+                  intervalSeconds: number('interval'),
+                  stabilizationSeconds: number('stabilization'),
                 },
           }
         : {
             kind,
             wrangler: text('wrangler'),
             members: number('members'),
-            bucket_ref: text('bucket'),
+            bucketRef: text('bucket'),
           }
     mutation.mutate({
-      schema_version: 1,
+      schemaVersion: 1,
       project: text('project'),
       environment: text('environment'),
       name: text('name'),
@@ -504,8 +504,8 @@ function ServiceForm({ service }: { service?: Service }) {
         kind === 'oci-service' && sourceMode === 'upload'
           ? { repository: '', upload: uploadDigest }
           : { repository: text('repository'), [sourceKind]: sourceValue.trim() },
-      resources: { cpu_millis: number('cpu'), memory_mib: number('memory') },
-      distinct_nodes: worker ? false : data.has('distinct'),
+      resources: { cpuMillis: number('cpu'), memoryMib: number('memory') },
+      distinctNodes: worker ? false : data.has('distinct'),
       domains: worker ? [] : data.getAll('domains').map(String),
       secrets: spec?.secrets ?? [],
       workload,
@@ -680,7 +680,7 @@ function ServiceForm({ service }: { service?: Service }) {
                         hint="Automatic uses your Dockerfile when present, otherwise generates one for a supported Node or Bun app with a lockfile and start script or custom start command."
                       >
                         <Select
-                          name="build_mode"
+                          name="buildMode"
                           className="build-select"
                           value={buildMode}
                           onChange={(event) => setBuildMode(event.target.value as typeof buildMode)}
@@ -697,8 +697,8 @@ function ServiceForm({ service }: { service?: Service }) {
                             hint="Blank uses scripts.build when present. A custom command selects a generated Dockerfile, even if the repository has one. Commands run inside the builder; use secret references for secrets."
                           >
                             <Input
-                              name="build_command"
-                              defaultValue={oci?.build_command ?? ''}
+                              name="buildCommand"
+                              defaultValue={oci?.buildCommand ?? ''}
                               placeholder="npm run build"
                               maxLength={4096}
                             />
@@ -708,8 +708,8 @@ function ServiceForm({ service }: { service?: Service }) {
                             hint="Blank uses scripts.start. A custom command selects a generated Dockerfile and runs when an instance starts."
                           >
                             <Input
-                              name="start_command"
-                              defaultValue={oci?.start_command ?? ''}
+                              name="startCommand"
+                              defaultValue={oci?.startCommand ?? ''}
                               placeholder="npm start"
                               maxLength={4096}
                             />
@@ -721,8 +721,8 @@ function ServiceForm({ service }: { service?: Service }) {
                         hint="Build a named stage, such as api or production. Requires a repository Dockerfile."
                       >
                         <Input
-                          name="build_target"
-                          defaultValue={oci?.build_target ?? ''}
+                          name="buildTarget"
+                          defaultValue={oci?.buildTarget ?? ''}
                           placeholder="production"
                           maxLength={128}
                         />
@@ -733,8 +733,8 @@ function ServiceForm({ service }: { service?: Service }) {
                       >
                         <Textarea
                           onChange={(e) => e.currentTarget.setCustomValidity('')}
-                          name="build_args"
-                          defaultValue={Object.entries(oci?.build_args ?? {})
+                          name="buildArgs"
+                          defaultValue={Object.entries(oci?.buildArgs ?? {})
                             .map(([k, v]) => `${k}=${v}`)
                             .join('\n')}
                           placeholder="BINARY=api"
@@ -770,7 +770,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       >
                         <Input
                           name="bucket"
-                          defaultValue={celld?.bucket_ref}
+                          defaultValue={celld?.bucketRef}
                           placeholder="my-durable-app-bucket"
                           required
                           pattern="[a-z0-9]+(-[a-z0-9]+)*"
@@ -789,7 +789,7 @@ function ServiceForm({ service }: { service?: Service }) {
                     <Input
                       name="cpu"
                       type="number"
-                      defaultValue={spec?.resources.cpu_millis ?? 500}
+                      defaultValue={spec?.resources.cpuMillis ?? 500}
                       min={1}
                       max={64000}
                       required
@@ -799,7 +799,7 @@ function ServiceForm({ service }: { service?: Service }) {
                     <Input
                       name="memory"
                       type="number"
-                      defaultValue={spec?.resources.memory_mib ?? 512}
+                      defaultValue={spec?.resources.memoryMib ?? 512}
                       min={16}
                       max={65536}
                       required
@@ -821,7 +821,7 @@ function ServiceForm({ service }: { service?: Service }) {
                         >
                           <Input
                             name="pre_deploy_executable"
-                            defaultValue={oci?.pre_deploy?.command[0]}
+                            defaultValue={oci?.preDeploy?.command[0]}
                             placeholder="bun"
                             maxLength={4096}
                           />
@@ -832,7 +832,7 @@ function ServiceForm({ service }: { service?: Service }) {
                         >
                           <Textarea
                             name="pre_deploy_arguments"
-                            defaultValue={oci?.pre_deploy?.command.slice(1).join('\n')}
+                            defaultValue={oci?.preDeploy?.command.slice(1).join('\n')}
                             placeholder={'run\ndb:migrate'}
                             maxLength={16384}
                             rows={3}
@@ -844,7 +844,7 @@ function ServiceForm({ service }: { service?: Service }) {
                             type="number"
                             min={10}
                             max={86400}
-                            defaultValue={oci?.pre_deploy?.timeout_seconds ?? 300}
+                            defaultValue={oci?.preDeploy?.timeoutSeconds ?? 300}
                             required
                           />
                         </Field>
@@ -912,7 +912,7 @@ function ServiceForm({ service }: { service?: Service }) {
                             <Input
                               name="interval"
                               type="number"
-                              defaultValue={oci?.readiness?.interval_seconds ?? 10}
+                              defaultValue={oci?.readiness?.intervalSeconds ?? 10}
                               min={1}
                               max={300}
                               required
@@ -922,7 +922,7 @@ function ServiceForm({ service }: { service?: Service }) {
                             <Input
                               name="stabilization"
                               type="number"
-                              defaultValue={oci?.readiness?.stabilization_seconds ?? 30}
+                              defaultValue={oci?.readiness?.stabilizationSeconds ?? 30}
                               min={1}
                               max={3600}
                               required
@@ -949,7 +949,7 @@ function ServiceForm({ service }: { service?: Service }) {
                     <Input
                       type="checkbox"
                       name="distinct"
-                      defaultChecked={spec?.distinct_nodes ?? true}
+                      defaultChecked={spec?.distinctNodes ?? true}
                     />
                     <span>
                       Spread across distinct nodes
@@ -1144,10 +1144,10 @@ function ServiceDetail() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {spec.workload.kind === 'oci-service' &&
-          spec.workload.execution === 'worker' ? null : runtime.data?.preview_url ? (
+          spec.workload.execution === 'worker' ? null : runtime.data?.previewUrl ? (
             <a
               className="button primary"
-              href={runtime.data.preview_url}
+              href={runtime.data.previewUrl}
               target="_blank"
               rel="noreferrer"
             >
@@ -1270,7 +1270,7 @@ function ServiceActivity() {
                   : event.kind.replaceAll('.', ' ').replaceAll('_', ' ')}
               </h3>
               {event.kind === 'service.registered' && <p>Desired configuration saved.</p>}
-              <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time>
+              <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time>
             </div>
           </div>
         ))

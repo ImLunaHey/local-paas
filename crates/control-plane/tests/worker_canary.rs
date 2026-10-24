@@ -73,12 +73,12 @@ async fn replacement_waits_for_real_worker_shutdown_and_exposes_no_http_port() {
         .unwrap();
     let mut deployments = Vec::<Uuid>::new();
     let result:Result<(),String>=async {
-        let first=post(&client,&format!("/services/{service}/deployments"),json!({"operation_id":Uuid::new_v4(),"revision_id":revision})).await?;
+        let first=post(&client,&format!("/services/{service}/deployments"),json!({"operationId":Uuid::new_v4(),"revisionId":revision})).await?;
         let first:Uuid=first["id"].as_str().ok_or("missing deployment ID")?.parse().map_err(|_|"invalid deployment ID")?;
         deployments.push(first);
         let (old,port)=active(&pool,first).await?;
         if client.get(format!("http://127.0.0.1:{port}/")).send().await.is_ok() { return Err("worker exposed an HTTP listener".into()); }
-        let second=post(&client,&format!("/services/{service}/deployments"),json!({"operation_id":Uuid::new_v4(),"revision_id":revision})).await?;
+        let second=post(&client,&format!("/services/{service}/deployments"),json!({"operationId":Uuid::new_v4(),"revisionId":revision})).await?;
         let second:Uuid=second["id"].as_str().ok_or("missing deployment ID")?.parse().map_err(|_|"invalid deployment ID")?;
         deployments.push(second);
         let mut waiting=false;

@@ -1,10 +1,9 @@
-# Architecture decisions — 2026-10-23
+# Architecture
 
 ## Scope and status
 
-Working name and repository directory: `local-paas`. This is independent of
-Anvil. Luna authorized starting implementation and chose Rust for the backend
-and Vite / React / Tailwind / TanStack for the frontend.
+`local-paas` is an independent Rust application platform with a Vite, React,
+Tailwind and TanStack dashboard. It has no dependency on Anvil.
 
 The local platform registers specifications, builds immutable image revisions,
 and deploys OCI instances through authenticated Rust agents in three NixOS VMs.
@@ -20,8 +19,7 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
   API. SQLx migrations and queries against PostgreSQL. Tokio async runtime.
 - TypeScript frontend: Vite, React, Tailwind's Vite plugin, TanStack Router for
   navigation, TanStack Query for server state. The API owns validation.
-- Dockerfile-first builds now support a generated-Dockerfile fallback, as requested
-  by Luna. Start with standalone Node/Bun package manifests and committed lockfiles.
+- Dockerfile-first builds support a generated-Dockerfile fallback. Start with standalone Node/Bun package manifests and committed lockfiles.
   Custom build/start commands select generation; other languages/workspaces retain
   the explicit Dockerfile contract. Generated recipes are persisted with builds and
   still execute only inside BuildKit in the isolated VM.
@@ -40,8 +38,7 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
   placement. Every service gets a separate fleet; no experimental containers.
   First support tier: Workers, Durable Objects, static assets, observability.
 - API remains a development service on loopback: no CORS, checked browser
-  Origins and loopback Host, JSON-only writes. Luna authorized tailnet access:
-  Tailscale Serve terminates HTTPS on port 5188 and forwards to loopback Vite,
+  Origins and loopback Host, JSON-only writes. For private tailnet access, Tailscale Serve terminates HTTPS on port 5188 and forwards to loopback Vite,
   which proxies the API. An explicit PUBLIC_ORIGIN permits that hostname/origin
   alongside localhost. No public Funnel endpoint. Tailnet rules provide the
   current network access boundary; application-level administrator authentication
@@ -49,22 +46,17 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
 
 ## Infrastructure decisions and remaining proposals
 
-- Luna authorized a separate disposable builder VM on Lake. It has two vCPUs,
-  3 GiB guest RAM and a 16 GiB NVMe virtual disk, with no host filesystem shares.
-  Host UID-scoped nftables policy denies private network access. BuildKit uses
-  mTLS; a colocated, loopback-forwarded registry is development-only. Nix packages
-  are pinned. The builder unit is transient, not a Lake-wide NixOS deployment.
-  At provisioning, available RAM was approximately 15 GiB; ZFS remained degraded.
-  This sizing must be observed, not carried into production as a reservation.
-
-- Three NixOS worker VMs now run with 2 GiB guest RAM and one vCPU each, after
-  inspecting current host headroom. Management currently runs as development
-  processes on Lake; a dedicated management VM remains the production preference.
-  Initial sizing is an experiment, not a reservation. Builders use their separate
-  VM and cannot share management privileges or network reach.
+- Use a separate builder VM: two vCPUs, 3 GiB guest RAM and a 16 GiB virtual
+  disk by default. It shares no host filesystem. UID-scoped nftables policy
+  blocks private network access; BuildKit requires mTLS. The colocated registry
+  is development-only. Measure host memory, CPU and storage headroom before setup.
+- Three worker VMs default to 2 GiB RAM and one vCPU each. Management runs outside
+  scheduler control; a dedicated management VM remains the production preference.
+  These defaults need sizing for the host and workload. Workers on the same host
+  share its power, storage and Internet connection; this is not hardware HA.
 - PostgreSQL on management NVMe, outside scheduler control. Application-aware
-  backups plus restore drills; healthy ZFS and off-site copies. Do not place
-  production state on the array before replacement/resilver and scrub pass.
+  backups plus restore drills. Do not put production data on unhealthy storage.
+  Off-site backup automation is not implemented.
 - containerd inside worker KVM VMs first; Firecracker behind the same runtime
   contract later, preferably on physical KVM. Evaluate firecracker-containerd.
 - The initial outbound protocol uses versioned HTTPS JSON sync requests with
@@ -91,8 +83,6 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
 - celld object-store provider/region remains a required deployment-time choice;
   prefer one bucket per app initially. Use only an upstream-qualified provider
   and re-run its storage probe. No default to Spaces, B2 or unqualified MinIO.
-- Showcase Studio and disposable fixtures have exercised the private Lake stack.
-  This is not a Railway cutover; no Railway changes have been made.
 
 ## Runtime boundaries and target deployment design
 
@@ -165,17 +155,15 @@ A credible release additionally proves two replicas on different VM nodes,
 controller restart without stopping healthy apps, stopped-VM recovery, network
 loss/paused-agent/full-disk faults, bounded resources and logs, secret non-persistence,
 no public celld internal/operator listener, and a written Railway rollback drill.
-All three initial workers share Lake, power, disks and Internet; no hardware HA.
+Three workers on the same host share a physical failure domain; no hardware HA.
 
 Development backup automation now uses encrypted Restic snapshots for control-plane
 state, active managed PostgreSQL/Redis and offline OpenBao file storage. A separate
 restore drill validates imported databases and pinned secret versions. The current
-repository is local to Lake; off-site custody, other persistent resources and full
+backup repository is local to the platform host; off-site custody, other persistent resources and full
 disaster recovery remain release gates. See [backup operations](backups.md).
 
-Lake capacity and the Railway inventory in the conversation are 2026-10-23
-snapshots, not live evidence. Recheck before provisioning workers or migrating
-production state. The builder's later inspection does not establish worker capacity.
+Measure capacity and verify storage health before provisioning or migration.
 
 ## Upstream references checked for this increment
 

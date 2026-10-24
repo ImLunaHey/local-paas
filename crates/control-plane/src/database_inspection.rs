@@ -19,6 +19,7 @@ use uuid::Uuid;
 static INSPECTIONS: Semaphore = Semaphore::const_new(4);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Inspect {
     table: Option<u32>,
 }
@@ -104,17 +105,17 @@ async fn postgres(conn: &mut PgConnection, table: Option<u32>) -> Result<Value, 
         .execute(&mut *conn)
         .await?;
     let stats: DbJson<Value> = sqlx::query_scalar(r#"SELECT jsonb_build_object(
-        'database',current_database(),'size_bytes',pg_database_size(current_database()),
+        'database',current_database(),'sizeBytes',pg_database_size(current_database()),
         'connections',(SELECT count(*) FROM pg_stat_activity WHERE datid=d.datid AND pid<>pg_backend_pid()),
-        'active_connections',(SELECT count(*) FROM pg_stat_activity WHERE datid=d.datid AND pid<>pg_backend_pid() AND state='active'),
+        'activeConnections',(SELECT count(*) FROM pg_stat_activity WHERE datid=d.datid AND pid<>pg_backend_pid() AND state='active'),
         'commits',xact_commit,'rollbacks',xact_rollback,'deadlocks',deadlocks,
-        'cache_hit_percent',round(100.0*blks_hit/nullif(blks_hit::numeric+blks_read,0),2),
-        'stats_reset',stats_reset) FROM pg_stat_database d WHERE datname=current_database()"#).fetch_one(&mut *conn).await?;
+        'cacheHitPercent',round(100.0*blks_hit/nullif(blks_hit::numeric+blks_read,0),2),
+        'statsReset',stats_reset) FROM pg_stat_database d WHERE datname=current_database()"#).fetch_one(&mut *conn).await?;
     let mut tables: Vec<DbJson<Value>> = sqlx::query_scalar(r#"SELECT jsonb_build_object(
         'id',c.oid::bigint,'schema',n.nspname,'name',c.relname,
         'kind',CASE c.relkind WHEN 'p' THEN 'partitioned table' WHEN 'm' THEN 'materialized view' ELSE 'table' END,
-        'estimated_rows',CASE WHEN c.reltuples<0 THEN NULL ELSE c.reltuples::bigint END,
-        'table_bytes',pg_table_size(c.oid),'index_bytes',pg_indexes_size(c.oid))
+        'estimatedRows',CASE WHEN c.reltuples<0 THEN NULL ELSE c.reltuples::bigint END,
+        'tableBytes',pg_table_size(c.oid),'indexBytes',pg_indexes_size(c.oid))
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind IN ('r','p','m') AND n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'
         ORDER BY n.nspname,c.relname LIMIT 201"#).fetch_all(&mut *conn).await?;
@@ -124,9 +125,9 @@ async fn postgres(conn: &mut PgConnection, table: Option<u32>) -> Result<Value, 
         let selected: Option<DbJson<Value>>=sqlx::query_scalar(r#"SELECT jsonb_build_object('id',c.oid::bigint,'schema',n.nspname,'name',c.relname)
             FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.oid::bigint=$1 AND c.relkind IN ('r','p','m') AND n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'"#).bind(i64::from(oid)).fetch_optional(&mut *conn).await?;
         if let Some(mut selected) = selected {
-            let columns: Vec<DbJson<Value>>=sqlx::query_scalar(r#"SELECT jsonb_build_object('name',a.attname,'type',format_type(a.atttypid,a.atttypmod),'nullable',NOT a.attnotnull,'primary_key',EXISTS(SELECT 1 FROM pg_index i WHERE i.indrelid=a.attrelid AND i.indisprimary AND a.attnum=ANY(i.indkey)),'generated',a.attgenerated<>'','identity',a.attidentity<>'') FROM pg_attribute a WHERE a.attrelid::bigint=$1 AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum LIMIT 1600"#).bind(i64::from(oid)).fetch_all(&mut *conn).await?;
-            let mut indexes: Vec<DbJson<Value>>=sqlx::query_scalar(r#"SELECT jsonb_build_object('name',c.relname,'unique',i.indisunique,'primary_key',i.indisprimary,'valid',i.indisvalid,'size_bytes',pg_relation_size(c.oid),'method',am.amname) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam WHERE i.indrelid::bigint=$1 ORDER BY c.relname LIMIT 101"#).bind(i64::from(oid)).fetch_all(&mut *conn).await?;
-            selected.0["indexes_truncated"] = json!(indexes.len() > 100);
+            let columns: Vec<DbJson<Value>>=sqlx::query_scalar(r#"SELECT jsonb_build_object('name',a.attname,'type',format_type(a.atttypid,a.atttypmod),'nullable',NOT a.attnotnull,'primaryKey',EXISTS(SELECT 1 FROM pg_index i WHERE i.indrelid=a.attrelid AND i.indisprimary AND a.attnum=ANY(i.indkey)),'generated',a.attgenerated<>'','identity',a.attidentity<>'') FROM pg_attribute a WHERE a.attrelid::bigint=$1 AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum LIMIT 1600"#).bind(i64::from(oid)).fetch_all(&mut *conn).await?;
+            let mut indexes: Vec<DbJson<Value>>=sqlx::query_scalar(r#"SELECT jsonb_build_object('name',c.relname,'unique',i.indisunique,'primaryKey',i.indisprimary,'valid',i.indisvalid,'sizeBytes',pg_relation_size(c.oid),'method',am.amname) FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam WHERE i.indrelid::bigint=$1 ORDER BY c.relname LIMIT 101"#).bind(i64::from(oid)).fetch_all(&mut *conn).await?;
+            selected.0["indexesTruncated"] = json!(indexes.len() > 100);
             indexes.truncate(100);
             selected.0["columns"] = json!(columns);
             selected.0["indexes"] = json!(indexes);
@@ -138,7 +139,7 @@ async fn postgres(conn: &mut PgConnection, table: Option<u32>) -> Result<Value, 
         None
     };
     Ok(
-        json!({"engine":"postgres","observed_at":chrono::Utc::now(),"stats":stats,"tables":tables,"tables_truncated":truncated,"table":detail}),
+        json!({"engine":"postgres","observedAt":chrono::Utc::now(),"stats":stats,"tables":tables,"tablesTruncated":truncated,"table":detail}),
     )
 }
 async fn redis(port: u16, password: &str) -> Result<Value, ApiError> {
@@ -174,40 +175,40 @@ fn redis_stats(output: &str) -> Value {
         .filter_map(|line| line.split_once(':'))
         .collect();
     let mut stats = serde_json::Map::new();
-    for name in [
-        "used_memory",
-        "used_memory_peak",
-        "used_memory_rss",
-        "maxmemory",
-        "connected_clients",
-        "blocked_clients",
-        "instantaneous_ops_per_sec",
-        "total_commands_processed",
-        "keyspace_hits",
-        "keyspace_misses",
-        "evicted_keys",
-        "expired_keys",
-        "aof_enabled",
-        "aof_rewrite_in_progress",
-        "rdb_bgsave_in_progress",
-        "rdb_last_save_time",
+    for (native_name, name) in [
+        ("used_memory", "usedMemory"),
+        ("used_memory_peak", "usedMemoryPeak"),
+        ("used_memory_rss", "usedMemoryRss"),
+        ("maxmemory", "maxmemory"),
+        ("connected_clients", "connectedClients"),
+        ("blocked_clients", "blockedClients"),
+        ("instantaneous_ops_per_sec", "instantaneousOpsPerSec"),
+        ("total_commands_processed", "totalCommandsProcessed"),
+        ("keyspace_hits", "keyspaceHits"),
+        ("keyspace_misses", "keyspaceMisses"),
+        ("evicted_keys", "evictedKeys"),
+        ("expired_keys", "expiredKeys"),
+        ("aof_enabled", "aofEnabled"),
+        ("aof_rewrite_in_progress", "aofRewriteInProgress"),
+        ("rdb_bgsave_in_progress", "rdbBgsaveInProgress"),
+        ("rdb_last_save_time", "rdbLastSaveTime"),
     ] {
         stats.insert(
             name.into(),
             fields
-                .get(name)
+                .get(native_name)
                 .and_then(|v| v.parse::<u64>().ok())
                 .map_or(Value::Null, |v| json!(v)),
         );
     }
-    for name in [
-        "aof_last_write_status",
-        "aof_last_bgrewrite_status",
-        "rdb_last_bgsave_status",
+    for (native_name, name) in [
+        ("aof_last_write_status", "aofLastWriteStatus"),
+        ("aof_last_bgrewrite_status", "aofLastBgrewriteStatus"),
+        ("rdb_last_bgsave_status", "rdbLastBgsaveStatus"),
     ] {
         stats.insert(
             name.into(),
-            match fields.get(name).copied() {
+            match fields.get(native_name).copied() {
                 Some("ok") => json!("ok"),
                 Some("err") => json!("error"),
                 _ => Value::Null,
@@ -217,9 +218,9 @@ fn redis_stats(output: &str) -> Value {
     let keyspaces:Vec<_>=fields.iter().filter(|(name,_)|name.strip_prefix("db").is_some_and(|n|!n.is_empty() && n.bytes().all(|b|b.is_ascii_digit()))).take(64).map(|(name,value)|{
         let parts:BTreeMap<_,_>=value.split(',').filter_map(|p|p.split_once('=')).collect();
         let number=|key|parts.get(key).and_then(|n|n.parse::<u64>().ok());
-        json!({"name":name,"keys":number("keys"),"expires":number("expires"),"avg_ttl_ms":number("avg_ttl")})
+        json!({"name":name,"keys":number("keys"),"expires":number("expires"),"avgTtlMs":number("avg_ttl")})
     }).collect();
-    json!({"engine":"redis","observed_at":chrono::Utc::now(),"stats":stats,"keyspaces":keyspaces})
+    json!({"engine":"redis","observedAt":chrono::Utc::now(),"stats":stats,"keyspaces":keyspaces})
 }
 #[cfg(test)]
 mod tests {
@@ -229,7 +230,7 @@ mod tests {
         let value = redis_stats(
             "# Stats\r\nused_memory:123\r\nconnected_clients:2\r\naof_last_write_status:ok\r\nsecret:private\r\naof_last_bgrewrite_status:private\r\ndb0:keys=8,expires=3,avg_ttl=1200\r\ndbfoo:keys=500\r\n",
         );
-        assert_eq!(value["stats"]["used_memory"], 123);
+        assert_eq!(value["stats"]["usedMemory"], 123);
         assert_eq!(value["keyspaces"][0]["keys"], 8);
         assert_eq!(value["keyspaces"].as_array().unwrap().len(), 1);
         assert!(!value.to_string().contains("private"));
@@ -258,7 +259,7 @@ mod tests {
             .await
             .unwrap();
         let value = postgres(&mut conn, Some(oid as u32)).await.unwrap();
-        assert_eq!(value["table"]["columns"][0]["primary_key"], true);
+        assert_eq!(value["table"]["columns"][0]["primaryKey"], true);
         assert_eq!(value["table"]["columns"][1]["nullable"], false);
         assert_eq!(value["table"]["columns"][2]["nullable"], true);
         assert_eq!(value["table"]["indexes"][0]["method"], "btree");
@@ -333,14 +334,14 @@ mod live_tests {
         .map_err(|_| "PostgreSQL inspection failed")
         .unwrap();
         assert_eq!(value["table"]["name"], "platform_inspection_canary");
-        assert_eq!(value["table"]["columns"][0]["primary_key"], true);
-        assert!(value["stats"]["size_bytes"].as_u64().unwrap() > 0);
+        assert_eq!(value["table"]["columns"][0]["primaryKey"], true);
+        assert!(value["stats"]["sizeBytes"].as_u64().unwrap() > 0);
         let Json(value) = get(State(pool), Path(redis), Query(Inspect { table: None }))
             .await
             .map_err(|_| "Redis inspection failed")
             .unwrap();
         assert_eq!(value["engine"], "redis");
-        assert_eq!(value["stats"]["aof_enabled"], 1);
-        assert!(value["stats"]["used_memory"].as_u64().unwrap() > 0);
+        assert_eq!(value["stats"]["aofEnabled"], 1);
+        assert!(value["stats"]["usedMemory"].as_u64().unwrap() > 0);
     }
 }

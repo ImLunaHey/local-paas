@@ -20,6 +20,7 @@ pub fn token_hash(token: &str) -> String {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct DeployRequest {
     pub operation_id: Uuid,
     pub revision_id: Uuid,
@@ -635,7 +636,6 @@ async fn sync_inner(
     for r in rows {
         let mut spec = r.get::<DbJson<ServiceSpec>, _>("spec").0;
         // Build and rollout options are controller-owned, not runtime inputs.
-        // Omitting them also keeps existing agents compatible during upgrades.
         if let Workload::OciService {
             build_args,
             build_target,
@@ -718,8 +718,8 @@ pub(crate) async fn status(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     service_exists(&pool, id).await?;
-    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revision_id',d.revision_id,'status',d.status,'error_code',d.error_code,'created_at',d.created_at,'pre_deploy',(SELECT jsonb_build_object('id',j.id,'status',j.status,'result',j.job_result,'instance_id',(SELECT id FROM instances WHERE deployment_id=j.id LIMIT 1)) FROM deployments j WHERE j.parent_deployment_id=d.id)) FROM deployments d WHERE d.service_id=$1 AND d.job_options IS NULL ORDER BY d.created_at DESC LIMIT 20").bind(id).fetch_all(&pool).await?;
-    let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deployment_id',i.deployment_id,'node_id',n.id,'node_name',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desired_state',i.desired_state,'diagnostic',i.diagnostic,'observed_at',i.observed_at,'cpu_millis',i.cpu_millis,'memory_bytes',i.memory_bytes,'pids',i.pids,'io_read_bytes_per_second',i.io_read_bytes_per_second,'io_write_bytes_per_second',i.io_write_bytes_per_second,'network_rx_bytes_per_second',i.network_rx_bytes_per_second,'network_tx_bytes_per_second',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
+    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'status',d.status,'errorCode',d.error_code,'createdAt',d.created_at,'preDeploy',(SELECT jsonb_build_object('id',j.id,'status',j.status,'result',j.job_result,'instanceId',(SELECT id FROM instances WHERE deployment_id=j.id LIMIT 1)) FROM deployments j WHERE j.parent_deployment_id=d.id)) FROM deployments d WHERE d.service_id=$1 AND d.job_options IS NULL ORDER BY d.created_at DESC LIMIT 20").bind(id).fetch_all(&pool).await?;
+    let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deploymentId',i.deployment_id,'nodeId',n.id,'nodeName',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desiredState',i.desired_state,'diagnostic',i.diagnostic,'observedAt',i.observed_at,'cpuMillis',i.cpu_millis,'memoryBytes',i.memory_bytes,'pids',i.pids,'ioReadBytesPerSecond',i.io_read_bytes_per_second,'ioWriteBytesPerSecond',i.io_write_bytes_per_second,'networkRxBytesPerSecond',i.network_rx_bytes_per_second,'networkTxBytesPerSecond',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
     let nodes: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM nodes WHERE last_seen>now()-interval '30 seconds' AND NOT cordoned",
     )
@@ -731,7 +731,7 @@ pub(crate) async fn status(
             .fetch_optional(&pool)
             .await?;
     Ok(Json(
-        json!({"deployments":deployments,"instances":instances,"healthy_nodes":nodes,"preview_url":authority.map(|a|format!("https://{a}"))}),
+        json!({"deployments":deployments,"instances":instances,"healthyNodes":nodes,"previewUrl":authority.map(|a|format!("https://{a}"))}),
     ))
 }
 pub(crate) async fn metrics(
@@ -739,6 +739,6 @@ pub(crate) async fn metrics(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     service_exists(&pool, id).await?;
-    let entries:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('instance_id',i.id,'node',n.name,'timestamp',m.timestamp,'cpu_millis',m.cpu_millis,'memory_bytes',m.memory_bytes,'pids',m.pids,'io_read_bytes_per_second',m.io_read_bytes_per_second,'io_write_bytes_per_second',m.io_write_bytes_per_second,'network_rx_bytes_per_second',m.network_rx_bytes_per_second,'network_tx_bytes_per_second',m.network_tx_bytes_per_second) FROM runtime_metrics m JOIN instances i ON i.id=m.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND m.timestamp>now()-interval '15 minutes' ORDER BY m.timestamp DESC LIMIT 5000").bind(id).fetch_all(&pool).await?;
+    let entries:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('instanceId',i.id,'node',n.name,'timestamp',m.timestamp,'cpuMillis',m.cpu_millis,'memoryBytes',m.memory_bytes,'pids',m.pids,'ioReadBytesPerSecond',m.io_read_bytes_per_second,'ioWriteBytesPerSecond',m.io_write_bytes_per_second,'networkRxBytesPerSecond',m.network_rx_bytes_per_second,'networkTxBytesPerSecond',m.network_tx_bytes_per_second) FROM runtime_metrics m JOIN instances i ON i.id=m.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND m.timestamp>now()-interval '15 minutes' ORDER BY m.timestamp DESC LIMIT 5000").bind(id).fetch_all(&pool).await?;
     Ok(Json(json!({"samples":entries})))
 }

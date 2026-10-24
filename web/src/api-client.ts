@@ -27,7 +27,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
         error.error ||
         message
     } catch {
-      /* Framework rejections are plain text. Don't render submitted data. */
+      /* A proxy may return non-JSON errors. Never render arbitrary response bodies. */
     }
     throw new ApiRequestError(message, code, response.status)
   }

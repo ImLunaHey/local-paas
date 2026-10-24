@@ -6,7 +6,7 @@ export interface Environment {
   id: string
   project: string
   name: string
-  service_count: number
+  serviceCount: number
 }
 export const environmentsQuery = {
   queryKey: ['environments'],
@@ -89,7 +89,7 @@ export function EnvironmentManager() {
                 </strong>
                 <p className="text-xs text-muted mt-1">Independent service and secret scope</p>
               </div>
-              <span className="chip">{e.service_count} services</span>
+              <span className="chip">{e.serviceCount} services</span>
             </div>
           ))}
         </div>

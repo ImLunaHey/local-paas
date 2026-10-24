@@ -30,6 +30,7 @@ pub async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
 #[derive(Deserialize, utoipa::ToSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
 #[schema(as = ProjectCreate)]
+#[serde(rename_all = "camelCase")]
 pub struct Create {
     #[garde(custom(validate_project_name))]
     name: String,
@@ -69,13 +70,14 @@ pub async fn get(
         .fetch_optional(&pool)
         .await?
         .ok_or(ApiError::NotFound)?;
-    let envs:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',$2::text,'name',e.name,'parent_id',e.parent_id,'parent_name',p.name,'service_count',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e LEFT JOIN environments p ON p.id=e.parent_id WHERE e.project_id=$1 ORDER BY e.name").bind(id).bind(&name).fetch_all(&pool).await?;
+    let envs:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',$2::text,'name',e.name,'parentId',e.parent_id,'parentName',p.name,'serviceCount',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e LEFT JOIN environments p ON p.id=e.parent_id WHERE e.project_id=$1 ORDER BY e.name").bind(id).bind(&name).fetch_all(&pool).await?;
     Ok(Json(json!({"id":id,"name":name,"environments":envs})))
 }
 
 #[derive(Deserialize, utoipa::ToSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
 #[schema(as = ProjectUpdate)]
+#[serde(rename_all = "camelCase")]
 pub struct Update {
     #[garde(custom(validate_project_name))]
     name: String,
@@ -126,6 +128,7 @@ pub async fn update(
     Ok(Json(json!({"id":id,"name":input.name})))
 }
 #[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Search {
     #[serde(default)]
     q: String,
@@ -137,6 +140,6 @@ pub async fn search(
     if input.q.len() > 128 {
         return Err(ApiError::Conflict("search must be at most 128 characters"));
     }
-    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT to_jsonb(result) FROM (SELECT 'project' AS kind,p.id,p.name,p.id AS project_id,p.name AS project,NULL::text AS environment FROM projects p WHERE strpos(lower(p.name),lower($1))>0 UNION ALL SELECT 'service',s.id,s.name,p.id,p.name,e.name FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE strpos(lower(s.name||' '||p.name||' '||e.name),lower($1))>0 ORDER BY kind,name LIMIT 30) result").bind(input.q.trim()).fetch_all(&pool).await?;
+    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT to_jsonb(result) FROM (SELECT 'project' AS kind,p.id,p.name,p.id AS \"projectId\",p.name AS project,NULL::text AS environment FROM projects p WHERE strpos(lower(p.name),lower($1))>0 UNION ALL SELECT 'service',s.id,s.name,p.id,p.name,e.name FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE strpos(lower(s.name||' '||p.name||' '||e.name),lower($1))>0 ORDER BY kind,name LIMIT 30) result").bind(input.q.trim()).fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }

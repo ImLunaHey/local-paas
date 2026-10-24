@@ -1,8 +1,8 @@
 # Development backups and restore drills
 
-`platform-backup` is a Rust operator for the existing private Lake stack. Restic
+`platform-backup` is a Rust operator for the private platform stack. Restic
 handles authenticated encryption, deduplication and snapshot integrity. This uses
-the platform's own repository on NVMe, independently of Lake's other services.
+the platform's own repository on NVMe, independently of other host services.
 The repository key is a private file; it is never printed or embedded in metadata.
 
 Each complete backup set contains:
@@ -36,7 +36,7 @@ An online Raft snapshot would require a separately tested storage migration.
 
 ## Run and schedule
 
-On the already provisioned checkout, as Luna:
+On the already provisioned checkout, as the installation owner:
 
 ```sh
 nix build path:./infra/services -o .local/service-tools
@@ -47,9 +47,8 @@ systemctl --user list-timers local-paas-backup.timer
 ```
 
 The persistent user timer runs daily at 03:30 local time, with up to 15 minutes of
-jitter. It runs backup followed by restore verification and survives T3/thread
-restarts. The unit bounds memory, disables swap/core dumps and supervises all child
-processes. Lake's existing user lingering is required for unattended runs. The
+jitter. It runs backup followed by restore verification and survives terminal and editor restarts. The unit bounds memory, disables swap/core dumps and supervises all child
+processes. User lingering is required for unattended runs. The
 rest of the development stack still needs its normal bootstrap after host reboot.
 
 To verify the latest complete set without taking another backup:
@@ -93,7 +92,7 @@ journalctl --user -u local-paas-backup.service
 ## Recovery boundaries
 
 The default encrypted repository is `.local/backups/repository`; its recovery key
-is `.local/backups/repository.key`. **Both are currently on Lake.** Keep an independent
+is `.local/backups/repository.key`. **Both are on the same host by default.** Keep an independent
 copy of the key and configure an off-site repository before relying on these
 backups for hardware-loss recovery. No off-site destination has been selected or
 configured. Restic destinations can be supplied using `RESTIC_REPOSITORY` and

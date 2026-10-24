@@ -9,7 +9,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 fn request_body() -> Value {
-    json!({"build_on_create":false,"operation_id":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/oci-service.json")).unwrap()})
+    json!({"buildOnCreate":false,"operationId":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/oci-service.json")).unwrap()})
 }
 
 async fn call(pool: &PgPool, method: &str, path: &str, body: Value) -> (StatusCode, Value) {
@@ -85,14 +85,14 @@ async fn conflicting_retries_and_names_are_rejected(pool: PgPool) {
             .0,
         StatusCode::CREATED
     );
-    request["spec"]["resources"]["memory_mib"] = json!(1024);
+    request["spec"]["resources"]["memoryMib"] = json!(1024);
     assert_eq!(
         call(&pool, "POST", "/api/services", request.clone())
             .await
             .0,
         StatusCode::CONFLICT
     );
-    request["operation_id"] = json!(Uuid::new_v4());
+    request["operationId"] = json!(Uuid::new_v4());
     assert_eq!(
         call(&pool, "POST", "/api/services", request).await.0,
         StatusCode::CONFLICT
@@ -122,7 +122,7 @@ async fn validation_prevents_all_writes(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 #[ignore = "requires disposable PostgreSQL"]
 async fn celld_stays_a_distinct_workload(pool: PgPool) {
-    let request = json!({"build_on_create":false,"operation_id":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/celld-service.json")).unwrap()});
+    let request = json!({"buildOnCreate":false,"operationId":Uuid::new_v4(), "spec":serde_json::from_str::<Value>(include_str!("../../../examples/celld-service.json")).unwrap()});
     let (status, service) = call(&pool, "POST", "/api/services", request).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(service["spec"]["workload"]["kind"], "celld-service");
@@ -224,7 +224,7 @@ async fn configuration_updates_are_versioned_retry_safe_and_preserve_builds(pool
     let (_, initial) = call(&pool, "POST", "/api/services", registration.clone()).await;
     let id = initial["id"].as_str().unwrap();
     let path = format!("/api/services/{id}");
-    let build_request = json!({"operation_id":Uuid::new_v4()});
+    let build_request = json!({"operationId":Uuid::new_v4()});
     let (_, build) = call(
         &pool,
         "POST",
@@ -235,9 +235,9 @@ async fn configuration_updates_are_versioned_retry_safe_and_preserve_builds(pool
     let mut spec = initial["spec"].clone();
     spec["source"] =
         json!({"repository":"https://github.com/example/new.git","branch":"feature/config"});
-    spec["resources"]["memory_mib"] = json!(1024);
+    spec["resources"]["memoryMib"] = json!(1024);
     spec["name"] = json!("renamed-service");
-    let update = json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec});
+    let update = json!({"operationId":Uuid::new_v4(),"expectedVersion":1,"spec":spec});
     let (a, b) = tokio::join!(
         call(&pool, "PUT", &path, update.clone()),
         call(&pool, "PUT", &path, update.clone())
@@ -254,20 +254,20 @@ async fn configuration_updates_are_versioned_retry_safe_and_preserve_builds(pool
     assert_eq!(retry.1["spec"], initial["spec"]);
     // A stale editor must not overwrite the winning edit.
     let mut stale = update.clone();
-    stale["operation_id"] = json!(Uuid::new_v4());
+    stale["operationId"] = json!(Uuid::new_v4());
     assert_eq!(
         call(&pool, "PUT", &path, stale).await.0,
         StatusCode::CONFLICT
     );
     let mut second = update.clone();
-    second["operation_id"] = json!(Uuid::new_v4());
-    second["expected_version"] = json!(2);
-    second["spec"]["resources"]["memory_mib"] = json!(2048);
+    second["operationId"] = json!(Uuid::new_v4());
+    second["expectedVersion"] = json!(2);
+    second["spec"]["resources"]["memoryMib"] = json!(2048);
     assert_eq!(call(&pool, "PUT", &path, second).await.1["version"], 3);
     // A lost response can be retried even after another update has committed.
     assert_eq!(call(&pool, "PUT", &path, update.clone()).await, a);
     let mut conflicting = update;
-    conflicting["spec"]["resources"]["memory_mib"] = json!(4096);
+    conflicting["spec"]["resources"]["memoryMib"] = json!(4096);
     assert_eq!(
         call(&pool, "PUT", &path, conflicting).await.0,
         StatusCode::CONFLICT
@@ -292,11 +292,11 @@ async fn configuration_updates_are_versioned_retry_safe_and_preserve_builds(pool
         &pool,
         "POST",
         &format!("{path}/builds"),
-        json!({"operation_id":Uuid::new_v4()}),
+        json!({"operationId":Uuid::new_v4()}),
     )
     .await;
     assert_eq!(next["spec"]["source"]["branch"], "feature/config");
-    assert_eq!(next["spec"]["resources"]["memory_mib"], 2048);
+    assert_eq!(next["spec"]["resources"]["memoryMib"], 2048);
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -305,7 +305,7 @@ async fn invalid_or_unauditable_updates_leave_configuration_unchanged(pool: PgPo
     let (_, initial) = call(&pool, "POST", "/api/services", request_body()).await;
     let path = format!("/api/services/{}", initial["id"].as_str().unwrap());
     let mut update =
-        json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":initial["spec"]});
+        json!({"operationId":Uuid::new_v4(),"expectedVersion":1,"spec":initial["spec"]});
     update["spec"]["workload"]["dockerfile"] = json!("../Dockerfile");
     assert_eq!(
         call(&pool, "PUT", &path, update.clone()).await.0,
@@ -319,7 +319,7 @@ async fn invalid_or_unauditable_updates_leave_configuration_unchanged(pool: PgPo
         StatusCode::CONFLICT
     );
     update["spec"] = initial["spec"].clone();
-    update["spec"]["resources"]["memory_mib"] = json!(2048);
+    update["spec"]["resources"]["memoryMib"] = json!(2048);
     sqlx::query(
         "ALTER TABLE events ADD CONSTRAINT reject_updates CHECK (kind != 'service.updated')",
     )
@@ -378,7 +378,7 @@ async fn environments_are_explicit_filtered_and_service_identity_cannot_move(poo
             &pool,
             "PUT",
             &format!("/api/services/{id}"),
-            json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec})
+            json!({"operationId":Uuid::new_v4(),"expectedVersion":1,"spec":spec})
         )
         .await
         .0,
@@ -405,7 +405,7 @@ async fn environments_are_explicit_filtered_and_service_identity_cannot_move(poo
             &pool,
             "PUT",
             &format!("/api/services/{id}/networking"),
-            json!({"authority":"unconfigured.example:5555","port":3000,"expected_version":1})
+            json!({"authority":"unconfigured.example:5555","port":3000,"expectedVersion":1})
         )
         .await
         .0,
@@ -416,7 +416,7 @@ async fn environments_are_explicit_filtered_and_service_identity_cannot_move(poo
             &pool,
             "PUT",
             &format!("/api/services/{id}/networking"),
-            json!({"authority":null,"port":4000,"expected_version":1})
+            json!({"authority":null,"port":4000,"expectedVersion":1})
         )
         .await
         .0,
@@ -429,7 +429,7 @@ async fn environments_are_explicit_filtered_and_service_identity_cannot_move(poo
             &pool,
             "PUT",
             &format!("/api/services/{id}/networking"),
-            json!({"authority":null,"port":5000,"expected_version":1})
+            json!({"authority":null,"port":5000,"expectedVersion":1})
         )
         .await
         .0,
@@ -441,7 +441,7 @@ async fn environments_are_explicit_filtered_and_service_identity_cannot_move(poo
 #[ignore = "requires disposable PostgreSQL"]
 async fn registration_queues_first_build_atomically_and_retries_do_not_duplicate(pool: PgPool) {
     let mut body = request_body();
-    body.as_object_mut().unwrap().remove("build_on_create");
+    body.as_object_mut().unwrap().remove("buildOnCreate");
     let (first, second) = tokio::join!(
         call(&pool, "POST", "/api/services", body.clone()),
         call(&pool, "POST", "/api/services", body.clone())
@@ -468,7 +468,7 @@ async fn registration_queues_first_build_atomically_and_retries_do_not_duplicate
         .execute(&pool)
         .await
         .unwrap();
-    body["operation_id"] = json!(Uuid::new_v4());
+    body["operationId"] = json!(Uuid::new_v4());
     body["spec"]["name"] = json!("failed-registration");
     assert_eq!(
         call(&pool, "POST", "/api/services", body).await.0,

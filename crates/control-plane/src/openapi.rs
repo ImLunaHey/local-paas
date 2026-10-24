@@ -5,6 +5,7 @@ use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ErrorResponse {
     pub code: String,
     pub error: String,
@@ -12,16 +13,19 @@ pub struct ErrorResponse {
     pub issues: Option<Vec<platform_domain::ValidationIssue>>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceList {
     pub items: Vec<crate::Service>,
     pub total: i64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectIdentity {
     pub id: Uuid,
     pub name: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
     pub id: Uuid,
     pub name: String,
@@ -29,10 +33,12 @@ pub struct ProjectSummary {
     pub services: i64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectList {
     pub items: Vec<ProjectSummary>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct EnvironmentSummary {
     pub id: Uuid,
     pub name: String,
@@ -42,6 +48,7 @@ pub struct EnvironmentSummary {
     pub service_count: i64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectDetail {
     pub id: Uuid,
     pub name: String,
@@ -52,8 +59,8 @@ pub struct ProjectDetail {
 #[openapi(
     info(
         title = "local-paas management API",
-        version = "0.1.0",
-        description = "Private operator API. Existing v1 field names are retained for compatibility with persisted service specifications and agents."
+        version = "0.2.0",
+        description = "Private operator API with camelCase fields. Controller, dashboard and protocol v2 agents must be upgraded together."
     ),
     paths(
         crate::health,

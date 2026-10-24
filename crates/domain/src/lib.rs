@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceSpec {
+    #[serde(rename = "schemaVersion")]
     pub schema_version: u32,
     pub project: String,
     pub environment: String,
@@ -22,9 +24,12 @@ pub struct ServiceSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct VolumeAttachment {
     pub id: uuid::Uuid,
+    #[serde(rename = "mountPath")]
     pub mount_path: String,
+    #[serde(rename = "readOnly")]
     pub read_only: bool,
 }
 
@@ -61,6 +66,7 @@ pub fn volume_mount_path(path: &str) -> bool {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GitSource {
     #[serde(default)]
     pub repository: String,
@@ -111,40 +117,58 @@ fn git_ref_name(value: &str) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Resources {
+    #[serde(rename = "cpuMillis")]
     pub cpu_millis: u32,
+    #[serde(rename = "memoryMib")]
     pub memory_mib: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all_fields = "camelCase",
+    rename_all = "kebab-case",
+    deny_unknown_fields
+)]
 pub enum Workload {
     RustfsService {
+        #[serde(rename = "storageGib")]
         storage_gib: u16,
     },
     RedisService {
+        #[serde(rename = "storageGib")]
         storage_gib: u16,
     },
     PostgresService {
         database: String,
+        #[serde(rename = "storageGib")]
         storage_gib: u16,
     },
     OciService {
         #[serde(default, skip_serializing_if = "Execution::is_http")]
         execution: Execution,
         #[serde(default)]
+        #[serde(rename = "buildMode")]
         build_mode: BuildMode,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "buildCommand")]
         build_command: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "startCommand")]
         start_command: Option<String>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        #[serde(rename = "buildArgs")]
         build_args: BTreeMap<String, String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "buildTarget")]
         build_target: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "preDeploy")]
         pre_deploy: Option<PreDeploy>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(rename = "privateConnections")]
         private_connections: Vec<PrivateConnection>,
         dockerfile: String,
         context: String,
@@ -157,13 +181,16 @@ pub enum Workload {
     CelldService {
         wrangler: String,
         members: u16,
+        #[serde(rename = "bucketRef")]
         bucket_ref: String,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct PrivateConnection {
+    #[serde(rename = "serviceId")]
     pub service_id: uuid::Uuid,
     pub env: String,
 }
@@ -184,8 +211,10 @@ impl PrivateConnection {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct PreDeploy {
     pub command: Vec<String>,
+    #[serde(rename = "timeoutSeconds")]
     pub timeout_seconds: u32,
 }
 impl PreDeploy {
@@ -226,13 +255,17 @@ pub enum BuildMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Readiness {
     pub path: String,
+    #[serde(rename = "intervalSeconds")]
     pub interval_seconds: u16,
+    #[serde(rename = "stabilizationSeconds")]
     pub stabilization_seconds: u16,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ValidationIssue {
     pub field: String,
     pub message: String,
@@ -285,7 +318,7 @@ impl ServiceSpec {
                 });
             }
         };
-        check(self.schema_version == 1, "schema_version", "must be 1");
+        check(self.schema_version == 1, "schemaVersion", "must be 1");
         if let Some(volume) = &self.volume {
             check(
                 matches!(self.workload, Workload::OciService { replicas: 1, .. }),
@@ -294,7 +327,7 @@ impl ServiceSpec {
             );
             check(
                 volume_mount_path(&volume.mount_path),
-                "volume.mount_path",
+                "volume.mountPath",
                 "use an absolute data directory such as /data; system directories and path traversal are forbidden",
             );
         }
@@ -390,12 +423,12 @@ impl ServiceSpec {
         }
         check(
             (1..=64000).contains(&self.resources.cpu_millis),
-            "resources.cpu_millis",
+            "resources.cpuMillis",
             "must be between 1 and 64000 per instance",
         );
         check(
             (16..=65536).contains(&self.resources.memory_mib),
-            "resources.memory_mib",
+            "resources.memoryMib",
             "must be between 16 and 65536 per instance",
         );
         check(self.domains.len() <= 20, "domains", "at most 20 domains");
@@ -434,12 +467,12 @@ impl ServiceSpec {
             Workload::RustfsService { storage_gib } => {
                 check(
                     (1..=2).contains(storage_gib),
-                    "workload.storage_gib",
+                    "workload.storageGib",
                     "development storage supports 1–2 GiB",
                 );
                 check(
                     self.resources.memory_mib >= 1024,
-                    "resources.memory_mib",
+                    "resources.memoryMib",
                     "RustFS needs at least 1024 MiB for this development template",
                 );
                 check(
@@ -449,19 +482,19 @@ impl ServiceSpec {
                 );
                 check(
                     !self.distinct_nodes,
-                    "distinct_nodes",
+                    "distinctNodes",
                     "RustFS runs on its persistent volume owner",
                 );
             }
             Workload::RedisService { storage_gib } => {
                 check(
                     (1..=2).contains(storage_gib),
-                    "workload.storage_gib",
+                    "workload.storageGib",
                     "development volumes support 1–2 GiB",
                 );
                 check(
                     self.resources.memory_mib >= 128,
-                    "resources.memory_mib",
+                    "resources.memoryMib",
                     "Redis needs at least 128 MiB",
                 );
                 check(
@@ -471,7 +504,7 @@ impl ServiceSpec {
                 );
                 check(
                     !self.distinct_nodes,
-                    "distinct_nodes",
+                    "distinctNodes",
                     "database storage is pinned to one node",
                 );
             }
@@ -490,12 +523,12 @@ impl ServiceSpec {
                 );
                 check(
                     (1..=2).contains(storage_gib),
-                    "workload.storage_gib",
+                    "workload.storageGib",
                     "development database volumes support 1–2 GiB",
                 );
                 check(
                     self.resources.memory_mib >= 256,
-                    "resources.memory_mib",
+                    "resources.memoryMib",
                     "PostgreSQL needs at least 256 MiB",
                 );
                 check(
@@ -505,7 +538,7 @@ impl ServiceSpec {
                 );
                 check(
                     !self.distinct_nodes,
-                    "distinct_nodes",
+                    "distinctNodes",
                     "a database is a single instance pinned to its volume owner",
                 );
             }
@@ -531,13 +564,13 @@ impl ServiceSpec {
                         && private_connections.iter().all(|c| {
                             c.valid() && names.insert(&c.env) && !self.secrets.contains(&c.env)
                         }),
-                    "workload.private_connections",
+                    "workload.privateConnections",
                     "use at most 16 private connections with unique uppercase environment variable names that do not conflict with secrets",
                 );
                 if let Some(job) = pre_deploy {
                     check(
                         job.valid(),
-                        "workload.pre_deploy",
+                        "workload.preDeploy",
                         "use a nonempty argv command (up to 64 arguments, 16 KiB total) and a 10–86400 second timeout",
                     );
                 }
@@ -553,7 +586,7 @@ impl ServiceSpec {
                                 && !value.chars().any(char::is_control)
                         })
                         && build_args.values().map(String::len).sum::<usize>() <= 16384,
-                    "workload.build_args",
+                    "workload.buildArgs",
                     "use at most 32 non-secret build arguments (16 KiB total); BUILDKIT_ names are reserved",
                 );
                 if let Some(target) = build_target {
@@ -564,7 +597,7 @@ impl ServiceSpec {
                                 .bytes()
                                 .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
                             && !target.starts_with('-'),
-                        "workload.build_target",
+                        "workload.buildTarget",
                         "use a Dockerfile stage name up to 128 characters",
                     );
                 }
@@ -573,12 +606,12 @@ impl ServiceSpec {
                         || (*build_mode != BuildMode::Generated
                             && build_command.is_none()
                             && start_command.is_none()),
-                    "workload.build_args",
+                    "workload.buildArgs",
                     "build arguments and targets require a repository Dockerfile without generated command overrides",
                 );
                 for (field, command) in [
-                    ("workload.build_command", build_command),
-                    ("workload.start_command", start_command),
+                    ("workload.buildCommand", build_command),
+                    ("workload.startCommand", start_command),
                 ] {
                     if let Some(command) = command {
                         check(
@@ -657,13 +690,13 @@ impl ServiceSpec {
                     );
                     check(
                         (1..=300).contains(&readiness.interval_seconds),
-                        "workload.readiness.interval_seconds",
+                        "workload.readiness.intervalSeconds",
                         "must be between 1 and 300",
                     );
                     check(
                         readiness.stabilization_seconds >= readiness.interval_seconds
                             && readiness.stabilization_seconds <= 3600,
-                        "workload.readiness.stabilization_seconds",
+                        "workload.readiness.stabilizationSeconds",
                         "must cover at least one check interval and be at most 3600",
                     );
                 }
@@ -685,7 +718,7 @@ impl ServiceSpec {
                 );
                 check(
                     slug(bucket_ref),
-                    "workload.bucket_ref",
+                    "workload.bucketRef",
                     "use a fleet-scoped bucket configuration reference, not credentials",
                 );
             }
@@ -879,7 +912,7 @@ mod tests {
             spec.validate()
                 .unwrap_err()
                 .iter()
-                .any(|i| i.field.ends_with("stabilization_seconds"))
+                .any(|i| i.field.ends_with("stabilizationSeconds"))
         );
     }
 
@@ -925,5 +958,34 @@ mod tests {
         assert!(ImageDigest::try_from("nginx:latest".to_string()).is_err());
         assert!(ImageDigest::try_from(format!("sha256:{}", "a".repeat(64))).is_ok());
         assert!(serde_json::from_str::<ImageDigest>("\"sha256:abc\"").is_err());
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    #[test]
+    fn public_fields_are_camel_case_but_application_keys_are_untouched() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap();
+        value["workload"]["buildArgs"] =
+            serde_json::json!({"custom_key":"value", "CPU_MILLIS":"500"});
+        value["secrets"] = serde_json::json!(["DATABASE_URL"]);
+        let spec: ServiceSpec = serde_json::from_value(value).unwrap();
+        spec.validate().unwrap();
+        let encoded = serde_json::to_value(spec).unwrap();
+        assert_eq!(encoded["workload"]["buildArgs"]["custom_key"], "value");
+        assert_eq!(encoded["workload"]["buildArgs"]["CPU_MILLIS"], "500");
+        assert_eq!(encoded["secrets"][0], "DATABASE_URL");
+        assert!(encoded["resources"].get("cpuMillis").is_some());
+        assert!(encoded.get("schema_version").is_none());
+        let mut old = encoded.clone();
+        let version = old
+            .as_object_mut()
+            .unwrap()
+            .remove("schemaVersion")
+            .unwrap();
+        old["schema_version"] = version;
+        assert!(serde_json::from_value::<ServiceSpec>(old).is_err());
     }
 }

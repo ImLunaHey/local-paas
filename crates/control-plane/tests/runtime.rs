@@ -33,7 +33,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     let (_, s) = call(
         pool,
         "/api/services",
-        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"buildOnCreate":false,"operationId":Uuid::new_v4(),"spec":spec}),
         None,
     )
     .await;
@@ -41,7 +41,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     call(
         pool,
         &format!("/api/services/{service}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        json!({"operationId":Uuid::new_v4(),"noCache":false}),
         None,
     )
     .await;
@@ -74,7 +74,7 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
 async fn deployments_spread_deduplicate_and_preserve_active_revision_on_failure(pool: PgPool) {
     let (service, revision, _) = fixture(&pool).await;
     let path = format!("/api/services/{service}/deployments");
-    let req = json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
+    let req = json!({"operationId":Uuid::new_v4(),"revisionId":revision});
     let (a, b) = tokio::join!(
         call(&pool, &path, req.clone(), None),
         call(&pool, &path, req, None)
@@ -105,7 +105,7 @@ async fn deployments_spread_deduplicate_and_preserve_active_revision_on_failure(
     let (_, next) = call(
         &pool,
         &path,
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;
@@ -167,11 +167,11 @@ async fn node_identity_and_generations_fence_observations(pool: PgPool) {
     call(
         &pool,
         &format!("/api/services/{service}/deployments"),
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;
-    let request = json!({"version":1,"node_id":nodes[0],"observations":[]});
+    let request = json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[]});
     assert_eq!(
         call(&pool, "/api/agent/sync", request.clone(), None)
             .await
@@ -190,16 +190,16 @@ async fn node_identity_and_generations_fence_observations(pool: PgPool) {
         StatusCode::UNAUTHORIZED
     );
     let (_, r) = call(&pool, "/api/agent/sync", request, Some(&"a".repeat(64))).await;
-    let id = r["assignments"][0]["instance_id"]
+    let id = r["assignments"][0]["instanceId"]
         .as_str()
         .unwrap()
         .parse::<Uuid>()
         .unwrap();
-    let observation = json!({"observed_unix_ms":chrono::Utc::now().timestamp_millis(),"instance_id":id,"generation":0,"state":"ready","diagnostic":null,"metrics":null,"logs":[]});
+    let observation = json!({"observedUnixMs":chrono::Utc::now().timestamp_millis(),"instanceId":id,"generation":0,"state":"ready","diagnostic":null,"metrics":null,"logs":[]});
     call(
         &pool,
         "/api/agent/sync",
-        json!({"version":1,"node_id":nodes[0],"observations":[observation]}),
+        json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[observation]}),
         Some(&"a".repeat(64)),
     )
     .await;
@@ -210,8 +210,8 @@ async fn node_identity_and_generations_fence_observations(pool: PgPool) {
         .unwrap();
     assert_eq!(state, "assigned");
     let log = json!({"key":"c".repeat(64),"timestamp":"2026-10-23T20:00:00Z","stream":"stdout","line":"hello\n"});
-    let observation = json!({"observed_unix_ms":chrono::Utc::now().timestamp_millis(),"instance_id":id,"generation":1,"state":"ready","diagnostic":null,"metrics":{"cpu_millis":12.0,"memory_bytes":4096,"pids":3},"logs":[log]});
-    let req = json!({"version":1,"node_id":nodes[0],"observations":[observation]});
+    let observation = json!({"observedUnixMs":chrono::Utc::now().timestamp_millis(),"instanceId":id,"generation":1,"state":"ready","diagnostic":null,"metrics":{"cpuMillis":12.0,"memoryBytes":4096,"pids":3},"logs":[log]});
+    let req = json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[observation]});
     for _ in 0..2 {
         assert_eq!(
             call(&pool, "/api/agent/sync", req.clone(), Some(&"a".repeat(64)))
@@ -263,7 +263,7 @@ async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool
     let (_, d) = call(
         &pool,
         &format!("/api/services/{service}/deployments"),
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;
@@ -275,7 +275,7 @@ async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool
             .await
             .unwrap();
     let now = chrono::Utc::now();
-    let observation = json!({"instance_id":instance,"generation":1,"observed_unix_ms":now.timestamp_millis(),"state":"ready","diagnostic":null,"metrics":null,"logs":[
+    let observation = json!({"instanceId":instance,"generation":1,"observedUnixMs":now.timestamp_millis(),"state":"ready","diagnostic":null,"metrics":null,"logs":[
         {"key":"a".repeat(64),"timestamp":now.to_rfc3339(),"stream":"stdout","line":"{\"level\":50,\"msg\":\"Request failed\",\"request\":{\"id\":\"abc\"}}"},
         {"key":"b".repeat(64),"timestamp":now.to_rfc3339(),"stream":"stderr","line":"plain stderr"}
     ]});
@@ -283,7 +283,7 @@ async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool
         call(
             &pool,
             "/api/agent/sync",
-            json!({"version":1,"node_id":nodes[0],"observations":[observation.clone()]}),
+            json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[observation.clone()]}),
             Some(&"a".repeat(64))
         )
         .await
@@ -300,7 +300,7 @@ async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool
     assert_eq!(page["entries"][0]["message"], "Request failed");
     let (_, stderr) = read(&pool, &format!("{path}?level=unclassified&stream=stderr")).await;
     assert_eq!(stderr["entries"].as_array().unwrap().len(), 1);
-    let (_, after) = read(&pool, &format!("{path}?after={}", page["next_cursor"])).await;
+    let (_, after) = read(&pool, &format!("{path}?after={}", page["nextCursor"])).await;
     assert_eq!(after["entries"][0]["line"], "plain stderr");
     assert_eq!(
         read(&pool, &format!("{path}?field=a%27&value=b")).await.0,
@@ -319,11 +319,11 @@ async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool
         .await
         .unwrap();
     let mut observation = observation;
-    observation["observed_unix_ms"] = json!(now.timestamp_millis() + 1);
+    observation["observedUnixMs"] = json!(now.timestamp_millis() + 1);
     call(
         &pool,
         "/api/agent/sync",
-        json!({"version":1,"node_id":nodes[0],"observations":[observation]}),
+        json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[observation]}),
         Some(&"a".repeat(64)),
     )
     .await;
@@ -338,13 +338,13 @@ async fn structured_logs_search_filter_and_page_without_cross_service_leaks(pool
 #[ignore = "requires disposable PostgreSQL"]
 async fn shared_volumes_colocate_services_and_fence_replacements(pool: PgPool) {
     let (service, revision, nodes) = fixture(&pool).await;
-    let request = json!({"operation_id":Uuid::new_v4(),"project":"sandbox","environment":"development","name":"uploads","size_gib":1});
+    let request = json!({"operationId":Uuid::new_v4(),"project":"sandbox","environment":"development","name":"uploads","sizeGib":1});
     let (code, volume) = call(&pool, "/api/volumes", request.clone(), None).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(call(&pool, "/api/volumes", request, None).await.1, volume);
-    let attachment = json!({"id":volume["id"],"mount_path":"/data","read_only":false});
+    let attachment = json!({"id":volume["id"],"mountPath":"/data","readOnly":false});
     sqlx::query("UPDATE services SET spec=jsonb_set(jsonb_set(spec,'{volume}',$2),'{workload,replicas}','1') WHERE id=$1").bind(service).bind(&attachment).execute(&pool).await.unwrap();
-    let deploy = |revision| json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
+    let deploy = |revision| json!({"operationId":Uuid::new_v4(),"revisionId":revision});
     let path = format!("/api/services/{service}/deployments");
     assert_eq!(
         call(&pool, &path, deploy(revision), None).await.0,
@@ -374,11 +374,11 @@ async fn shared_volumes_colocate_services_and_fence_replacements(pool: PgPool) {
         .await
         .unwrap();
     spec["name"] = json!("file-browser");
-    spec["volume"]["read_only"] = json!(true);
+    spec["volume"]["readOnly"] = json!(true);
     let (code, app) = call(
         &pool,
         "/api/services",
-        json!({"operation_id":Uuid::new_v4(),"build_on_create":false,"spec":spec}),
+        json!({"operationId":Uuid::new_v4(),"buildOnCreate":false,"spec":spec}),
         None,
     )
     .await;
@@ -387,7 +387,7 @@ async fn shared_volumes_colocate_services_and_fence_replacements(pool: PgPool) {
     call(
         &pool,
         &format!("/api/services/{appid}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        json!({"operationId":Uuid::new_v4(),"noCache":false}),
         None,
     )
     .await;
@@ -429,14 +429,14 @@ async fn shared_volumes_colocate_services_and_fence_replacements(pool: PgPool) {
         call(
             &pool,
             "/api/services",
-            json!({"operation_id":Uuid::new_v4(),"build_on_create":false,"spec":spec}),
+            json!({"operationId":Uuid::new_v4(),"buildOnCreate":false,"spec":spec}),
             None
         )
         .await
         .0,
         StatusCode::CONFLICT
     );
-    let (_,shadow)=call(&pool,"/api/environments",json!({"project":"sandbox","name":"shadow","parent_id":sqlx::query_scalar::<_,Uuid>("SELECT environment_id FROM services WHERE id=$1").bind(service).fetch_one(&pool).await.unwrap()}),None).await;
+    let (_,shadow)=call(&pool,"/api/environments",json!({"project":"sandbox","name":"shadow","parentId":sqlx::query_scalar::<_,Uuid>("SELECT environment_id FROM services WHERE id=$1").bind(service).fetch_one(&pool).await.unwrap()}),None).await;
     assert!(shadow["id"].is_string(), "{shadow}");
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM services WHERE environment_id=$1 AND spec ? 'volume'",
@@ -452,7 +452,7 @@ async fn shared_volumes_colocate_services_and_fence_replacements(pool: PgPool) {
 #[ignore = "requires disposable PostgreSQL"]
 async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: PgPool) {
     let (service, _, nodes) = fixture(&pool).await;
-    let (_, volume) = call(&pool,"/api/volumes",json!({"operation_id":Uuid::new_v4(),"project":"sandbox","environment":"development","name":"browser-volume","size_gib":1}),None).await;
+    let (_, volume) = call(&pool,"/api/volumes",json!({"operationId":Uuid::new_v4(),"project":"sandbox","environment":"development","name":"browser-volume","sizeGib":1}),None).await;
     let volume: Uuid = volume["id"].as_str().unwrap().parse().unwrap();
     sqlx::query("UPDATE shared_volumes SET node_id=$2 WHERE id=$1")
         .bind(volume)
@@ -466,7 +466,7 @@ async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: 
         .unwrap();
     sqlx::query("UPDATE services SET spec=jsonb_set(spec,'{volume}',$2) WHERE id=$1")
         .bind(service)
-        .bind(json!({"id":volume,"mount_path":"/data","read_only":true}))
+        .bind(json!({"id":volume,"mountPath":"/data","readOnly":true}))
         .execute(&pool)
         .await
         .unwrap();
@@ -475,7 +475,7 @@ async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: 
         call(
             &pool,
             "/api/agent/files/poll",
-            json!({"node_id":nodes[0]}),
+            json!({"nodeId":nodes[0]}),
             Some(&"b".repeat(64))
         )
         .await
@@ -503,7 +503,7 @@ async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: 
         call(
             &pool,
             "/api/agent/files/poll",
-            json!({"node_id":nodes[0]}),
+            json!({"nodeId":nodes[0]}),
             Some(&token)
         )
         .await
@@ -524,7 +524,7 @@ async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: 
         task = call(
             &pool,
             "/api/agent/files/poll",
-            json!({"node_id":nodes[0]}),
+            json!({"nodeId":nodes[0]}),
             Some(&token),
         )
         .await
@@ -534,9 +534,9 @@ async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: 
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    assert_eq!(task["volume_id"], volume.to_string());
-    assert_eq!(task["read_only"], true);
-    let result = json!({"node_id":nodes[1],"id":task["id"],"result":{"kind":"listing","items":[],"cursor":null}});
+    assert_eq!(task["volumeId"], volume.to_string());
+    assert_eq!(task["readOnly"], true);
+    let result = json!({"nodeId":nodes[1],"id":task["id"],"result":{"kind":"listing","items":[],"cursor":null}});
     assert_eq!(
         call(&pool, "/api/agent/files/result", result, Some(&token))
             .await
@@ -548,7 +548,7 @@ async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: 
         .execute(&pool)
         .await
         .unwrap();
-    let result = json!({"node_id":nodes[0],"id":task["id"],"result":{"kind":"listing","items":[],"cursor":null}});
+    let result = json!({"nodeId":nodes[0],"id":task["id"],"result":{"kind":"listing","items":[],"cursor":null}});
     assert_eq!(
         call(&pool, "/api/agent/files/result", result, Some(&token))
             .await
@@ -582,21 +582,16 @@ async fn recovery_is_only_authorized_after_promotion_and_for_capable_agents(pool
     let (_, deployed) = call(
         &pool,
         &format!("/api/services/{service}/deployments"),
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;
     let id = deployed["id"].as_str().unwrap().parse::<Uuid>().unwrap();
-    let request =
-        json!({"version":1,"node_id":nodes[0],"observations":[],"capabilities":["recovery-v1"]});
+    let request = json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[],"capabilities":["recovery-v1"]});
     let token = "a".repeat(64);
     let (status, preparing) = call(&pool, "/api/agent/sync", request.clone(), Some(&token)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        preparing["assignments"][0]
-            .get("recovery_allowed")
-            .is_none()
-    );
+    assert!(preparing["assignments"][0].get("recoveryAllowed").is_none());
     sqlx::query("UPDATE instances SET state='ready',observed_at=now() WHERE deployment_id=$1")
         .bind(id)
         .execute(&pool)
@@ -604,16 +599,16 @@ async fn recovery_is_only_authorized_after_promotion_and_for_capable_agents(pool
         .unwrap();
     control_plane::runtime::reconcile(&pool).await.unwrap();
     let (_, active) = call(&pool, "/api/agent/sync", request.clone(), Some(&token)).await;
-    assert_eq!(active["assignments"][0]["recovery_allowed"], true);
+    assert_eq!(active["assignments"][0]["recoveryAllowed"], true);
     let (_, legacy) = call(
         &pool,
         "/api/agent/sync",
-        json!({"version":1,"node_id":nodes[0],"observations":[]}),
+        json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[]}),
         Some(&token),
     )
     .await;
     assert!(
-        legacy["assignments"][0].get("recovery_allowed").is_none(),
+        legacy["assignments"][0].get("recoveryAllowed").is_none(),
         "old agents reject unknown fields"
     );
     call(
@@ -624,8 +619,8 @@ async fn recovery_is_only_authorized_after_promotion_and_for_capable_agents(pool
     )
     .await;
     let (_, stopped) = call(&pool, "/api/agent/sync", request, Some(&token)).await;
-    assert_eq!(stopped["assignments"][0]["desired_state"], "stopped");
-    assert!(stopped["assignments"][0].get("recovery_allowed").is_none());
+    assert_eq!(stopped["assignments"][0]["desiredState"], "stopped");
+    assert!(stopped["assignments"][0].get("recoveryAllowed").is_none());
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -644,12 +639,12 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
     for (path, body, expected) in [
         (
             "/api/domains/worker.example.com".to_string(),
-            json!({"service_id":service,"expected_version":1}),
+            json!({"serviceId":service,"expectedVersion":1}),
             StatusCode::CONFLICT,
         ),
         (
             format!("/api/services/{service}/networking"),
-            json!({"enabled":false,"port":3000,"expected_version":1}),
+            json!({"enabled":false,"port":3000,"expectedVersion":1}),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
     ] {
@@ -672,7 +667,7 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
         );
     }
     let path = format!("/api/services/{service}/deployments");
-    let request = json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
+    let request = json!({"operationId":Uuid::new_v4(),"revisionId":revision});
     let first = call(&pool, &path, request.clone(), None).await;
     assert_eq!(first.0, StatusCode::OK);
     assert_eq!(first, call(&pool, &path, request, None).await);
@@ -701,12 +696,12 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
     let (_, legacy) = call(
         &pool,
         "/api/agent/sync",
-        json!({"version":1,"node_id":node,"observations":[]}),
+        json!({"version":platform_protocol::VERSION,"nodeId":node,"observations":[]}),
         Some(&token),
     )
     .await;
     assert_eq!(legacy["assignments"], json!([]));
-    let report = |node, generation, state| json!({"version":1,"node_id":node,"capabilities":["workers-v1","recovery-v1"],"observations":[{"instance_id":old,"generation":generation,"state":state,"observed_unix_ms":chrono::Utc::now().timestamp_millis(),"diagnostic":null,"metrics":null,"logs":[]}]});
+    let report = |node, generation, state| json!({"version":platform_protocol::VERSION,"nodeId":node,"capabilities":["workers-v1","recovery-v1"],"observations":[{"instanceId":old,"generation":generation,"state":state,"observedUnixMs":chrono::Utc::now().timestamp_millis(),"diagnostic":null,"metrics":null,"logs":[]}]});
     assert_eq!(
         call(
             &pool,
@@ -722,7 +717,7 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
     let (_, second) = call(
         &pool,
         &path,
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;
@@ -731,7 +726,7 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
         call(
             &pool,
             &path,
-            json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+            json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
             None
         )
         .await
@@ -810,7 +805,7 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
     let (_, third) = call(
         &pool,
         &path,
-        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
         None,
     )
     .await;

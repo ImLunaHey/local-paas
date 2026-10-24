@@ -7,17 +7,17 @@ import { projectsQuery } from './projects'
 import { Button, Field, Input, Select } from './ui'
 interface Domain {
   hostname: string
-  service_id: string | null
+  serviceId: string | null
   version: number
   project: string | null
-  project_id: string | null
+  projectId: string | null
   environment: string | null
   service: string | null
 }
 interface DomainList {
   items: Domain[]
-  cname_target: string | null
-  edge_ready: false
+  cnameTarget: string | null
+  edgeReady: false
 }
 export function Domains() {
   const client = useQueryClient()
@@ -58,10 +58,10 @@ export function Domains() {
           Domain assignments are saved here. Public traffic will start routing after the VPS and
           NetBird are connected, DNS ownership is verified, and TLS is issued.
         </p>
-        {query.data?.cname_target ? (
+        {query.data?.cnameTarget ? (
           <div className="rounded-md border border-zinc-800 bg-zinc-950 p-4">
             <span className="text-[10px] uppercase tracking-wider text-muted">CNAME target</span>
-            <code className="mt-2 block break-all text-sm">{query.data.cname_target}</code>
+            <code className="mt-2 block break-all text-sm">{query.data.cnameTarget}</code>
             <p className="mt-2 text-xs text-muted">
               Point subdomains here at your DNS provider. For a root domain, use ALIAS/ANAME or
               CNAME flattening if your provider supports it. DNS configuration alone does not
@@ -133,9 +133,9 @@ export function Domains() {
 }
 function DomainAssignment({ domain }: { domain: Domain }) {
   const client = useQueryClient()
-  const [project, setProject] = useState(domain.project_id ?? '')
+  const [project, setProject] = useState(domain.projectId ?? '')
   const [environment, setEnvironment] = useState(domain.environment ?? '')
-  const [service, setService] = useState(domain.service_id ?? '')
+  const [service, setService] = useState(domain.serviceId ?? '')
   const projects = useQuery(projectsQuery)
   const detail = useQuery({
     queryKey: ['projects', project],
@@ -159,7 +159,7 @@ function DomainAssignment({ domain }: { domain: Domain }) {
       api('/domains/' + encodeURIComponent(domain.hostname), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service_id: service || null, expected_version: domain.version }),
+        body: JSON.stringify({ serviceId: service || null, expectedVersion: domain.version }),
       }),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ['domains'] })
@@ -171,7 +171,7 @@ function DomainAssignment({ domain }: { domain: Domain }) {
         <div className="min-w-0">
           <h2 className="break-all">{domain.hostname}</h2>
           <p className="mt-2 text-xs text-muted">
-            {domain.service_id
+            {domain.serviceId
               ? `${domain.project} / ${domain.environment} → ${domain.service}`
               : 'Unassigned'}
           </p>
@@ -246,7 +246,7 @@ function DomainAssignment({ domain }: { domain: Domain }) {
         <Button
           type="submit"
           disabled={
-            save.isPending || (!!project && !service) || service === (domain.service_id ?? '')
+            save.isPending || (!!project && !service) || service === (domain.serviceId ?? '')
           }
         >
           Save assignment
@@ -257,11 +257,11 @@ function DomainAssignment({ domain }: { domain: Domain }) {
           {(save.error || services.error || detail.error || projects.error)?.message}
         </p>
       )}
-      {domain.service_id && (
+      {domain.serviceId && (
         <Link
           className="mt-4 inline-flex items-center gap-2 text-xs text-muted hover:text-white"
           to="/services/$serviceId/networking"
-          params={{ serviceId: domain.service_id }}
+          params={{ serviceId: domain.serviceId }}
         >
           Service networking <ArrowRight size={12} />
         </Link>

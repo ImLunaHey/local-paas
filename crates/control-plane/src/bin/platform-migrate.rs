@@ -10,7 +10,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| "migration database connection unavailable")?;
     control_plane::migrate(&pool)
         .await
-        .map_err(|_| "database migration failed; review schema and migration history")?;
+        .map_err(|error| match error {
+            sqlx::migrate::MigrateError::ExecuteMigration(_, 27) => "contract reset requires a fresh platform database and node state; see docs/upgrades.md",
+            _ => "database migration failed; review schema and migration history",
+        })?;
     println!("Database migrations applied.");
     Ok(())
 }

@@ -9,16 +9,16 @@ import { Button } from './ui'
 type Row = Record<string, string | number | boolean | null>
 interface Snapshot {
   engine: 'postgres' | 'redis'
-  observed_at: string
+  observedAt: string
   stats: Row
   tables?: Row[]
-  tables_truncated?: boolean
+  tablesTruncated?: boolean
   table?: {
     schema: string
     name: string
     columns: Row[]
     indexes: Row[]
-    indexes_truncated: boolean
+    indexesTruncated: boolean
   } | null
   keyspaces?: Row[]
 }
@@ -51,7 +51,7 @@ const columnFields: Field[] = [
   { key: 'name', label: 'Column' },
   { key: 'type', label: 'Type' },
   { key: 'nullable', label: 'Nullable' },
-  { key: 'primary_key', label: 'Primary key' },
+  { key: 'primaryKey', label: 'Primary key' },
   { key: 'identity', label: 'Identity' },
   { key: 'generated', label: 'Generated' },
 ]
@@ -59,23 +59,23 @@ const indexFields: Field[] = [
   { key: 'name', label: 'Index' },
   { key: 'method', label: 'Method' },
   { key: 'unique', label: 'Unique' },
-  { key: 'primary_key', label: 'Primary key' },
+  { key: 'primaryKey', label: 'Primary key' },
   { key: 'valid', label: 'Valid' },
-  { key: 'size_bytes', label: 'Size', format: bytes },
+  { key: 'sizeBytes', label: 'Size', format: bytes },
 ]
 const tableFields: Field[] = [
   { key: 'name', label: 'Table' },
   { key: 'schema', label: 'Schema' },
   { key: 'kind', label: 'Kind' },
-  { key: 'estimated_rows', label: 'Estimated rows', format: number },
-  { key: 'table_bytes', label: 'Table size', format: bytes },
-  { key: 'index_bytes', label: 'Index size', format: bytes },
+  { key: 'estimatedRows', label: 'Estimated rows', format: number },
+  { key: 'tableBytes', label: 'Table size', format: bytes },
+  { key: 'indexBytes', label: 'Index size', format: bytes },
 ]
 const keyspaceFields: Field[] = [
   { key: 'name', label: 'Keyspace' },
   { key: 'keys', label: 'Keys', format: number },
   { key: 'expires', label: 'Keys with expiry', format: number },
-  { key: 'avg_ttl_ms', label: 'Average TTL (ms)', format: number },
+  { key: 'avgTtlMs', label: 'Average TTL (ms)', format: number },
 ]
 function DataTable({
   title,
@@ -214,21 +214,21 @@ export function DatabaseInspector({ service }: { service: Service }) {
       {query.data && s && (
         <>
           <p className="text-xs text-muted">
-            Updated {new Date(query.data.observed_at).toLocaleTimeString()} · refreshes every 15
+            Updated {new Date(query.data.observedAt).toLocaleTimeString()} · refreshes every 15
             seconds
           </p>
           {query.data.engine === 'postgres' ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <Stat label="Database size" value={bytes(s.size_bytes)} hint={String(s.database)} />
+                <Stat label="Database size" value={bytes(s.sizeBytes)} hint={String(s.database)} />
                 <Stat
                   label="Connections"
                   value={number(s.connections)}
-                  hint={`${number(s.active_connections)} active · excludes this inspector`}
+                  hint={`${number(s.activeConnections)} active · excludes this inspector`}
                 />
                 <Stat
                   label="Buffer cache hits"
-                  value={typeof s.cache_hit_percent === 'number' ? s.cache_hit_percent + '%' : '—'}
+                  value={typeof s.cacheHitPercent === 'number' ? s.cacheHitPercent + '%' : '—'}
                   hint="Since the last statistics reset"
                 />
                 <Stat
@@ -247,7 +247,7 @@ export function DatabaseInspector({ service }: { service: Service }) {
               <p className="text-xs leading-relaxed text-muted">
                 Row counts are PostgreSQL estimates; “—” means no estimate yet. Sizes are per
                 relation; partitioned parents do not include their children.
-                {query.data.tables_truncated ? ' Showing the first 200 tables.' : ''}
+                {query.data.tablesTruncated ? ' Showing the first 200 tables.' : ''}
               </p>
               {table && !query.data.table && (
                 <p role="status" className="panel p-5 text-sm text-muted">
@@ -282,7 +282,7 @@ export function DatabaseInspector({ service }: { service: Service }) {
                     data={query.data.table.indexes}
                     empty="No indexes on this table."
                   />
-                  {query.data.table.indexes_truncated && (
+                  {query.data.table.indexesTruncated && (
                     <p className="text-xs text-muted">Showing the first 100 indexes.</p>
                   )}
                 </div>
@@ -293,23 +293,23 @@ export function DatabaseInspector({ service }: { service: Service }) {
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Stat
                   label="Memory used"
-                  value={bytes(s.used_memory)}
-                  hint={`Limit ${s.maxmemory === 0 ? 'unlimited' : bytes(s.maxmemory)} · peak ${bytes(s.used_memory_peak)}`}
+                  value={bytes(s.usedMemory)}
+                  hint={`Limit ${s.maxmemory === 0 ? 'unlimited' : bytes(s.maxmemory)} · peak ${bytes(s.usedMemoryPeak)}`}
                 />
                 <Stat
                   label="Connected clients"
-                  value={number(s.connected_clients)}
-                  hint={`${number(s.blocked_clients)} blocked · includes inspector`}
+                  value={number(s.connectedClients)}
+                  hint={`${number(s.blockedClients)} blocked · includes inspector`}
                 />
                 <Stat
                   label="Commands / second"
-                  value={number(s.instantaneous_ops_per_sec)}
-                  hint={`${number(s.total_commands_processed)} processed since start`}
+                  value={number(s.instantaneousOpsPerSec)}
+                  hint={`${number(s.totalCommandsProcessed)} processed since start`}
                 />
                 <Stat
                   label="Cache hit rate"
-                  value={ratio(s.keyspace_hits, s.keyspace_misses)}
-                  hint={`${number(s.keyspace_hits)} hits · ${number(s.keyspace_misses)} misses`}
+                  value={ratio(s.keyspaceHits, s.keyspaceMisses)}
+                  hint={`${number(s.keyspaceHits)} hits · ${number(s.keyspaceMisses)} misses`}
                 />
               </div>
               <DataTable
@@ -324,22 +324,22 @@ export function DatabaseInspector({ service }: { service: Service }) {
                   {[
                     [
                       'Append-only file',
-                      s.aof_enabled === 1 ? 'Enabled' : s.aof_enabled === 0 ? 'Disabled' : '—',
+                      s.aofEnabled === 1 ? 'Enabled' : s.aofEnabled === 0 ? 'Disabled' : '—',
                     ],
-                    ['Last AOF write', s.aof_last_write_status ?? '—'],
-                    ['Last AOF rewrite', s.aof_last_bgrewrite_status ?? '—'],
+                    ['Last AOF write', s.aofLastWriteStatus ?? '—'],
+                    ['Last AOF rewrite', s.aofLastBgrewriteStatus ?? '—'],
                     [
                       'AOF rewrite',
-                      s.aof_rewrite_in_progress === 1
+                      s.aofRewriteInProgress === 1
                         ? 'In progress'
-                        : s.aof_rewrite_in_progress === 0
+                        : s.aofRewriteInProgress === 0
                           ? 'Idle'
                           : '—',
                     ],
-                    ['Last snapshot', s.rdb_last_bgsave_status ?? '—'],
-                    ['Process memory (RSS)', bytes(s.used_memory_rss)],
-                    ['Evicted keys', number(s.evicted_keys)],
-                    ['Expired keys', number(s.expired_keys)],
+                    ['Last snapshot', s.rdbLastBgsaveStatus ?? '—'],
+                    ['Process memory (RSS)', bytes(s.usedMemoryRss)],
+                    ['Evicted keys', number(s.evictedKeys)],
+                    ['Expired keys', number(s.expiredKeys)],
                   ].map(([label, value]) => (
                     <div key={String(label)}>
                       <dt className="text-xs text-muted">{label}</dt>

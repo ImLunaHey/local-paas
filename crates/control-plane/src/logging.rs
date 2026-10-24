@@ -51,6 +51,7 @@ pub fn parse(line: &str) -> (String, String, Option<Value>) {
     (level, message, fields)
 }
 #[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LogQuery {
     pub after: Option<i64>,
     pub before: Option<i64>,
@@ -194,7 +195,7 @@ pub(crate) async fn logs(
     let descending = q.after.is_none();
     let direction = if descending { "DESC" } else { "ASC" };
     let sql = format!(
-        "SELECT jsonb_build_object('sequence',l.sequence,'instance_id',i.id,'node',n.name,'revision_id',d.revision_id,'timestamp',l.timestamp,'stream',l.stream,'line',l.line,'level',l.level,'message',coalesce(l.message,l.line),'fields',l.fields) FROM runtime_logs l JOIN instances i ON i.id=l.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND ($2::bigint IS NULL OR l.sequence>$2) AND ($3::bigint IS NULL OR l.sequence<$3) AND ($4::uuid IS NULL OR i.id=$4) AND ($5::text IS NULL OR strpos(lower(l.line),lower($5))>0) AND ($6::text IS NULL OR l.level=$6) AND ($7::text IS NULL OR l.stream=$7) AND ($8::text IS NULL OR l.fields #>> string_to_array($8,'.')=$9) AND ($10::timestamptz IS NULL OR l.timestamp>=$10) AND ($11::timestamptz IS NULL OR l.timestamp<=$11) ORDER BY l.sequence {direction} LIMIT 256"
+        "SELECT jsonb_build_object('sequence',l.sequence,'instanceId',i.id,'node',n.name,'revisionId',d.revision_id,'timestamp',l.timestamp,'stream',l.stream,'line',l.line,'level',l.level,'message',coalesce(l.message,l.line),'fields',l.fields) FROM runtime_logs l JOIN instances i ON i.id=l.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND ($2::bigint IS NULL OR l.sequence>$2) AND ($3::bigint IS NULL OR l.sequence<$3) AND ($4::uuid IS NULL OR i.id=$4) AND ($5::text IS NULL OR strpos(lower(l.line),lower($5))>0) AND ($6::text IS NULL OR l.level=$6) AND ($7::text IS NULL OR l.stream=$7) AND ($8::text IS NULL OR l.fields #>> string_to_array($8,'.')=$9) AND ($10::timestamptz IS NULL OR l.timestamp>=$10) AND ($11::timestamptz IS NULL OR l.timestamp<=$11) ORDER BY l.sequence {direction} LIMIT 256"
     );
     let recent: Vec<DbJson<Value>> = sqlx::query_scalar(&sql)
         .bind(id)
@@ -260,7 +261,7 @@ pub(crate) async fn logs(
             predicates.push("JSON_VALUE(fields,{field:String})={value:String}".into());
         }
         let query = format!(
-            "SELECT sequence,instance_id,node,revision_id,formatDateTime(timestamp,'%Y-%m-%dT%H:%i:%S.%fZ','UTC') AS timestamp,stream,line,level,message,fields FROM default.platform_logs FINAL WHERE {} ORDER BY sequence {direction} LIMIT 256 FORMAT JSONEachRow",
+            "SELECT sequence,instance_id AS instanceId,node,revision_id AS revisionId,formatDateTime(timestamp,'%Y-%m-%dT%H:%i:%S.%fZ','UTC') AS timestamp,stream,line,level,message,fields FROM default.platform_logs FINAL WHERE {} ORDER BY sequence {direction} LIMIT 256 FORMAT JSONEachRow",
             predicates.join(" AND ")
         );
         match ch(&query, &params, None).await {
@@ -296,10 +297,10 @@ pub(crate) async fn logs(
         .or(q.after)
         .unwrap_or(0);
     let oldest = entries.first().and_then(|v| v["sequence"].as_i64());
-    let markers:Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'timestamp',timestamp,'message',message,'instance_id',instance_id) FROM (SELECT d.id::text AS id,d.created_at AS timestamp,'Deployment started · '||left(d.id::text,8) AS message,NULL::uuid AS instance_id FROM deployments d WHERE d.service_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM instances i WHERE i.deployment_id=d.id AND i.id=$2)) UNION ALL SELECT s.instance_id::text||':'||s.started_at::text,s.started_at,(CASE WHEN s.started_at=(SELECT min(s2.started_at) FROM instance_starts s2 WHERE s2.instance_id=s.instance_id) THEN 'Instance started · ' ELSE 'Instance restarted · ' END)||n.name||' / '||left(i.id::text,8),i.id FROM instance_starts s JOIN instances i ON i.id=s.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND ($2::uuid IS NULL OR i.id=$2)) timeline WHERE ($3::timestamptz IS NULL OR timestamp>=$3) AND ($4::timestamptz IS NULL OR timestamp<=$4) ORDER BY timestamp DESC LIMIT 500")
+    let markers:Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'timestamp',timestamp,'message',message,'instanceId',instance_id) FROM (SELECT d.id::text AS id,d.created_at AS timestamp,'Deployment started · '||left(d.id::text,8) AS message,NULL::uuid AS instance_id FROM deployments d WHERE d.service_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM instances i WHERE i.deployment_id=d.id AND i.id=$2)) UNION ALL SELECT s.instance_id::text||':'||s.started_at::text,s.started_at,(CASE WHEN s.started_at=(SELECT min(s2.started_at) FROM instance_starts s2 WHERE s2.instance_id=s.instance_id) THEN 'Instance started · ' ELSE 'Instance restarted · ' END)||n.name||' / '||left(i.id::text,8),i.id FROM instance_starts s JOIN instances i ON i.id=s.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND ($2::uuid IS NULL OR i.id=$2)) timeline WHERE ($3::timestamptz IS NULL OR timestamp>=$3) AND ($4::timestamptz IS NULL OR timestamp<=$4) ORDER BY timestamp DESC LIMIT 500")
         .bind(id).bind(q.instance_id).bind(q.from).bind(q.until).fetch_all(&pool).await?;
     Ok(Json(
-        json!({"markers":markers,"entries":entries,"next_cursor":next,"oldest_cursor":oldest,"has_more":entries.len()==256,"archive_warning":archive_error}),
+        json!({"markers":markers,"entries":entries,"nextCursor":next,"oldestCursor":oldest,"hasMore":entries.len()==256,"archiveWarning":archive_error}),
     ))
 }
 pub(crate) async fn status(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
@@ -312,7 +313,7 @@ pub(crate) async fn status(State(pool): State<PgPool>) -> Result<Json<Value>, Ap
         && let Ok(body)=ch("SELECT sum(bytes_on_disk) AS bytes FROM system.parts WHERE active AND database='default' AND table='platform_logs' FORMAT JSONEachRow",&[],None).await {available=true;bytes=serde_json::from_str::<Value>(body.trim()).ok().map(|v|v["bytes"].clone());
     }
     Ok(Json(
-        json!({"configured":std::env::var_os("CLICKHOUSE_URL").is_some(),"available":available,"pending_entries":pending,"bytes_on_disk":bytes,"retention":"No automatic expiry"}),
+        json!({"configured":std::env::var_os("CLICKHOUSE_URL").is_some(),"available":available,"pendingEntries":pending,"bytesOnDisk":bytes,"retention":"No automatic expiry"}),
     ))
 }
 #[cfg(test)]

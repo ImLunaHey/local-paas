@@ -2,12 +2,12 @@
   "openapi": "3.1.0",
   "info": {
     "title": "local-paas management API",
-    "description": "Private operator API. Existing v1 field names are retained for compatibility with persisted service specifications and agents.",
+    "description": "Private operator API with camelCase fields. Controller, dashboard and protocol v2 agents must be upgraded together.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/api/health": {
@@ -359,14 +359,14 @@
       "CreateService": {
         "type": "object",
         "required": [
-          "operation_id",
+          "operationId",
           "spec"
         ],
         "properties": {
-          "build_on_create": {
+          "buildOnCreate": {
             "type": "boolean"
           },
-          "operation_id": {
+          "operationId": {
             "type": "string",
             "format": "uuid"
           },
@@ -382,7 +382,7 @@
           "id",
           "name",
           "project",
-          "service_count"
+          "serviceCount"
         ],
         "properties": {
           "id": {
@@ -392,14 +392,14 @@
           "name": {
             "type": "string"
           },
-          "parent_id": {
+          "parentId": {
             "type": [
               "string",
               "null"
             ],
             "format": "uuid"
           },
-          "parent_name": {
+          "parentName": {
             "type": [
               "string",
               "null"
@@ -408,7 +408,7 @@
           "project": {
             "type": "string"
           },
-          "service_count": {
+          "serviceCount": {
             "type": "integer",
             "format": "int64"
           }
@@ -482,7 +482,7 @@
         "type": "object",
         "required": [
           "command",
-          "timeout_seconds"
+          "timeoutSeconds"
         ],
         "properties": {
           "command": {
@@ -491,7 +491,7 @@
               "type": "string"
             }
           },
-          "timeout_seconds": {
+          "timeoutSeconds": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -502,14 +502,14 @@
       "PrivateConnection": {
         "type": "object",
         "required": [
-          "service_id",
+          "serviceId",
           "env"
         ],
         "properties": {
           "env": {
             "type": "string"
           },
-          "service_id": {
+          "serviceId": {
             "type": "string",
             "format": "uuid"
           }
@@ -611,10 +611,10 @@
         "type": "object",
         "required": [
           "name",
-          "expected_name"
+          "expectedName"
         ],
         "properties": {
-          "expected_name": {
+          "expectedName": {
             "type": "string"
           },
           "name": {
@@ -627,11 +627,11 @@
         "type": "object",
         "required": [
           "path",
-          "interval_seconds",
-          "stabilization_seconds"
+          "intervalSeconds",
+          "stabilizationSeconds"
         ],
         "properties": {
-          "interval_seconds": {
+          "intervalSeconds": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -639,7 +639,7 @@
           "path": {
             "type": "string"
           },
-          "stabilization_seconds": {
+          "stabilizationSeconds": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -650,16 +650,16 @@
       "Resources": {
         "type": "object",
         "required": [
-          "cpu_millis",
-          "memory_mib"
+          "cpuMillis",
+          "memoryMib"
         ],
         "properties": {
-          "cpu_millis": {
+          "cpuMillis": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           },
-          "memory_mib": {
+          "memoryMib": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -671,13 +671,13 @@
         "type": "object",
         "required": [
           "id",
-          "operation_id",
+          "operationId",
           "version",
           "spec",
-          "created_at"
+          "createdAt"
         ],
         "properties": {
-          "created_at": {
+          "createdAt": {
             "type": "string",
             "format": "date-time"
           },
@@ -685,7 +685,7 @@
             "type": "string",
             "format": "uuid"
           },
-          "operation_id": {
+          "operationId": {
             "type": "string",
             "format": "uuid"
           },
@@ -720,18 +720,18 @@
       "ServiceSpec": {
         "type": "object",
         "required": [
-          "schema_version",
+          "schemaVersion",
           "project",
           "environment",
           "name",
           "resources",
-          "distinct_nodes",
+          "distinctNodes",
           "domains",
           "secrets",
           "workload"
         ],
         "properties": {
-          "distinct_nodes": {
+          "distinctNodes": {
             "type": "boolean"
           },
           "domains": {
@@ -752,7 +752,7 @@
           "resources": {
             "$ref": "#/components/schemas/Resources"
           },
-          "schema_version": {
+          "schemaVersion": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -801,18 +801,18 @@
         "type": "object",
         "required": [
           "id",
-          "mount_path",
-          "read_only"
+          "mountPath",
+          "readOnly"
         ],
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid"
           },
-          "mount_path": {
+          "mountPath": {
             "type": "string"
           },
-          "read_only": {
+          "readOnly": {
             "type": "boolean"
           }
         },
@@ -823,7 +823,7 @@
           {
             "type": "object",
             "required": [
-              "storage_gib",
+              "storageGib",
               "kind"
             ],
             "properties": {
@@ -833,7 +833,7 @@
                   "rustfs-service"
                 ]
               },
-              "storage_gib": {
+              "storageGib": {
                 "type": "integer",
                 "format": "int32",
                 "minimum": 0
@@ -843,7 +843,7 @@
           {
             "type": "object",
             "required": [
-              "storage_gib",
+              "storageGib",
               "kind"
             ],
             "properties": {
@@ -853,7 +853,7 @@
                   "redis-service"
                 ]
               },
-              "storage_gib": {
+              "storageGib": {
                 "type": "integer",
                 "format": "int32",
                 "minimum": 0
@@ -864,7 +864,7 @@
             "type": "object",
             "required": [
               "database",
-              "storage_gib",
+              "storageGib",
               "kind"
             ],
             "properties": {
@@ -877,7 +877,7 @@
                   "postgres-service"
                 ]
               },
-              "storage_gib": {
+              "storageGib": {
                 "type": "integer",
                 "format": "int32",
                 "minimum": 0
@@ -893,7 +893,7 @@
               "kind"
             ],
             "properties": {
-              "build_args": {
+              "buildArgs": {
                 "type": "object",
                 "additionalProperties": {
                   "type": "string"
@@ -902,16 +902,16 @@
                   "type": "string"
                 }
               },
-              "build_command": {
+              "buildCommand": {
                 "type": [
                   "string",
                   "null"
                 ]
               },
-              "build_mode": {
+              "buildMode": {
                 "$ref": "#/components/schemas/BuildMode"
               },
-              "build_target": {
+              "buildTarget": {
                 "type": [
                   "string",
                   "null"
@@ -940,7 +940,7 @@
                 "format": "int32",
                 "minimum": 0
               },
-              "pre_deploy": {
+              "preDeploy": {
                 "oneOf": [
                   {
                     "type": "null"
@@ -950,7 +950,7 @@
                   }
                 ]
               },
-              "private_connections": {
+              "privateConnections": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/PrivateConnection"
@@ -971,7 +971,7 @@
                 "format": "int32",
                 "minimum": 0
               },
-              "start_command": {
+              "startCommand": {
                 "type": [
                   "string",
                   "null"
@@ -984,11 +984,11 @@
             "required": [
               "wrangler",
               "members",
-              "bucket_ref",
+              "bucketRef",
               "kind"
             ],
             "properties": {
-              "bucket_ref": {
+              "bucketRef": {
                 "type": "string"
               },
               "kind": {

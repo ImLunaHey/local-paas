@@ -7,7 +7,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Sample {
     timestamp: chrono::DateTime<chrono::Utc>,
     cpu_percent: Option<f64>,
@@ -59,7 +60,7 @@ async fn history(
     pool: &PgPool,
     host: &str,
     range: Range,
-) -> Result<Vec<Json<serde_json::Value>>, sqlx::Error> {
+) -> Result<Vec<Json<Sample>>, sqlx::Error> {
     // Keep the most recent actual observation in each bucket, not a fabricated average.
     sqlx::query_scalar("SELECT sample FROM (SELECT DISTINCT ON (floor(extract(epoch FROM timestamp)/$3)) timestamp,sample FROM host_metric_samples WHERE host_id=$1 AND timestamp>=now()-make_interval(secs => $2) AND timestamp<=now() ORDER BY floor(extract(epoch FROM timestamp)/$3),timestamp DESC) s ORDER BY timestamp")
         .bind(host).bind(f64::from(range.seconds())).bind(f64::from((range.seconds()/360).max(5)))
@@ -68,7 +69,7 @@ async fn history(
 pub async fn snapshot(pool: &PgPool, range: Range) -> Result<serde_json::Value, sqlx::Error> {
     let samples = history(pool, &host_id(), range).await?;
     Ok(
-        serde_json::json!({"name":fs::read_to_string("/proc/sys/kernel/hostname").ok().map(|s|s.trim().to_owned()),"scope":"controller-host","samples":samples,"retention_days":30,"bucket_seconds":(range.seconds()/360).max(5)}),
+        serde_json::json!({"name":fs::read_to_string("/proc/sys/kernel/hostname").ok().map(|s|s.trim().to_owned()),"scope":"controller-host","samples":samples,"retentionDays":30,"bucketSeconds":(range.seconds()/360).max(5)}),
     )
 }
 async fn persist(pool: &PgPool, host: &str, sample: &Sample) -> Result<(), sqlx::Error> {
@@ -268,7 +269,7 @@ mod tests {
         expire(&reopened).await.unwrap();
         let rows = history(&reopened, "host-a", Range::Day).await.unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0]["timestamp"], serde_json::json!(retained));
+        assert_eq!(rows[0].timestamp, retained);
         assert_eq!(
             history(&reopened, "host-a", Range::QuarterHour)
                 .await
@@ -294,14 +295,8 @@ mod tests {
         }
         let rows = history(&pool, "host-a", Range::Day).await.unwrap();
         assert!(rows.len() < 361);
-        assert_eq!(
-            rows.last().unwrap()["timestamp"],
-            serde_json::json!(sample.timestamp)
-        );
-        assert!(
-            rows.windows(2)
-                .all(|s| s[0]["timestamp"].as_str() < s[1]["timestamp"].as_str())
-        );
+        assert_eq!(rows.last().unwrap().timestamp, sample.timestamp);
+        assert!(rows.windows(2).all(|s| s[0].timestamp < s[1].timestamp));
     }
     #[test]
     fn cpu_excludes_guest_double_counting_and_handles_invalid_input() {

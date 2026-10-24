@@ -12,32 +12,32 @@ type Node = {
   online: boolean
   cordoned: boolean
   draining: boolean
-  last_seen: string | null
-  cpu_millis: number
-  memory_mib: number
+  lastSeen: string | null
+  cpuMillis: number
+  memoryMib: number
   slots: number
-  reserved_disk_gib: number
+  reservedDiskGib: number
 }
 type Instance = {
   id: string
-  node_id: string
-  service_id: string
+  nodeId: string
+  serviceId: string
   name: string
   project: string
   environment: string
   state: string
-  desired_state: string
-  observed_at: string | null
+  desiredState: string
+  observedAt: string | null
   diagnostic: string | null
-  cpu_millis: number | null
-  memory_bytes: number | null
-  requested_cpu_millis: number
-  requested_memory_mib: number
-  relocation_enabled: boolean
-  can_enable: boolean
-  blocked_reason: string | null
-  relocation_state: string | null
-  relocation_diagnostic: string | null
+  cpuMillis: number | null
+  memoryBytes: number | null
+  requestedCpuMillis: number
+  requestedMemoryMib: number
+  relocationEnabled: boolean
+  canEnable: boolean
+  blockedReason: string | null
+  relocationState: string | null
+  relocationDiagnostic: string | null
 }
 const labels: Record<string, string> = {
   preparing: 'Starting replacement',
@@ -87,7 +87,7 @@ export function Nodes() {
       api(`/nodes/${id}/actions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operation_id: crypto.randomUUID(), action }),
+        body: JSON.stringify({ operationId: crypto.randomUUID(), action }),
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['nodes'] }),
   })
@@ -96,7 +96,7 @@ export function Nodes() {
       api(`/services/${id}/relocation`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operation_id: crypto.randomUUID(), enabled }),
+        body: JSON.stringify({ operationId: crypto.randomUUID(), enabled }),
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['nodes'] }),
   })
@@ -147,12 +147,12 @@ export function Nodes() {
               n.name.includes(filter.toLowerCase()) ||
               query.data.instances.some(
                 (i) =>
-                  i.node_id === n.id &&
+                  i.nodeId === n.id &&
                   `${i.name} ${i.project}`.toLowerCase().includes(filter.toLowerCase()),
               ),
           )
           .map((node) => {
-            const instances = query.data.instances.filter((i) => i.node_id === node.id)
+            const instances = query.data.instances.filter((i) => i.nodeId === node.id)
             const status = !node.online
               ? 'Offline'
               : node.draining
@@ -174,8 +174,8 @@ export function Nodes() {
                     <div>
                       <h2 className="text-sm font-medium">{node.name}</h2>
                       <p className="mt-1 text-[11px] text-zinc-400">
-                        {node.last_seen
-                          ? `Last heartbeat ${new Date(node.last_seen).toLocaleTimeString()}`
+                        {node.lastSeen
+                          ? `Last heartbeat ${new Date(node.lastSeen).toLocaleTimeString()}`
                           : 'Awaiting first heartbeat'}
                       </p>
                     </div>
@@ -216,7 +216,7 @@ export function Nodes() {
                         Drain node
                       </Button>
                     )}
-                    {instances.some((i) => i.relocation_state === 'failed') && (
+                    {instances.some((i) => i.relocationState === 'failed') && (
                       <Button
                         disabled={busy}
                         onClick={() => action.mutate({ id: node.id, action: 'retry' })}
@@ -229,14 +229,14 @@ export function Nodes() {
                 <div className="grid gap-5 p-5 sm:grid-cols-3">
                   <Capacity
                     label="CPU reserved"
-                    used={instances.reduce((a, i) => a + i.requested_cpu_millis, 0)}
-                    total={node.cpu_millis}
+                    used={instances.reduce((a, i) => a + i.requestedCpuMillis, 0)}
+                    total={node.cpuMillis}
                     unit="m"
                   />
                   <Capacity
                     label="Memory reserved"
-                    used={instances.reduce((a, i) => a + i.requested_memory_mib, 0)}
-                    total={node.memory_mib}
+                    used={instances.reduce((a, i) => a + i.requestedMemoryMib, 0)}
+                    total={node.memoryMib}
                     unit="MiB"
                   />
                   <Capacity
@@ -247,7 +247,7 @@ export function Nodes() {
                   />
                 </div>
                 <p className="px-5 pb-4 text-[11px] text-zinc-400">
-                  Configured allocatable resources · {node.reserved_disk_gib} GiB persistent storage
+                  Configured allocatable resources · {node.reservedDiskGib} GiB persistent storage
                   reserved. Slots stay reserved until cleanup is confirmed.
                 </p>
                 {instances.length === 0 ? (
@@ -270,14 +270,14 @@ export function Nodes() {
                         {instances.map((i) => {
                           const fresh =
                             node.online &&
-                            i.observed_at !== null &&
-                            Date.now() - Date.parse(i.observed_at) < 15000
+                            i.observedAt !== null &&
+                            Date.now() - Date.parse(i.observedAt) < 15000
                           return (
                             <tr key={i.id} className="border-b border-zinc-800/70 last:border-0">
                               <td className="px-5 py-4">
                                 <Link
                                   to="/services/$serviceId"
-                                  params={{ serviceId: i.service_id }}
+                                  params={{ serviceId: i.serviceId }}
                                   className="text-zinc-200 hover:text-orange-300"
                                 >
                                   {i.name}
@@ -294,7 +294,7 @@ export function Nodes() {
                                       : 'text-zinc-400',
                                   )}
                                 >
-                                  {i.desired_state === 'stopped'
+                                  {i.desiredState === 'stopped'
                                     ? 'Awaiting cleanup'
                                     : fresh
                                       ? i.state
@@ -308,20 +308,20 @@ export function Nodes() {
                               </td>
                               <td className="px-4 py-4 tabular-nums text-zinc-400">
                                 {fresh
-                                  ? `${i.cpu_millis?.toFixed(0) ?? '—'} m / ${i.memory_bytes === null ? '—' : (i.memory_bytes / 1048576).toFixed(0)} MiB`
+                                  ? `${i.cpuMillis?.toFixed(0) ?? '—'} m / ${i.memoryBytes === null ? '—' : (i.memoryBytes / 1048576).toFixed(0)} MiB`
                                   : '—'}
                               </td>
                               <td className="max-w-80 px-5 py-4">
-                                {i.can_enable && (
+                                {i.canEnable && (
                                   <label className="mb-2 flex items-center gap-2 text-zinc-300">
                                     <Input
                                       type="checkbox"
-                                      checked={i.relocation_enabled}
+                                      checked={i.relocationEnabled}
                                       disabled={busy}
                                       aria-label={`Allow relocation for ${i.name}`}
                                       onChange={(e) =>
                                         policy.mutate({
-                                          id: i.service_id,
+                                          id: i.serviceId,
                                           enabled: e.target.checked,
                                         })
                                       }
@@ -330,14 +330,14 @@ export function Nodes() {
                                   </label>
                                 )}
                                 <p className="max-w-72 text-[11px] leading-5 text-zinc-400">
-                                  {i.relocation_state
-                                    ? labels[i.relocation_state]
-                                    : (i.blocked_reason ??
+                                  {i.relocationState
+                                    ? labels[i.relocationState]
+                                    : (i.blockedReason ??
                                       (node.draining
                                         ? 'Waiting for healthy capacity on another node.'
                                         : 'Moves after node loss or an explicit drain.'))}
-                                  {i.relocation_diagnostic &&
-                                    ` · ${i.relocation_diagnostic.replaceAll('_', ' ')}`}
+                                  {i.relocationDiagnostic &&
+                                    ` · ${i.relocationDiagnostic.replaceAll('_', ' ')}`}
                                 </p>
                               </td>
                             </tr>

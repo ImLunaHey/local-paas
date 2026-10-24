@@ -9,6 +9,7 @@ use sqlx::{PgPool, Postgres, Transaction, types::Json as DbJson};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Scope {
     project: String,
     environment: String,
@@ -17,11 +18,12 @@ pub async fn list(
     State(pool): State<PgPool>,
     Query(scope): Query<Scope>,
 ) -> Result<Json<Value>, ApiError> {
-    let items: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',v.id,'name',v.name,'size_gib',v.size_gib,'node',n.name,'services',coalesce((SELECT jsonb_agg(jsonb_build_object('id',s.id,'name',s.name,'mount_path',s.spec->'volume'->>'mount_path','read_only',s.spec->'volume'->'read_only')) FROM services s WHERE s.spec->'volume'->>'id'=v.id::text),'[]'::jsonb)) FROM shared_volumes v JOIN environments e ON e.id=v.environment_id JOIN projects p ON p.id=e.project_id LEFT JOIN nodes n ON n.id=v.node_id WHERE p.name=$1 AND e.name=$2 ORDER BY v.name").bind(scope.project).bind(scope.environment).fetch_all(&pool).await?;
+    let items: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',v.id,'name',v.name,'sizeGib',v.size_gib,'node',n.name,'services',coalesce((SELECT jsonb_agg(jsonb_build_object('id',s.id,'name',s.name,'mountPath',s.spec->'volume'->>'mountPath','readOnly',s.spec->'volume'->'readOnly')) FROM services s WHERE s.spec->'volume'->>'id'=v.id::text),'[]'::jsonb)) FROM shared_volumes v JOIN environments e ON e.id=v.environment_id JOIN projects p ON p.id=e.project_id LEFT JOIN nodes n ON n.id=v.node_id WHERE p.name=$1 AND e.name=$2 ORDER BY v.name").bind(scope.project).bind(scope.environment).fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Create {
     operation_id: Uuid,
     project: String,

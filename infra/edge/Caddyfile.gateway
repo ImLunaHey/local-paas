@@ -5,7 +5,7 @@
 }
 
 https://:18444 {
-	bind {$PLATFORM_LAKE_NETBIRD_ADDRESS}
+	bind {$PLATFORM_GATEWAY_NETBIRD_ADDRESS}
 	tls {$PLATFORM_GATEWAY_CERT_FILE} {$PLATFORM_GATEWAY_KEY_FILE} {
 		client_auth {
 			mode require_and_verify

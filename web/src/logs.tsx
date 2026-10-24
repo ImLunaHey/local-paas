@@ -9,9 +9,9 @@ import { useRuntime } from './runtime'
 
 interface Log {
   sequence: number
-  instance_id: string
+  instanceId: string
   node: string
-  revision_id: string
+  revisionId: string
   timestamp: string
   stream: string
   line: string
@@ -23,21 +23,21 @@ interface Marker {
   id: string
   timestamp: string
   message: string
-  instance_id: string | null
+  instanceId: string | null
 }
 interface Page {
   markers?: Marker[]
   entries: Log[]
-  next_cursor: number
-  oldest_cursor: number | null
-  has_more: boolean
-  archive_warning: string | null
+  nextCursor: number
+  oldestCursor: number | null
+  hasMore: boolean
+  archiveWarning: string | null
 }
 interface Filters {
   search: string
   level: string
   stream: string
-  instance_id: string
+  instanceId: string
   field: string
   value: string
   from: string
@@ -47,7 +47,7 @@ const empty: Filters = {
   search: '',
   level: '',
   stream: '',
-  instance_id: '',
+  instanceId: '',
   field: '',
   value: '',
   from: '',
@@ -65,16 +65,16 @@ export function LogViewer({ service }: { service: Service }) {
 }
 function LogWorkspace({ service, instance }: { service: Service; instance: string }) {
   const runtime = useRuntime(service.id)
-  const [draft, setDraft] = useState({ ...empty, instance_id: instance })
-  const [filters, setFilters] = useState({ ...empty, instance_id: instance })
+  const [draft, setDraft] = useState({ ...empty, instanceId: instance })
+  const [filters, setFilters] = useState({ ...empty, instanceId: instance })
   const storage = useQuery({
     queryKey: ['log-storage'],
     queryFn: () =>
       api<{
         available: boolean
         configured: boolean
-        pending_entries: number
-        bytes_on_disk: number | null
+        pendingEntries: number
+        bytesOnDisk: number | null
         retention: string
       }>('/log-storage'),
     refetchInterval: 15000,
@@ -94,7 +94,7 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
   const set = (key: keyof Filters, value: string) => {
     const next = { ...draft, [key]: value }
     setDraft(next)
-    if (['level', 'stream', 'instance_id'].includes(key)) setFilters({ ...filters, [key]: value })
+    if (['level', 'stream', 'instanceId'].includes(key)) setFilters({ ...filters, [key]: value })
   }
   return (
     <section className="panel p-5 space-y-4" aria-label="Runtime logs">
@@ -161,16 +161,15 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
             </Button>
           </div>{' '}
         </div>
-        {filters.instance_id && (
+        {filters.instanceId && (
           <div className="text-xs text-muted">
-            Showing instance <code>{filters.instance_id}</code>
+            Showing instance <code>{filters.instanceId}</code>
           </div>
         )}
         <details className="log-advanced">
           <summary>
             More filters
-            {[filters.instance_id, filters.field, filters.from, filters.until].filter(Boolean)
-              .length
+            {[filters.instanceId, filters.field, filters.from, filters.until].filter(Boolean).length
               ? ' · active'
               : ''}
           </summary>
@@ -178,19 +177,19 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
             <Field label="Instance" className="sm:col-span-2">
               <Select
                 aria-label="Log instance"
-                value={draft.instance_id}
-                onChange={(e) => set('instance_id', e.target.value)}
+                value={draft.instanceId}
+                onChange={(e) => set('instanceId', e.target.value)}
               >
                 <option value="">All instances</option>
-                {draft.instance_id &&
-                  !runtime.data?.instances.some((i) => i.id === draft.instance_id) && (
-                    <option value={draft.instance_id}>
-                      Archived · {draft.instance_id.slice(0, 8)}
+                {draft.instanceId &&
+                  !runtime.data?.instances.some((i) => i.id === draft.instanceId) && (
+                    <option value={draft.instanceId}>
+                      Archived · {draft.instanceId.slice(0, 8)}
                     </option>
                   )}
                 {runtime.data?.instances.map((i) => (
                   <option key={i.id} value={i.id}>
-                    {i.node_name} · {i.id.slice(0, 8)} · {i.state}
+                    {i.nodeName} · {i.id.slice(0, 8)} · {i.state}
                   </option>
                 ))}
               </Select>
@@ -243,11 +242,11 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
       <div className="flex flex-wrap gap-3 text-xs text-muted">
         <span>
           {storage.data?.retention ?? 'No automatic expiry'} ·{' '}
-          {storage.data?.bytes_on_disk == null
+          {storage.data?.bytesOnDisk == null
             ? 'Storage usage unavailable'
-            : (storage.data.bytes_on_disk / 1048576).toFixed(2) + ' MiB on disk'}
+            : (storage.data.bytesOnDisk / 1048576).toFixed(2) + ' MiB on disk'}
         </span>
-        <span>{storage.data?.pending_entries ?? '—'} entries awaiting archival</span>
+        <span>{storage.data?.pendingEntries ?? '—'} entries awaiting archival</span>
       </div>
 
       {!runtime.data?.instances.length && (
@@ -302,23 +301,23 @@ function LogFeed({
         ).values(),
       ],
       entries,
-      next_cursor: Math.max(old.next_cursor, incoming.next_cursor),
-      oldest_cursor: entries[0]?.sequence ?? null,
-      has_more: older ? incoming.has_more : old.has_more,
+      nextCursor: Math.max(old.nextCursor, incoming.nextCursor),
+      oldestCursor: entries[0]?.sequence ?? null,
+      hasMore: older ? incoming.hasMore : old.hasMore,
     }
   }
   const logs = useQuery({
     queryKey: key,
     queryFn: async () => {
       const old = client.getQueryData<Page>(key)
-      const incoming = await query(old ? { after: old.next_cursor } : undefined)
+      const incoming = await query(old ? { after: old.nextCursor } : undefined)
       return old ? merge(old, incoming) : incoming
     },
     refetchInterval: paused ? false : 3000,
     refetchOnWindowFocus: !paused,
   })
   const older = useMutation({
-    mutationFn: () => query({ before: logs.data?.oldest_cursor ?? 0 }),
+    mutationFn: () => query({ before: logs.data?.oldestCursor ?? 0 }),
     onSuccess: (page) => {
       client.setQueryData<Page>(key, (old) => (old ? merge(old, page, true) : page))
     },
@@ -326,7 +325,7 @@ function LogFeed({
   useEffect(() => {
     if (output.current && follow.current && !paused)
       output.current.scrollTop = output.current.scrollHeight
-  }, [logs.data?.next_cursor, paused])
+  }, [logs.data?.nextCursor, paused])
   const structure = useMemo(() => {
     const fields = new Set<string>()
     let message = false
@@ -363,7 +362,7 @@ function LogFeed({
         <div className="flex gap-2">
           <Button
             disabled={
-              !logs.data?.has_more || older.isPending || (logs.data?.entries.length ?? 0) >= 5000
+              !logs.data?.hasMore || older.isPending || (logs.data?.entries.length ?? 0) >= 5000
             }
             onClick={() => {
               setPaused(true)
@@ -384,9 +383,9 @@ function LogFeed({
           {(logs.error || older.error)?.message}
         </p>
       )}
-      {logs.data?.archive_warning && (
+      {logs.data?.archiveWarning && (
         <p className="error-notice" role="status">
-          {logs.data.archive_warning}
+          {logs.data.archiveWarning}
         </p>
       )}
       {(logs.data?.entries.length ?? 0) >= 5000 && (
@@ -481,8 +480,8 @@ function LogFeed({
                       </td>
                       <td className="log-level">{l.level === 'unclassified' ? '—' : l.level}</td>
                       <td className="log-stream">{l.stream}</td>
-                      <td className="log-instance" title={l.node + ' / ' + l.instance_id}>
-                        {l.instance_id.slice(0, 8)}
+                      <td className="log-instance" title={l.node + ' / ' + l.instanceId}>
+                        {l.instanceId.slice(0, 8)}
                       </td>
                       {structure.columns.map((field) => {
                         const value =
@@ -518,7 +517,7 @@ function LogFeed({
                             aria-label={'Log ' + l.sequence + ' details'}
                           >
                             <div className="text-muted mb-3">
-                              {new Date(l.timestamp).toLocaleString()} · {l.node} · {l.instance_id}
+                              {new Date(l.timestamp).toLocaleString()} · {l.node} · {l.instanceId}
                             </div>
                             <pre>{logMessage(l)}</pre>
                             {l.fields && (

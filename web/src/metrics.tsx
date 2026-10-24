@@ -11,22 +11,22 @@ import { api, type Service } from './api'
 import { useRuntime, type Instance } from './runtime'
 
 type Field =
-  | 'cpu_millis'
-  | 'memory_bytes'
+  | 'cpuMillis'
+  | 'memoryBytes'
   | 'pids'
-  | 'io_read_bytes_per_second'
-  | 'io_write_bytes_per_second'
-  | 'network_rx_bytes_per_second'
-  | 'network_tx_bytes_per_second'
-type Sample = Pick<Instance, Field> & { instance_id: string; node: string; timestamp: string }
+  | 'ioReadBytesPerSecond'
+  | 'ioWriteBytesPerSecond'
+  | 'networkRxBytesPerSecond'
+  | 'networkTxBytesPerSecond'
+type Sample = Pick<Instance, Field> & { instanceId: string; node: string; timestamp: string }
 const series: { field: Field; label: string; unit: string; scale: number }[] = [
-  { field: 'cpu_millis', label: 'CPU usage', unit: 'millicores', scale: 1 },
-  { field: 'memory_bytes', label: 'Memory usage', unit: 'MiB', scale: 1048576 },
+  { field: 'cpuMillis', label: 'CPU usage', unit: 'millicores', scale: 1 },
+  { field: 'memoryBytes', label: 'Memory usage', unit: 'MiB', scale: 1048576 },
   { field: 'pids', label: 'Processes', unit: 'PIDs', scale: 1 },
-  { field: 'io_read_bytes_per_second', label: 'Disk read', unit: 'KiB/s', scale: 1024 },
-  { field: 'io_write_bytes_per_second', label: 'Disk write', unit: 'KiB/s', scale: 1024 },
-  { field: 'network_rx_bytes_per_second', label: 'Network received', unit: 'KiB/s', scale: 1024 },
-  { field: 'network_tx_bytes_per_second', label: 'Network sent', unit: 'KiB/s', scale: 1024 },
+  { field: 'ioReadBytesPerSecond', label: 'Disk read', unit: 'KiB/s', scale: 1024 },
+  { field: 'ioWriteBytesPerSecond', label: 'Disk write', unit: 'KiB/s', scale: 1024 },
+  { field: 'networkRxBytesPerSecond', label: 'Network received', unit: 'KiB/s', scale: 1024 },
+  { field: 'networkTxBytesPerSecond', label: 'Network sent', unit: 'KiB/s', scale: 1024 },
 ]
 export function MetricsViewer({ service }: { service: Service }) {
   const runtime = useRuntime(service.id)
@@ -40,16 +40,16 @@ export function MetricsViewer({ service }: { service: Service }) {
   const fresh = instances.filter(
     (i) =>
       (!selected || i.id === selected) &&
-      i.desired_state === 'running' &&
+      i.desiredState === 'running' &&
       ['ready', 'starting'].includes(i.state),
   )
   const desired = instances.filter(
-    (i) => (!selected || i.id === selected) && i.desired_state === 'running',
+    (i) => (!selected || i.id === selected) && i.desiredState === 'running',
   )
   const all = [...(metrics.data?.samples ?? [])].sort(
     (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
   )
-  const samples = selected ? all.filter((s) => s.instance_id === selected) : combine(all)
+  const samples = selected ? all.filter((s) => s.instanceId === selected) : combine(all)
   const total = (field: Field) =>
     fresh.length && fresh.every((i) => i[field] != null)
       ? fresh.reduce((sum, i) => sum + i[field]!, 0)
@@ -74,7 +74,7 @@ export function MetricsViewer({ service }: { service: Service }) {
           <option value="">Combined · all reporting instances</option>
           {instances.map((i) => (
             <option key={i.id} value={i.id}>
-              {i.node_name} · {i.id.slice(0, 8)} · {i.state}
+              {i.nodeName} · {i.id.slice(0, 8)} · {i.state}
             </option>
           ))}
         </Select>
@@ -100,7 +100,7 @@ export function MetricsViewer({ service }: { service: Service }) {
                   ? '—'
                   : field === 'pids'
                     ? String(value)
-                    : (value / scale).toFixed(1) + ' ' + (field === 'cpu_millis' ? 'm' : unit)}
+                    : (value / scale).toFixed(1) + ' ' + (field === 'cpuMillis' ? 'm' : unit)}
               </strong>
               <p>
                 {value == null
@@ -146,10 +146,10 @@ export function combine(samples: Sample[]): Sample[] {
   return [...buckets.entries()]
     .sort(([a], [b]) => a - b)
     .map(([time, values]) => {
-      for (const sample of values) latest.set(sample.instance_id, sample)
+      for (const sample of values) latest.set(sample.instanceId, sample)
       const fresh = [...latest.values()].filter((s) => Date.parse(s.timestamp) >= time - 10000)
       const result = {
-        instance_id: 'combined',
+        instanceId: 'combined',
         node: 'combined',
         timestamp: new Date(time).toISOString(),
       } as Sample
@@ -256,13 +256,13 @@ export function ServiceTrends({ service, instances }: { service: Service; instan
   })
   const active = instances.filter(
     (i) =>
-      i.desired_state === 'running' &&
+      i.desiredState === 'running' &&
       ['ready', 'starting'].includes(i.state) &&
-      i.observed_at &&
-      Date.now() - Date.parse(i.observed_at) < 15000,
+      i.observedAt &&
+      Date.now() - Date.parse(i.observedAt) < 15000,
   )
   const ids = new Set(active.map((i) => i.id))
-  const samples = combine((metrics.data?.samples ?? []).filter((s) => ids.has(s.instance_id)))
+  const samples = combine((metrics.data?.samples ?? []).filter((s) => ids.has(s.instanceId)))
   return (
     <>
       {series.slice(0, 2).map(({ field, label, unit, scale }) => {
@@ -278,7 +278,7 @@ export function ServiceTrends({ service, instances }: { service: Service; instan
                 ? '—'
                 : current.toLocaleString(undefined, { maximumFractionDigits: 1 }) +
                   ' ' +
-                  (field === 'cpu_millis' ? 'm' : unit)}
+                  (field === 'cpuMillis' ? 'm' : unit)}
             </span>
             {samples.some((s) => s[field] != null) && !metrics.isError ? (
               <Trend

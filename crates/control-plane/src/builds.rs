@@ -15,6 +15,7 @@ use uuid::Uuid;
 pub const LOG_LIMIT: usize = 512 * 1024;
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct Build {
     pub id: Uuid,
     pub service_id: Uuid,
@@ -39,6 +40,7 @@ pub struct Build {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateBuild {
     pub operation_id: Uuid,
     #[serde(default)]
@@ -71,19 +73,7 @@ pub(crate) async fn create(
                 .bind(existing.id)
                 .fetch_one(&mut *tx)
                 .await?;
-        let same = if let Some(original) = original {
-            original == request_json
-        } else {
-            // Legacy requests predate configuration editing. Compare any explicit
-            // override to their immutable snapshot, never today's service spec.
-            let mut source = existing.spec.source.clone();
-            if request.commit.is_some() || request.branch.is_some() || request.tag.is_some() {
-                source.commit = request.commit.clone();
-                source.branch = request.branch.clone();
-                source.tag = request.tag.clone();
-            }
-            source == existing.spec.source && existing.no_cache == request.no_cache
-        };
+        let same = original.as_ref() == Some(&request_json);
         if existing.service_id != service_id || !same {
             return Err(ApiError::Conflict(
                 "build operation ID was already used with different input",
@@ -195,12 +185,14 @@ pub(crate) async fn cancel(
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogCursor {
     #[serde(default)]
     after: i64,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct Log {
     pub sequence: i64,
     pub message: String,
@@ -221,11 +213,12 @@ pub(crate) async fn logs(
         .bind(id).bind(cursor.after).fetch_all(&pool).await?;
     let next = entries.last().map_or(cursor.after, |log| log.sequence);
     Ok(Json(
-        json!({"entries":entries,"next_cursor":next,"truncated":build.logs_truncated}),
+        json!({"entries":entries,"nextCursor":next,"truncated":build.logs_truncated}),
     ))
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct Revision {
     pub id: Uuid,
     pub service_id: Uuid,
@@ -249,7 +242,7 @@ pub(crate) async fn system(State(pool): State<PgPool>) -> Result<Json<Value>, Ap
     let online: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM build_workers WHERE last_seen > now() - interval '15 seconds')").fetch_one(&pool).await?;
     let database_runtime_ready:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes WHERE last_seen>now()-interval '30 seconds' AND NOT cordoned AND capabilities @> ARRAY['databases-v1'])").fetch_one(&pool).await?;
     Ok(Json(
-        json!({"worker_online":online,"database_runtime_ready":database_runtime_ready,"log_limit_bytes":LOG_LIMIT}),
+        json!({"workerOnline":online,"databaseRuntimeReady":database_runtime_ready,"logLimitBytes":LOG_LIMIT}),
     ))
 }
 

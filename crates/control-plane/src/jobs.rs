@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Options {
     pub command: Vec<String>,
     pub timeout_seconds: u32,
@@ -37,6 +38,7 @@ impl Options {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct RunRequest {
     pub operation_id: Uuid,
     pub revision_id: Uuid,
@@ -171,13 +173,13 @@ pub async fn list(
     Path(service): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     crate::runtime::service_exists(&pool, service).await?;
-    let runs: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revision_id',d.revision_id,'options',d.job_options,'status',CASE WHEN d.status<>'job' THEN d.status WHEN i.id IS NULL THEN 'queued' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' OR i.state='unknown' THEN 'unknown' WHEN i.state='assigned' THEN 'assigned' ELSE 'running' END,'result',d.job_result,'error_code',d.error_code,'created_at',d.created_at,'completed_at',d.completed_at,'instance_id',i.id,'node',n.name,'cleanup_pending',coalesce(i.desired_state='stopped' AND i.state<>'stopped',false)) FROM deployments d LEFT JOIN instances i ON i.deployment_id=d.id LEFT JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND d.job_options IS NOT NULL ORDER BY d.created_at DESC LIMIT 50").bind(service).fetch_all(&pool).await?;
+    let runs: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'options',d.job_options,'status',CASE WHEN d.status<>'job' THEN d.status WHEN i.id IS NULL THEN 'queued' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' OR i.state='unknown' THEN 'unknown' WHEN i.state='assigned' THEN 'assigned' ELSE 'running' END,'result',d.job_result,'errorCode',d.error_code,'createdAt',d.created_at,'completedAt',d.completed_at,'instanceId',i.id,'node',n.name,'cleanupPending',coalesce(i.desired_state='stopped' AND i.state<>'stopped',false)) FROM deployments d LEFT JOIN instances i ON i.deployment_id=d.id LEFT JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND d.job_options IS NOT NULL ORDER BY d.created_at DESC LIMIT 50").bind(service).fetch_all(&pool).await?;
     let schedule: Option<DbJson<Value>> =
-        sqlx::query_scalar("SELECT to_jsonb(s) FROM job_schedules s WHERE service_id=$1")
+        sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'serviceId',s.service_id,'operationId',s.operation_id,'version',s.version,'revisionId',s.revision_id,'options',s.options,'intervalMinutes',s.interval_minutes,'status',s.status,'nextRunAt',s.next_run_at,'updatedAt',s.updated_at) FROM job_schedules s WHERE service_id=$1")
             .bind(service)
             .fetch_optional(&pool)
             .await?;
-    let occurrences: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT to_jsonb(o) FROM job_occurrences o WHERE service_id=$1 ORDER BY scheduled_at DESC LIMIT 20").bind(service).fetch_all(&pool).await?;
+    let occurrences: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',o.id,'serviceId',o.service_id,'scheduleId',o.schedule_id,'scheduledAt',o.scheduled_at,'deploymentId',o.deployment_id,'skippedCount',o.skipped_count,'createdAt',o.created_at,'status',o.status) FROM job_occurrences o WHERE service_id=$1 ORDER BY scheduled_at DESC LIMIT 20").bind(service).fetch_all(&pool).await?;
     Ok(Json(
         json!({"runs":runs,"schedule":schedule,"occurrences":occurrences}),
     ))
@@ -185,6 +187,7 @@ pub async fn list(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ScheduleRequest {
     pub operation_id: Uuid,
     pub version: i64,

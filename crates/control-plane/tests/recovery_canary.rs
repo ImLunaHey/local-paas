@@ -72,7 +72,7 @@ impl Canary {
         let created = self
             .post(
                 &format!("/services/{}/deployments", self.service),
-                json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+                json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
             )
             .await?;
         let deployment: Uuid = created["id"]

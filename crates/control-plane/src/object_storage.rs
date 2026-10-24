@@ -14,8 +14,8 @@ pub async fn list(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     crate::runtime::service_exists(&pool, id).await?;
-    let buckets:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',b.id,'name',b.name,'status',b.status,'storage_id',s.id,'storage',s.name) FROM storage_buckets b JOIN services s ON s.id=b.service_id WHERE s.environment_id=(SELECT environment_id FROM services WHERE id=$1) ORDER BY s.name,b.name").bind(id).fetch_all(&pool).await?;
-    let binding:Option<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('bucket_id',b.bucket_id,'status',b.status,'read_only',b.read_only) FROM storage_bindings b WHERE b.service_id=$1").bind(id).fetch_optional(&pool).await?;
+    let buckets:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',b.id,'name',b.name,'status',b.status,'storageId',s.id,'storage',s.name) FROM storage_buckets b JOIN services s ON s.id=b.service_id WHERE s.environment_id=(SELECT environment_id FROM services WHERE id=$1) ORDER BY s.name,b.name").bind(id).fetch_all(&pool).await?;
+    let binding:Option<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('bucketId',b.bucket_id,'status',b.status,'readOnly',b.read_only) FROM storage_bindings b WHERE b.service_id=$1").bind(id).fetch_optional(&pool).await?;
     Ok(Json(json!({"buckets":buckets,"binding":binding})))
 }
 async fn endpoint(pool: &PgPool, id: Uuid) -> Result<i32, ApiError> {
@@ -36,6 +36,7 @@ fn bucket_name(s: &str) -> bool {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Create {
     operation_id: Uuid,
     name: String,
@@ -96,6 +97,7 @@ pub async fn create(
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Connect {
     bucket_id: Uuid,
     read_only: bool,
@@ -205,7 +207,7 @@ pub async fn connect(
     }
     sqlx::query("INSERT INTO storage_bindings(service_id,bucket_id,read_only,status) VALUES($1,$2,$3,'ready') ON CONFLICT(service_id) DO UPDATE SET status='ready'").bind(id).bind(input.bucket_id).bind(input.read_only).execute(&mut *tx).await?;
     tx.commit().await?;
-    Ok(Json(json!({"saved":true,"redeploy_required":true})))
+    Ok(Json(json!({"saved":true,"redeployRequired":true})))
 }
 #[cfg(test)]
 mod tests {
@@ -224,6 +226,7 @@ mod tests {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Detach {
     expected_secret_version: i32,
 }
@@ -280,7 +283,7 @@ pub async fn detach(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(Json(json!({"detached":true,"redeploy_required":true})))
+    Ok(Json(json!({"detached":true,"redeployRequired":true})))
 }
 
 #[cfg(test)]

@@ -19,12 +19,13 @@ pub async fn get(
     if !service.spec.workload.is_database() {
         return Err(ApiError::Conflict("not a database service"));
     }
-    let volume:Option<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('node',n.name,'size_gib',v.size_gib,'port',n.endpoint_base+v.slot,'host','10.0.2.2') FROM volumes v JOIN nodes n ON n.id=v.node_id WHERE v.id=$1").bind(id).fetch_optional(&pool).await?;
+    let volume:Option<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('node',n.name,'sizeGib',v.size_gib,'port',n.endpoint_base+v.slot,'host','10.0.2.2') FROM volumes v JOIN nodes n ON n.id=v.node_id WHERE v.id=$1").bind(id).fetch_optional(&pool).await?;
     let apps:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'name',s.name,'connected',c.database_id=$1) FROM services s LEFT JOIN database_connections c ON c.service_id=s.id AND c.database_id=$1 WHERE s.environment_id=(SELECT environment_id FROM services WHERE id=$1) AND s.kind='oci-service' ORDER BY s.name").bind(id).fetch_all(&pool).await?;
     Ok(Json(json!({"volume":volume,"applications":apps})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Connect {
     database_id: Uuid,
     expected_secret_version: i32,
@@ -71,5 +72,5 @@ pub async fn connect(
     .await?;
     sqlx::query("INSERT INTO database_connections(service_id,database_id,secret_name) VALUES($1,$2,$3) ON CONFLICT(service_id,secret_name) DO UPDATE SET database_id=excluded.database_id,created_at=now()").bind(id).bind(input.database_id).bind(if redis {"REDIS_URL"} else {"DATABASE_URL"}).execute(&mut *tx).await?;
     tx.commit().await?;
-    Ok(Json(json!({"saved":true,"redeploy_required":true})))
+    Ok(Json(json!({"saved":true,"redeployRequired":true})))
 }

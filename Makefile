@@ -26,7 +26,7 @@ web:
 web-foreground:
 	pnpm --dir web dev
 
-# Existing provisioned Lake stack; does not create VMs or initialize OpenBao.
+# Existing provisioned development stack; does not create VMs or initialize OpenBao.
 up:
 	$(MAKE) api
 	$(MAKE) web

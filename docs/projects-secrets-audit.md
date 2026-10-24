@@ -4,7 +4,7 @@ Projects are the top-level workspace resource. Each has its own environments;
 new projects start with `production` and `development`. Service identity is the
 project/environment/name tuple. Switching environments shows only that scope.
 
-Creating an environment with `parent_id` copies the source service specifications,
+Creating an environment with `parentId` copies the source service specifications,
 with new service IDs and empty domains. It does not build, deploy, copy database
 contents, or copy running instances. Configuration is copied at creation; secret
 references and values are resolved through the ancestor chain when deploying.
@@ -17,7 +17,7 @@ changes cannot alter its secrets.
 
 `infra/services/start.sh` provisions separate platform service storage on NVMe.
 OpenBao listens only on verified HTTPS at `127.0.0.1:18200`; ClickHouse has its own
-platform-only instance at `127.0.0.1:18123`. Existing Lake ClickHouse is untouched.
+platform-only instance at `127.0.0.1:18123`. Other ClickHouse instances are not reused.
 No production data is placed on ZFS.
 
 Explicit development initialization/unseal:

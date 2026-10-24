@@ -1,6 +1,6 @@
 # Independent ingress and external edge integration
 
-## Running privately on Lake
+## Private ingress
 
 `local-paas-ingress` runs `platform-ingress`, a Rust process separate from the API,
 build worker and scheduler. `make api` builds both binaries and starts ingress if
@@ -30,14 +30,14 @@ DNS, TLS issuance or an external route is operational. Domain reassignment is re
 from durable state on the next refresh.
 
 This is controller-outage tolerance, not database/host high availability. Ingress,
-PostgreSQL and all three workers still depend on Lake. The current ingress database
+PostgreSQL and all three workers still depend on one host. The current ingress database
 connection uses the development administrator role on the private Unix socket;
 a restricted ingress role is required before moving database access outside this
 host. The external gateway design below never exposes PostgreSQL.
 
 ## Prepared external configuration — not deployed
 
-`infra/edge/Caddyfile.public` and `Caddyfile.lake` are parsed deployment inputs.
+`infra/edge/Caddyfile.public` and `Caddyfile.gateway` are parsed deployment inputs.
 No VPS was selected or modified, no public DNS was changed, and no NetBird client
 was enrolled by this increment. Caddy adaptation was checked with explicit dummy
 addresses and file paths; it is not a live certificate/connectivity test.
@@ -53,14 +53,14 @@ access. The public path will be:
 
 ```text
 verified application domain -> DigitalOcean Caddy (public TLS)
-  -> NetBird -> Lake private mTLS gateway :18444
+  -> NetBird -> private mTLS gateway :18444
   -> independent Rust ingress :8090 -> healthy worker endpoints
 ```
 
 Use a dedicated edge CA, separate from node-agent and OpenBao identities. The
 server certificate must cover `ingress.local-paas`; the VPS holds a client
 certificate scoped to this gateway. All configuration takes private **file paths**,
-not key values. Restrict NetBird policy to the edge peer/group reaching the Lake
+not key values. Restrict NetBird policy to the edge peer/group reaching the private
 gateway on TCP 18444, with a corresponding host firewall rule. Never trust the
 entire NetBird interface or grant workloads the management LAN. Review any existing
 NetBird default all-to-all policy before connecting the platform. Workers keep
@@ -68,9 +68,9 @@ their current outbound mTLS protocol; physical workers still require enrollment,
 private endpoint addressing and explicitly scoped network policy.
 
 The public configuration requires `PLATFORM_DOMAINS` (space-separated, verified
-hostnames), `PLATFORM_ACME_EMAIL`, `PLATFORM_LAKE_NETBIRD_ADDRESS`, and
+hostnames), `PLATFORM_ACME_EMAIL`, `PLATFORM_GATEWAY_NETBIRD_ADDRESS`, and
 `PLATFORM_EDGE_CA_FILE`, `PLATFORM_EDGE_CERT_FILE`, `PLATFORM_EDGE_KEY_FILE`.
-The Lake configuration requires the same peer address and CA file, plus
+The gateway configuration requires the same peer address and CA file, plus
 `PLATFORM_GATEWAY_CERT_FILE` and `PLATFORM_GATEWAY_KEY_FILE`.
 
 Caddy maintains ACME state under `/var/lib/local-paas-edge/caddy`, owned by its
@@ -85,8 +85,8 @@ applications. No second-edge failover is implemented.
 Before any application cutover, verify DNS/CNAME ownership, TLS renewal, allowed
 and denied peer access, WebSocket/SSE traffic, controller outage, gateway outage,
 and DNS rollback using a disposable domain. Existing Railway deployments remain
-untouched. Off-site backups are explicitly deferred at Luna's request; current
-local backups do not protect against losing Lake.
+untouched. Off-site backup automation is not implemented; local backups do not protect
+against losing the platform host.
 
 The transport configuration follows Caddy's [reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
 and [mutual TLS](https://caddyserver.com/docs/caddyfile/directives/tls) documentation.

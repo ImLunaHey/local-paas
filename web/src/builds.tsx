@@ -69,7 +69,7 @@ export function BuildPanel({ service }: { service: Service }) {
   const system = useQuery({
     queryKey: ['build-system'],
     enabled,
-    queryFn: () => api<{ worker_online: boolean }>('/build-system'),
+    queryFn: () => api<{ workerOnline: boolean }>('/build-system'),
     refetchInterval: 5000,
   })
   const revisions = useQuery({
@@ -82,15 +82,15 @@ export function BuildPanel({ service }: { service: Service }) {
   const busy = history.data?.some(active) ?? false
   const create = useMutation({
     mutationFn: () => {
-      const input = JSON.stringify({ [sourceKind]: commit.trim(), no_cache: noCache })
+      const input = JSON.stringify({ [sourceKind]: commit.trim(), noCache: noCache })
       if (operation.current?.input !== input) operation.current = { input, id: crypto.randomUUID() }
       return api<Build>(`/services/${service.id}/builds`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...(database || uploaded ? {} : { [sourceKind]: commit.trim() }),
-          no_cache: noCache,
-          operation_id: operation.current.id,
+          noCache: noCache,
+          operationId: operation.current.id,
         }),
       })
     },
@@ -133,7 +133,7 @@ export function BuildPanel({ service }: { service: Service }) {
             ? 'Builder status unavailable'
             : system.isPending
               ? 'Checking builder…'
-              : system.data.worker_online
+              : system.data.workerOnline
                 ? 'Build worker connected'
                 : 'Waiting for builder'}
         </span>
@@ -205,7 +205,7 @@ export function BuildPanel({ service }: { service: Service }) {
               </Button>
             </div>
           </form>
-          {!system.isPending && !system.isError && !system.data.worker_online && (
+          {!system.isPending && !system.isError && !system.data.workerOnline && (
             <p className="text-xs text-muted border-l-2 border-line pl-3">
               Requests stay queued until an isolated builder connects. No build runs on the
               control-plane host.
@@ -235,7 +235,7 @@ export function BuildPanel({ service }: { service: Service }) {
                 >
                   {history.data.map((build) => (
                     <option key={build.id} value={build.id}>
-                      {new Date(build.created_at).toLocaleString()} ·{' '}
+                      {new Date(build.createdAt).toLocaleString()} ·{' '}
                       {sourceLabel(build.spec.source)} · {build.status}
                     </option>
                   ))}
@@ -250,18 +250,18 @@ export function BuildPanel({ service }: { service: Service }) {
                         data-testid="build-status"
                         data-state={selected.status}
                       >
-                        {selected.cancel_requested && active(selected)
+                        {selected.cancelRequested && active(selected)
                           ? 'Cancellation requested'
                           : selected.status}
                       </span>
                       <span className="text-xs text-muted">
-                        {selected.no_cache ? 'Cache bypassed' : 'Cache allowed'}
+                        {selected.noCache ? 'Cache bypassed' : 'Cache allowed'}
                       </span>
                     </span>
                     {active(selected) && (
                       <Button
                         variant="secondary"
-                        disabled={cancel.isPending || selected.cancel_requested}
+                        disabled={cancel.isPending || selected.cancelRequested}
                         onClick={() => cancel.mutate(selected.id)}
                       >
                         <X size={14} />
@@ -269,19 +269,19 @@ export function BuildPanel({ service }: { service: Service }) {
                       </Button>
                     )}
                   </div>
-                  {selected.resolved_commit && (
+                  {selected.resolvedCommit && (
                     <p className="text-xs text-muted break-all">
-                      Resolved commit <code>{selected.resolved_commit}</code>
+                      Resolved commit <code>{selected.resolvedCommit}</code>
                     </p>
                   )}
-                  {selected.build_plan?.kind === 'generated' && (
+                  {selected.buildPlan?.kind === 'generated' && (
                     <details className="text-xs min-w-0">
                       <summary className="cursor-pointer text-accent">
-                        Generated Dockerfile · {selected.build_plan.runtime} ·{' '}
-                        {selected.build_plan.package_manager}
+                        Generated Dockerfile · {selected.buildPlan.runtime} ·{' '}
+                        {selected.buildPlan.packageManager}
                       </summary>
                       <pre className="spec-preview mt-3" aria-label="Generated Dockerfile">
-                        {selected.build_plan.dockerfile}
+                        {selected.buildPlan.dockerfile}
                       </pre>
                       <p className="text-muted mt-2">
                         Saved with this build. Dotenv files, .npmrc and local dependencies are
@@ -289,14 +289,14 @@ export function BuildPanel({ service }: { service: Service }) {
                       </p>
                     </details>
                   )}
-                  {selected.build_plan?.kind === 'dockerfile' && (
+                  {selected.buildPlan?.kind === 'dockerfile' && (
                     <p className="text-xs text-muted">
-                      Repository Dockerfile: <code>{selected.build_plan.path}</code>
+                      Repository Dockerfile: <code>{selected.buildPlan.path}</code>
                     </p>
                   )}
-                  {selected.error_code && (
+                  {selected.errorCode && (
                     <p className="error-notice">
-                      {errors[selected.error_code] ?? selected.error_code}
+                      {errors[selected.errorCode] ?? selected.errorCode}
                     </p>
                   )}
                   {selected.status === 'queued' && (
@@ -345,9 +345,9 @@ export function BuildPanel({ service }: { service: Service }) {
           <div className="space-y-3 mt-3">
             {revisions.data.map((revision) => (
               <div key={revision.id} className="revision-row text-xs">
-                <time className="text-muted">{new Date(revision.created_at).toLocaleString()}</time>
+                <time className="text-muted">{new Date(revision.createdAt).toLocaleString()}</time>
                 <code className="block text-accent break-all mt-2">
-                  {revision.image_repository}@{revision.image_digest}
+                  {revision.imageRepository}@{revision.imageDigest}
                 </code>
               </div>
             ))}
@@ -360,7 +360,7 @@ export function BuildPanel({ service }: { service: Service }) {
 
 interface LogPage {
   entries: { sequence: number; message: string }[]
-  next_cursor: number
+  nextCursor: number
   truncated: boolean
 }
 interface AccumulatedLogs {
@@ -385,7 +385,7 @@ function BuildLogs({ build }: { build: Build }) {
       for (let page = 0; page < 32; page++) {
         const chunk = await api<LogPage>(`/builds/${build.id}/logs?after=${result.cursor}`)
         result.text += chunk.entries.map((entry) => entry.message).join('')
-        result.cursor = chunk.next_cursor
+        result.cursor = chunk.nextCursor
         result.truncated = chunk.truncated
         if (chunk.entries.length < 128) break
       }

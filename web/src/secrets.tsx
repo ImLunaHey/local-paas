@@ -6,7 +6,7 @@ interface SecretSet {
   configured: boolean
   version: number
   names: string[]
-  own_names: string[]
+  ownNames: string[]
   origins: Record<string, string>
   references: string[]
   path: string
@@ -41,7 +41,7 @@ export function SecretManager({
       const body = JSON.stringify({
         name: data.get('name'),
         value: data.get('value'),
-        expected_version: secrets.data?.version,
+        expectedVersion: secrets.data?.version,
       })
       form.current!.reset()
       return api('/services/' + service.id + '/secrets', {
@@ -57,7 +57,7 @@ export function SecretManager({
       api('/services/' + service.id + '/secrets', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, value: null, expected_version: secrets.data?.version }),
+        body: JSON.stringify({ name, value: null, expectedVersion: secrets.data?.version }),
       }),
     onSuccess: changed,
   })
@@ -157,7 +157,7 @@ export function SecretManager({
                 </p>
               </div>
               <Button
-                disabled={busy || !secrets.data?.own_names.includes(name)}
+                disabled={busy || !secrets.data?.ownNames.includes(name)}
                 onClick={() => remove.mutate(name)}
               >
                 Remove local value

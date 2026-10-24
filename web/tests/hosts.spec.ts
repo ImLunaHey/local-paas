@@ -17,7 +17,7 @@ test('host history uses persisted samples and supports ranges on desktop and mob
   const response = page.waitForResponse((r) => r.url().includes('/api/hosts?range=24h'))
   await page.getByLabel('Host history range').selectOption('24h')
   const payload = await (await response).json()
-  expect(payload.host.retention_days).toBe(30)
+  expect(payload.host.retentionDays).toBe(30)
   expect(payload.host.samples.length).toBeGreaterThan(0)
   expect(payload.host.samples.length).toBeLessThanOrEqual(361)
   // A fresh database may have only one 4-minute bucket in the 24h range.

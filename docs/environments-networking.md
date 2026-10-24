@@ -13,19 +13,17 @@ and its private HTTPS endpoint. Saving a URL mapping updates routing immediately
 Changing the container port updates desired configuration; the active deployment
 keeps its old port until a new deployment passes readiness.
 
-Lake currently reserves HTTPS ports 5201–5205 for private previews through
-Tailscale Serve, all forwarded to the loopback preview proxy at port 8090. Existing
-port 443 routes and dashboard port 5188 are untouched. An endpoint can belong to
-only one service; concurrent claims conflict. The API offers only explicitly
-configured PREVIEW_HOST/PREVIEW_PORTS endpoints. Configure TLS forwarding before
-adding ports to that allowlist. infra/services/api.sh runs the API with Lake's
-current dedicated service connections and endpoint allowlist.
+Configure private HTTPS preview endpoints using `PREVIEW_HOST` and `PREVIEW_PORTS`.
+A private TLS proxy (for example Tailscale Serve) must forward those host/port
+pairs to the independent loopback ingress on port 8090. An endpoint belongs to
+only one service; concurrent claims conflict. Configure forwarding before adding
+ports to the API allowlist, and preserve any existing proxy routes.
 
 These are tailnet URLs, not public custom domains. The domains field in a
 specification does not yet provision DNS or the future DigitalOcean edge.
-The preview proxy still runs with the API and has its existing HTTP limits.
+The preview proxy runs independently of the API and enforces bounded HTTP requests.
 
 Validated with database tests for environment filtering, immovable service
 identity, port updates, optimistic concurrency and rejecting unconfigured URLs.
 Browser checks cover header links, Networking routes/reloads and environment
-navigation/filtering through the real Tailscale HTTPS endpoint.
+navigation/filtering against the isolated browser-test API.

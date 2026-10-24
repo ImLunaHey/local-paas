@@ -8,37 +8,37 @@ import { Button, Field, Input, Select, Textarea } from './ui'
 
 interface Options {
   command: string[]
-  timeout_seconds: number
+  timeoutSeconds: number
 }
 interface Schedule {
   version: number
-  revision_id: string
+  revisionId: string
   options: Options
-  interval_minutes: number
+  intervalMinutes: number
   status: 'enabled' | 'paused'
-  next_run_at: string
+  nextRunAt: string
 }
 interface Run {
   id: string
-  revision_id: string
+  revisionId: string
   options: Options
   status: string
-  result: { outcome: string; exit_code: number | null } | null
-  created_at: string
-  completed_at: string | null
-  instance_id: string | null
+  result: { outcome: string; exitCode: number | null } | null
+  createdAt: string
+  completedAt: string | null
+  instanceId: string | null
   node: string | null
-  cleanup_pending: boolean
-  error_code: string | null
+  cleanupPending: boolean
+  errorCode: string | null
 }
 interface Jobs {
   runs: Run[]
   schedule: Schedule | null
   occurrences: {
     id: string
-    scheduled_at: string
+    scheduledAt: string
     status: string
-    skipped_count: number
+    skippedCount: number
   }[]
 }
 interface Draft {
@@ -63,16 +63,16 @@ const labels: Record<string, string> = {
   failed_to_queue: 'Could not queue · check configuration and secret availability',
 }
 const initial = (revisions: Revision[], schedule?: Schedule | null): Draft => ({
-  revision: schedule?.revision_id ?? revisions[0]?.id ?? '',
+  revision: schedule?.revisionId ?? revisions[0]?.id ?? '',
   executable: schedule?.options.command[0] ?? '',
   arguments: schedule?.options.command.slice(1).join('\n') ?? '',
-  timeout: schedule?.options.timeout_seconds ?? 300,
+  timeout: schedule?.options.timeoutSeconds ?? 300,
 })
 const options = (draft: Draft): Options => ({
   command: draft.executable
     ? [draft.executable, ...(draft.arguments ? draft.arguments.split('\n') : [])]
     : [],
-  timeout_seconds: draft.timeout,
+  timeoutSeconds: draft.timeout,
 })
 
 function JobFields({
@@ -101,7 +101,7 @@ function JobFields({
           )}
           {revisions.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.id.slice(0, 8)} · {new Date(r.created_at).toLocaleString()}
+              {r.id.slice(0, 8)} · {new Date(r.createdAt).toLocaleString()}
             </option>
           ))}
         </Select>
@@ -164,17 +164,17 @@ function JobForm({
 }) {
   const client = useQueryClient()
   const [draft, setDraft] = useState(() => initial(revisions, schedule))
-  const [minutes, setMinutes] = useState(schedule?.interval_minutes ?? 60)
+  const [minutes, setMinutes] = useState(schedule?.intervalMinutes ?? 60)
   const [enabled, setEnabled] = useState(schedule?.status !== 'paused')
   const [saved, setSaved] = useState(false)
   const operation = useRef<{ input: string; id: string } | null>(null)
   const mutation = useMutation({
     mutationFn: () => {
       const body = {
-        revision_id: draft.revision,
+        revisionId: draft.revision,
         options: options(draft),
         ...(scheduled
-          ? { version: schedule?.version ?? 0, interval_minutes: minutes, enabled }
+          ? { version: schedule?.version ?? 0, intervalMinutes: minutes, enabled }
           : {}),
       }
       const input = JSON.stringify(body)
@@ -182,7 +182,7 @@ function JobForm({
       return api(`/services/${service.id}/${scheduled ? 'job-schedule' : 'jobs'}`, {
         method: scheduled ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, operation_id: operation.current.id }),
+        body: JSON.stringify({ ...body, operationId: operation.current.id }),
       })
     },
     onSuccess: async () => {
@@ -283,11 +283,11 @@ export function JobsPanel({ service }: { service: Service }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          operation_id: crypto.randomUUID(),
+          operationId: crypto.randomUUID(),
           version: schedule.version,
-          revision_id: schedule.revision_id,
+          revisionId: schedule.revisionId,
           options: schedule.options,
-          interval_minutes: schedule.interval_minutes,
+          intervalMinutes: schedule.intervalMinutes,
           enabled: false,
         }),
       })
@@ -310,7 +310,7 @@ export function JobsPanel({ service }: { service: Service }) {
       </p>
     )
   if (!jobs.data || !revisions.data) return <p className="text-sm text-muted">Loading jobs…</p>
-  const blocked = jobs.data.runs.some((r) => pending(r) || r.cleanup_pending)
+  const blocked = jobs.data.runs.some((r) => pending(r) || r.cleanupPending)
   const schedule = jobs.data.schedule
   return (
     <div className="space-y-6">
@@ -347,7 +347,7 @@ export function JobsPanel({ service }: { service: Service }) {
             </h2>
             <p className="mt-2 text-xs text-muted">
               {schedule?.status === 'enabled'
-                ? `Every ${schedule.interval_minutes} minutes · next ${new Date(schedule.next_run_at).toLocaleString()}`
+                ? `Every ${schedule.intervalMinutes} minutes · next ${new Date(schedule.nextRunAt).toLocaleString()}`
                 : schedule
                   ? 'Paused'
                   : 'No schedule configured'}
@@ -394,10 +394,10 @@ export function JobsPanel({ service }: { service: Service }) {
             <div className="mt-3 divide-y divide-zinc-800">
               {jobs.data.occurrences.map((o) => (
                 <div key={o.id} className="flex flex-wrap justify-between gap-2 py-3 text-xs">
-                  <span className="text-muted">{new Date(o.scheduled_at).toLocaleString()}</span>
+                  <span className="text-muted">{new Date(o.scheduledAt).toLocaleString()}</span>
                   <span>
                     {labels[o.status] ?? o.status}
-                    {o.skipped_count > 1 ? ` (${o.skipped_count} occurrences)` : ''}
+                    {o.skippedCount > 1 ? ` (${o.skippedCount} occurrences)` : ''}
                   </span>
                 </div>
               ))}
@@ -433,10 +433,10 @@ export function JobsPanel({ service }: { service: Service }) {
                   )}
                 >
                   {labels[run.status] ?? run.status}
-                  {run.result?.exit_code != null ? ` · exit ${run.result.exit_code}` : ''}
+                  {run.result?.exitCode != null ? ` · exit ${run.result.exitCode}` : ''}
                 </span>
                 <time className="text-xs text-muted">
-                  {new Date(run.created_at).toLocaleString()}
+                  {new Date(run.createdAt).toLocaleString()}
                 </time>
               </div>
               <p className="break-all font-mono text-xs text-zinc-300">
@@ -446,17 +446,17 @@ export function JobsPanel({ service }: { service: Service }) {
               </p>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-[11px] text-muted">
-                  Run {run.id.slice(0, 8)} · revision {run.revision_id.slice(0, 8)}
-                  {run.node ? ` · ${run.node}` : ''} · limit {run.options.timeout_seconds}s
-                  {run.cleanup_pending ? ' · cleanup pending' : ''}
+                  Run {run.id.slice(0, 8)} · revision {run.revisionId.slice(0, 8)}
+                  {run.node ? ` · ${run.node}` : ''} · limit {run.options.timeoutSeconds}s
+                  {run.cleanupPending ? ' · cleanup pending' : ''}
                 </span>
                 <div className="flex items-center gap-2">
-                  {run.instance_id && (
+                  {run.instanceId && (
                     <Link
                       className="button"
                       to="/services/$serviceId/logs"
                       params={{ serviceId: service.id }}
-                      search={{ instance: run.instance_id }}
+                      search={{ instance: run.instanceId }}
                     >
                       View logs
                     </Link>
@@ -474,12 +474,12 @@ export function JobsPanel({ service }: { service: Service }) {
                   starting another run.
                 </p>
               )}
-              {run.error_code === 'job_setup_failed' && (
+              {run.errorCode === 'job_setup_failed' && (
                 <p className="text-xs text-red-300">
                   Job setup failed. Review the instance logs and secret availability.
                 </p>
               )}
-              {run.result?.outcome === 'failed' && run.result.exit_code == null && (
+              {run.result?.outcome === 'failed' && run.result.exitCode == null && (
                 <p className="text-xs text-red-300">
                   The job could not be prepared. Check image availability, attached storage, and
                   credentials before retrying.

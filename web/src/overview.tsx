@@ -8,23 +8,23 @@ import { Trend } from './trend'
 import { Select } from './ui'
 interface Recent {
   id: string
-  service_id: string
+  serviceId: string
   service: string
   project: string
   environment: string
   status: string
-  created_at: string
-  error_code: string | null
+  createdAt: string
+  errorCode: string | null
 }
 interface OverviewData {
   summary: {
     projects: number
     services: number
-    ready_instances: number
-    healthy_nodes: number
-    total_nodes: number
-    pending_builds: number
-    failed_deployments: number
+    readyInstances: number
+    healthyNodes: number
+    totalNodes: number
+    pendingBuilds: number
+    failedDeployments: number
   }
   deployments: Recent[]
   builds: Recent[]
@@ -68,7 +68,7 @@ function RecentList({ items, builds = false }: { items: Recent[]; builds?: boole
         <Link
           key={item.id}
           to={builds ? '/services/$serviceId/builds' : '/services/$serviceId/activity'}
-          params={{ serviceId: item.service_id }}
+          params={{ serviceId: item.serviceId }}
           className="flex items-center gap-3 border-b border-zinc-800/70 px-5 py-4 last:border-0 hover:bg-zinc-800/30"
         >
           <span className="hidden sm:grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-zinc-800 text-muted">
@@ -79,16 +79,16 @@ function RecentList({ items, builds = false }: { items: Recent[]; builds?: boole
             <div className="mt-1 truncate text-xs text-muted">
               {item.project} / {item.environment}
             </div>
-            {item.error_code && (
+            {item.errorCode && (
               <div className="mt-1 truncate text-xs text-red-300">
-                {item.error_code.replaceAll('_', ' ')}
+                {item.errorCode.replaceAll('_', ' ')}
               </div>
             )}
           </div>
           <div className="shrink-0 text-right">
             <Status value={item.status} />
-            <time dateTime={item.created_at} className="mt-2 block text-[10px] text-muted">
-              {new Date(item.created_at).toLocaleString([], {
+            <time dateTime={item.createdAt} className="mt-2 block text-[10px] text-muted">
+              {new Date(item.createdAt).toLocaleString([], {
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',
@@ -137,20 +137,20 @@ export function Overview() {
           ],
           [
             'Healthy instances',
-            s?.ready_instances,
+            s?.readyInstances,
             'Fresh readiness reports',
             <Activity key="Activity" size={17} />,
           ],
           [
             'Workers online',
-            s ? `${s.healthy_nodes} / ${s.total_nodes}` : undefined,
+            s ? `${s.healthyNodes} / ${s.totalNodes}` : undefined,
             'One physical failure domain',
             <Server key="Server" size={17} />,
           ],
           [
             'Builds in progress',
-            s?.pending_builds,
-            `${s?.failed_deployments ?? '—'} failed deployments in 24h`,
+            s?.pendingBuilds,
+            `${s?.failedDeployments ?? '—'} failed deployments in 24h`,
             <GitBranch key="GitBranch" size={17} />,
           ],
         ].map(([label, value, detail, icon]) => (
@@ -181,38 +181,38 @@ export function Overview() {
 }
 interface HostSample {
   timestamp: string
-  cpu_percent: number | null
-  memory_used_bytes: number | null
-  memory_total_bytes: number | null
-  swap_used_bytes: number | null
-  load_one: number | null
-  uptime_seconds: number | null
-  root_total_bytes: number | null
-  root_available_bytes: number | null
-  network_rx_bytes_per_second: number | null
-  network_tx_bytes_per_second: number | null
-  disk_read_bytes_per_second: number | null
-  disk_write_bytes_per_second: number | null
+  cpuPercent: number | null
+  memoryUsedBytes: number | null
+  memoryTotalBytes: number | null
+  swapUsedBytes: number | null
+  loadOne: number | null
+  uptimeSeconds: number | null
+  rootTotalBytes: number | null
+  rootAvailableBytes: number | null
+  networkRxBytesPerSecond: number | null
+  networkTxBytesPerSecond: number | null
+  diskReadBytesPerSecond: number | null
+  diskWriteBytesPerSecond: number | null
 }
 interface Node {
   id: string
   name: string
   healthy: boolean
   cordoned: boolean
-  last_seen: string | null
-  cpu_millis: number
-  memory_mib: number
+  lastSeen: string | null
+  cpuMillis: number
+  memoryMib: number
   slots: number
-  occupied_slots: number
-  reserved_cpu_millis: number
-  reserved_memory_mib: number
+  occupiedSlots: number
+  reservedCpuMillis: number
+  reservedMemoryMib: number
 }
 interface HostsData {
   host: {
     name: string | null
     samples: HostSample[]
-    bucket_seconds: number
-    retention_days: number
+    bucketSeconds: number
+    retentionDays: number
   }
   nodes: Node[]
 }
@@ -222,17 +222,17 @@ const fields: {
   unit: string
   scale: number
 }[] = [
-  { field: 'cpu_percent', label: 'Host CPU', unit: '%', scale: 1 },
-  { field: 'memory_used_bytes', label: 'Memory used', unit: 'GiB', scale: 2 ** 30 },
-  { field: 'disk_read_bytes_per_second', label: 'Disk read', unit: 'MiB/s', scale: 2 ** 20 },
-  { field: 'disk_write_bytes_per_second', label: 'Disk write', unit: 'MiB/s', scale: 2 ** 20 },
+  { field: 'cpuPercent', label: 'Host CPU', unit: '%', scale: 1 },
+  { field: 'memoryUsedBytes', label: 'Memory used', unit: 'GiB', scale: 2 ** 30 },
+  { field: 'diskReadBytesPerSecond', label: 'Disk read', unit: 'MiB/s', scale: 2 ** 20 },
+  { field: 'diskWriteBytesPerSecond', label: 'Disk write', unit: 'MiB/s', scale: 2 ** 20 },
   {
-    field: 'network_rx_bytes_per_second',
+    field: 'networkRxBytesPerSecond',
     label: 'Network received',
     unit: 'MiB/s',
     scale: 2 ** 20,
   },
-  { field: 'network_tx_bytes_per_second', label: 'Network sent', unit: 'MiB/s', scale: 2 ** 20 },
+  { field: 'networkTxBytesPerSecond', label: 'Network sent', unit: 'MiB/s', scale: 2 ** 20 },
 ]
 const gib = (n: number | null | undefined) => (n == null ? '—' : (n / 2 ** 30).toFixed(1) + ' GiB')
 export function Hosts() {
@@ -279,21 +279,21 @@ export function Hosts() {
         {[
           [
             'Physical memory',
-            gib(fresh ? latest.memory_total_bytes : null),
+            gib(fresh ? latest.memoryTotalBytes : null),
             'Used = total − available',
           ],
           [
             'Root filesystem free',
-            gib(fresh ? latest.root_available_bytes : null),
-            `${gib(latest?.root_total_bytes)} total · excludes ZFS`,
+            gib(fresh ? latest.rootAvailableBytes : null),
+            `${gib(latest?.rootTotalBytes)} total · excludes ZFS`,
           ],
-          ['Swap used', gib(fresh ? latest.swap_used_bytes : null), 'Host-wide usage'],
+          ['Swap used', gib(fresh ? latest.swapUsedBytes : null), 'Host-wide usage'],
           [
             'Uptime',
-            fresh && latest.uptime_seconds != null
-              ? (latest.uptime_seconds / 86400).toFixed(1) + ' days'
+            fresh && latest.uptimeSeconds != null
+              ? (latest.uptimeSeconds / 86400).toFixed(1) + ' days'
               : '—',
-            `1-minute load: ${fresh ? (latest.load_one?.toFixed(2) ?? '—') : '—'}`,
+            `1-minute load: ${fresh ? (latest.loadOne?.toFixed(2) ?? '—') : '—'}`,
           ],
         ].map(([label, value, detail]) => (
           <div className="metric" key={label}>
@@ -318,7 +318,7 @@ export function Hosts() {
               <Trend
                 label={label}
                 unit={unit}
-                gapMs={Math.max(20000, (query.data?.host.bucket_seconds ?? 5) * 2000)}
+                gapMs={Math.max(20000, (query.data?.host.bucketSeconds ?? 5) * 2000)}
                 showDate={['24h', '7d', '30d'].includes(range)}
                 points={samples.map((s) => ({
                   time: Date.parse(s.timestamp),
@@ -365,8 +365,8 @@ export function Hosts() {
                   <td className="p-4">
                     {n.name}
                     <span className="mt-1 block text-[10px] text-muted">
-                      {n.last_seen
-                        ? 'Seen ' + new Date(n.last_seen).toLocaleTimeString()
+                      {n.lastSeen
+                        ? 'Seen ' + new Date(n.lastSeen).toLocaleTimeString()
                         : 'Never connected'}
                     </span>
                   </td>
@@ -374,13 +374,13 @@ export function Hosts() {
                     <Status value={!n.healthy ? 'Offline' : n.cordoned ? 'Cordoned' : 'Healthy'} />
                   </td>
                   <td className="p-4">
-                    {n.reserved_cpu_millis} / {n.cpu_millis} m
+                    {n.reservedCpuMillis} / {n.cpuMillis} m
                   </td>
                   <td className="p-4">
-                    {n.reserved_memory_mib} / {n.memory_mib} MiB
+                    {n.reservedMemoryMib} / {n.memoryMib} MiB
                   </td>
                   <td className="p-4">
-                    {n.occupied_slots} / {n.slots}
+                    {n.occupiedSlots} / {n.slots}
                   </td>
                 </tr>
               ))}

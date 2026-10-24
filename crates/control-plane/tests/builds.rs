@@ -17,7 +17,7 @@ async fn uploaded_sources_are_project_scoped_and_revisions_keep_the_archive_dige
     let mut spec = registered["spec"].clone();
     let digest = "a".repeat(64);
     spec["source"] = json!({"upload":digest});
-    let update = json!({"operation_id":Uuid::new_v4(),"expected_version":1,"spec":spec});
+    let update = json!({"operationId":Uuid::new_v4(),"expectedVersion":1,"spec":spec});
     let (status, _) = call(&pool, "PUT", &format!("/api/services/{id}"), update.clone()).await;
     assert_eq!(status, StatusCode::CONFLICT);
     sqlx::query("INSERT INTO source_uploads(project_id,digest,archive_bytes,expanded_bytes,file_count) SELECT id,$1,100,10,1 FROM projects WHERE name='sandbox'")
@@ -29,7 +29,7 @@ async fn uploaded_sources_are_project_scoped_and_revisions_keep_the_archive_dige
         &pool,
         "POST",
         "/api/services",
-        json!({"operation_id":Uuid::new_v4(),"spec":spec,"build_on_create":false}),
+        json!({"operationId":Uuid::new_v4(),"spec":spec,"buildOnCreate":false}),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -37,7 +37,7 @@ async fn uploaded_sources_are_project_scoped_and_revisions_keep_the_archive_dige
         &pool,
         "POST",
         &format!("/api/services/{id}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"branch":"main"}),
+        json!({"operationId":Uuid::new_v4(),"branch":"main"}),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -45,7 +45,7 @@ async fn uploaded_sources_are_project_scoped_and_revisions_keep_the_archive_dige
         &pool,
         "POST",
         &format!("/api/services/{id}/builds"),
-        json!({"operation_id":Uuid::new_v4()}),
+        json!({"operationId":Uuid::new_v4()}),
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED);
@@ -98,7 +98,7 @@ async fn service(pool: &PgPool, celld: bool) -> String {
         pool,
         "POST",
         "/api/services",
-        json!({"build_on_create":false,"operation_id":Uuid::new_v4(),"spec":spec}),
+        json!({"buildOnCreate":false,"operationId":Uuid::new_v4(),"spec":spec}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
@@ -111,7 +111,7 @@ async fn queued(pool: &PgPool) -> (String, Value) {
         pool,
         "POST",
         &format!("/api/services/{service}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        json!({"operationId":Uuid::new_v4(),"noCache":false}),
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED);
@@ -130,7 +130,7 @@ fn success() -> Completion {
 async fn build_requests_are_idempotent_and_concurrent_claims_are_exclusive(pool: PgPool) {
     let service = service(&pool, false).await;
     let path = format!("/api/services/{service}/builds");
-    let request = json!({"operation_id":Uuid::new_v4(),"no_cache":true});
+    let request = json!({"operationId":Uuid::new_v4(),"noCache":true});
     let (a, b) = tokio::join!(
         call(&pool, "POST", &path, request.clone()),
         call(&pool, "POST", &path, request.clone())
@@ -141,13 +141,13 @@ async fn build_requests_are_idempotent_and_concurrent_claims_are_exclusive(pool:
     ));
     assert_eq!(a.1, b.1);
     let mut changed = request;
-    changed["no_cache"] = false.into();
+    changed["noCache"] = false.into();
     assert_eq!(
         call(&pool, "POST", &path, changed).await.0,
         StatusCode::CONFLICT
     );
     assert_eq!(
-        call(&pool, "POST", &path, json!({"operation_id":Uuid::new_v4()}))
+        call(&pool, "POST", &path, json!({"operationId":Uuid::new_v4()}))
             .await
             .0,
         StatusCode::CONFLICT
@@ -175,7 +175,7 @@ async fn success_atomically_records_digest_revision_and_audit_event(pool: PgPool
     .await;
     assert_eq!(revisions.as_array().unwrap().len(), 1);
     assert_eq!(
-        revisions[0]["image_digest"],
+        revisions[0]["imageDigest"],
         format!("sha256:{}", "a".repeat(64))
     );
     assert_eq!(
@@ -219,7 +219,7 @@ async fn failed_builds_have_diagnostics_and_no_revision(pool: PgPool) {
     )
     .await;
     assert_eq!(stored["status"], "failed");
-    assert_eq!(stored["error_code"], "build_failed");
+    assert_eq!(stored["errorCode"], "build_failed");
     let (_, revisions) = call(
         &pool,
         "GET",
@@ -298,7 +298,7 @@ async fn expired_workers_cannot_renew_write_logs_or_publish(pool: PgPool) {
     )
     .await;
     assert_eq!(stored["status"], "interrupted");
-    assert_eq!(stored["log_bytes"], 0);
+    assert_eq!(stored["logBytes"], 0);
     assert!(builds::claim(&pool).await.unwrap().is_none());
 }
 
@@ -316,7 +316,7 @@ async fn logs_are_bounded_utf8_safe_and_cursor_addressable(pool: PgPool) {
     let (_, rest) = call(
         &pool,
         "GET",
-        &format!("{path}?after={}", first["next_cursor"]),
+        &format!("{path}?after={}", first["nextCursor"]),
         Value::Null,
     )
     .await;
@@ -341,7 +341,7 @@ async fn changing_commit_captures_an_immutable_build_snapshot(pool: PgPool) {
         &pool,
         "POST",
         &format!("/api/services/{service}/builds"),
-        json!({"operation_id":Uuid::new_v4(),"commit":commit}),
+        json!({"operationId":Uuid::new_v4(),"commit":commit}),
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED);
@@ -364,7 +364,7 @@ async fn celld_cannot_enter_the_oci_build_pipeline(pool: PgPool) {
         &pool,
         "POST",
         &format!("/api/services/{service}/builds"),
-        json!({"operation_id":Uuid::new_v4()}),
+        json!({"operationId":Uuid::new_v4()}),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -379,11 +379,11 @@ async fn celld_cannot_enter_the_oci_build_pipeline(pool: PgPool) {
 #[ignore = "requires disposable PostgreSQL"]
 async fn stale_worker_heartbeats_do_not_claim_availability(pool: PgPool) {
     let (_, system) = call(&pool, "GET", "/api/build-system", Value::Null).await;
-    assert_eq!(system["worker_online"], false);
+    assert_eq!(system["workerOnline"], false);
     let id = Uuid::new_v4();
     builds::heartbeat(&pool, id).await.unwrap();
     assert_eq!(
-        call(&pool, "GET", "/api/build-system", Value::Null).await.1["worker_online"],
+        call(&pool, "GET", "/api/build-system", Value::Null).await.1["workerOnline"],
         true
     );
     sqlx::query("UPDATE build_workers SET last_seen=now()-interval '1 minute'")
@@ -391,7 +391,7 @@ async fn stale_worker_heartbeats_do_not_claim_availability(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(
-        call(&pool, "GET", "/api/build-system", Value::Null).await.1["worker_online"],
+        call(&pool, "GET", "/api/build-system", Value::Null).await.1["workerOnline"],
         false
     );
 }
@@ -401,7 +401,7 @@ async fn stale_worker_heartbeats_do_not_claim_availability(pool: PgPool) {
 async fn mutable_refs_are_pinned_once_and_revisions_keep_only_the_commit(pool: PgPool) {
     let id = service(&pool, false).await;
     for kind in ["branch", "tag"] {
-        let request = json!({"operation_id":Uuid::new_v4(),kind:"release/v1"});
+        let request = json!({"operationId":Uuid::new_v4(),kind:"release/v1"});
         let (status, queued) = call(
             &pool,
             "POST",
@@ -410,7 +410,7 @@ async fn mutable_refs_are_pinned_once_and_revisions_keep_only_the_commit(pool: P
         )
         .await;
         assert_eq!(status, StatusCode::ACCEPTED);
-        assert!(queued["resolved_commit"].is_null());
+        assert!(queued["resolvedCommit"].is_null());
         let build = builds::claim(&pool).await.unwrap().unwrap();
         assert!(builds::finish(&pool, &build, success()).await.is_err());
         let commit = if kind == "branch" {
@@ -442,7 +442,7 @@ async fn mutable_refs_are_pinned_once_and_revisions_keep_only_the_commit(pool: P
         )
         .await;
         assert_eq!(stored["spec"]["source"][kind], "release/v1");
-        assert_eq!(stored["resolved_commit"], commit);
+        assert_eq!(stored["resolvedCommit"], commit);
         let revision: Value = sqlx::query_scalar("SELECT spec FROM revisions WHERE build_id=$1")
             .bind(build.id)
             .fetch_one(&pool)
@@ -467,7 +467,7 @@ async fn cancelled_and_expired_claims_cannot_resolve_sources(pool: PgPool) {
             &pool,
             "POST",
             &format!("/api/services/{id}/builds"),
-            json!({"operation_id":Uuid::new_v4(),"branch":"main"}),
+            json!({"operationId":Uuid::new_v4(),"branch":"main"}),
         )
         .await;
         let build = builds::claim(&pool).await.unwrap().unwrap();
@@ -524,7 +524,7 @@ async fn build_recipes_are_immutable_audited_and_fenced(pool: PgPool) {
         Value::Null,
     )
     .await;
-    assert_eq!(stored["build_plan"]["dockerfile"], "FROM scratch");
+    assert_eq!(stored["buildPlan"]["dockerfile"], "FROM scratch");
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM events WHERE kind='build.planned'")
             .fetch_one(&pool)

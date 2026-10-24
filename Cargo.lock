@@ -1628,6 +1628,7 @@ version = "0.1.0"
 dependencies = [
  "platform-domain",
  "serde",
+ "serde_json",
  "uuid",
 ]
 

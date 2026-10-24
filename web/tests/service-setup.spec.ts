@@ -100,7 +100,7 @@ test('new service selects registered domains and saves OpenBao secrets before bu
   )
   expect(state.builds).toHaveLength(0)
   expect(
-    state.domains.items.find((d: { hostname: string }) => d.hostname === hostname).service_id,
+    state.domains.items.find((d: { hostname: string }) => d.hostname === hostname).serviceId,
   ).toBe(id)
   await page.getByRole('button', { name: 'Retry creation', exact: true }).click()
   await expect(page.getByText('Response interrupted', { exact: true })).toBeVisible()

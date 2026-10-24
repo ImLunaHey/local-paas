@@ -62,8 +62,7 @@ Shared-volume workers stay pinned to the volume owner.
 This creates a deliberate interruption during replacement. A failed candidate
 does not restart the previous worker automatically; deploy a retained revision
 explicitly. Active workers use the same bounded local crash recovery as HTTP
-services. Agents must advertise `workers-v1`; existing HTTP declarations remain
-compatible with older agents. Do not downgrade an agent while it owns a worker.
+services. Agents must advertise `workers-v1`; controller and agents must use the same protocol version.
 
 Singleton ownership is per service identity, not across environments or separate
 services. It prevents platform-managed overlapping replacements, but does not
@@ -82,8 +81,7 @@ cargo test -p control-plane --test worker_canary -- --ignored --nocapture
 
 The drill deploys twice, checks the waiting barrier and recorded process-start
 ordering, verifies no HTTP listener and retained logs, then stops both deployments.
-This passed on Lake on 2026-10-24. Disposable database tests also cover legacy
-agents, concurrent reconciliation, stale/wrong-node shutdown reports, unreachable
+Disposable database tests cover unsupported capabilities, concurrent reconciliation, stale/wrong-node shutdown reports, unreachable
 nodes, cancellation, and rejection of domain/HTTP mappings. Desktop and mobile
 browser checks covered creation and the shared configuration form.
 
@@ -114,7 +112,7 @@ activation remains pending. See [independent ingress](ingress.md).
 ## Development worker topology
 
 The portable installer provisions this same topology on native x86-64 or ARM64
-Linux with KVM. See [installation](install.md); historical Lake results below
+Linux with KVM. See [installation](install.md); opt-in runtime tests below
 qualify the existing deployment, not every possible host.
 
 Three reproducible NixOS worker VMs use 2 GiB RAM, one vCPU and a 16 GiB NVMe
@@ -185,42 +183,12 @@ Host UIDs 61000–61003 are reserved by the scripts for the builder and three
 workers. They refuse an unexpected identity. This avoids default system-UID
 reuse if a host NixOS activation removes manually created users. These transient
 units and users are development provisioning; integrate their declarations into
-Lake's reviewed NixOS configuration before relying on host reboot recovery.
+the installed host units before relying on host reboot recovery.
 Do not let an unrelated host service use these reserved UIDs.
 
 Start the scoped gateway with `bash infra/workers/gateway.sh`. Its Caddy state
-stays under `.local/caddy`. An initial Showcase Studio preview is registered at
-`https://lake.tail3275e2.ts.net:5201`, forwarding through the private proxy;
-port 5188 remains the dashboard and existing port 443 routes are unchanged.
-The preview is reachable only inside the tailnet and only routes ready instances.
-
-## Verification on 2026-10-23
-
-- Rust formatting, Clippy, workspace tests, disposable PostgreSQL integration
-  tests, frontend formatting and the production frontend build passed.
-- Browser tests used the real API over Tailscale HTTPS: registration and editable
-  configuration, build queue/cancel, completed image output, live application
-  logs with pause/resume, measured CPU/memory/PIDs, charts and mobile layout.
-- Three individually authenticated workers registered. Showcase Studio reached
-  stabilized readiness with two replicas on different VMs; its private HTTPS
-  preview returned 200. Its readiness path is `/`, since this image has no
-  `/health` route.
-- A candidate deployment with a deliberately nonexistent readiness path failed
-  and both candidates were removed. The original active deployment and its two
-  allocations were preserved; the preview returned 200 throughout sampled checks.
-  The service's valid readiness configuration was restored immediately after
-  creating the candidate snapshot.
-- During a 20-second controller pause, both worker endpoints returned 200.
-  Restarting the controller retained the deployment and instance identities;
-  the private preview returned 200 after restart.
-- With worker 1 stopped, its observation became unknown, worker 2 stayed ready,
-  and the private preview returned 200 using the remaining replica.
-  Restarting worker 1 recovered the same instance identity and restored two ready
-  replicas after stabilization; all three nodes reported healthy.
-
-These are development checks on one physical Lake host. They do not establish
-hardware redundancy, lossless telemetry, automatic cross-node relocation,
-production ingress availability or backup recovery.
+stays under `.local/caddy`. Configure private preview forwarding as described in
+[networking](environments-networking.md). Only ready instances receive traffic.
 
 ## Disposable recovery drill
 
@@ -264,7 +232,7 @@ an empty array uses the image command. Pass credentials through OpenBao, never
 literal command arguments. Each run snapshots current service resources, volume,
 connections and secret version references alongside the pinned image revision.
 
-`POST /api/services/{id}/jobs` accepts `operation_id`, `revision_id` and
+`POST /api/services/{id}/jobs` accepts `operationId`, `revisionId` and
 `options: {command: string[], timeout_seconds: number}`. Retries return the same
 run; changing its inputs with the same operation ID is a conflict. One unfinished
 job is allowed per service, including queued, unknown and cleanup-pending runs.
@@ -287,8 +255,8 @@ result survives cleanup; logs use the existing retained logging pipeline. The AP
 stores only result metadata and secret references, not secret values.
 
 `PUT /api/services/{id}/job-schedule` configures one interval schedule per app using
-an operation ID, expected `version` (0 initially), `revision_id`, `options`,
-`interval_minutes` (1–10080) and `enabled`. Saving restarts the interval from now.
+an operation ID, expected `version` (0 initially), `revisionId`, `options`,
+`intervalMinutes` (1–10080) and `enabled`. Saving restarts the interval from now.
 The interval is elapsed UTC time, not a timezone-dependent calendar or cron rule.
 Pausing affects future ticks, not an already queued/running job. Schedules pin an
 image/command, while each occurrence snapshots current app settings and secrets.
@@ -337,7 +305,7 @@ left paused and its instances stopped.
 ## Pre-deploy commands
 
 OCI applications can set `workload.pre_deploy` with an explicit `command` argv
-and `timeout_seconds` (10–86400). Configure the executable and one argument per
+and `timeoutSeconds` (10–86400). Configure the executable and one argument per
 line in Configuration. The command runs once from the candidate image before app
 placement. It inherits the deployment's exact resource, connection, volume and
 versioned secret snapshot. A deployment owns one durable child job; API retries
@@ -378,7 +346,7 @@ established streams survive controller interruption; new connections fail closed
 once their short route leases expire. New TCP connections balance across eligible
 members. Requests are never retried after any application bytes have been sent.
 
-This development transport crosses the three Lake VMs through their existing
+This development transport crosses the three worker VMs through their existing
 loopback QEMU forwards. Host aliases point at each VM's private bridge gateway;
 firewalls expose proxy listeners only to that bridge. NAS/management access remains
 denied. Agent-held routes last at most ten seconds (also capped by readiness and

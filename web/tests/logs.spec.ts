@@ -4,8 +4,8 @@ const id = '00000000-0000-4000-8000-000000000001'
 function entry(sequence: number, fields: Record<string, unknown> | null, line = '') {
   return {
     sequence,
-    instance_id: id,
-    revision_id: id,
+    instanceId: id,
+    revisionId: id,
     node: 'worker-1',
     timestamp: `2026-10-24T08:29:${String(sequence).padStart(2, '0')}Z`,
     stream: fields ? 'stdout' : 'stderr',
@@ -28,32 +28,32 @@ async function mockLogs(page: Page, entries: () => Entry[]) {
         id,
         version: 1,
         spec: {
-          schema_version: 1,
+          schemaVersion: 1,
           name: 'log-viewer-test',
           project: 'test',
           environment: 'development',
           source: { repository: 'https://github.com/example/app', branch: 'main' },
-          resources: { cpu_millis: 100, memory_mib: 64 },
-          distinct_nodes: false,
+          resources: { cpuMillis: 100, memoryMib: 64 },
+          distinctNodes: false,
           domains: [],
           secrets: [],
           workload: { kind: 'oci-service', dockerfile: 'Dockerfile', context: '.', replicas: 1 },
         },
       }
     if (url.pathname.endsWith('/runtime'))
-      json = { instances: [], deployments: [], healthy_nodes: 0, preview_url: null }
+      json = { instances: [], deployments: [], healthyNodes: 0, previewUrl: null }
     if (url.pathname.endsWith('/log-storage'))
-      json = { available: true, configured: true, pending_entries: 0, bytes_on_disk: 0 }
+      json = { available: true, configured: true, pendingEntries: 0, bytesOnDisk: 0 }
     if (url.pathname.endsWith('/runtime/logs')) {
       const rows = entries()
       const after = Number(url.searchParams.get('after') ?? 0)
       json = {
         entries: rows.filter((row) => row.sequence > after),
         markers: [{ id: 'start', timestamp: rows[0].timestamp, message: 'Deployment started' }],
-        next_cursor: rows.at(-1)?.sequence ?? 0,
-        oldest_cursor: rows[0]?.sequence,
-        has_more: false,
-        archive_warning: null,
+        nextCursor: rows.at(-1)?.sequence ?? 0,
+        oldestCursor: rows[0]?.sequence,
+        hasMore: false,
+        archiveWarning: null,
       }
     }
     await route.fulfill({ json })

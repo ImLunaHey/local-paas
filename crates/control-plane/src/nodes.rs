@@ -26,25 +26,27 @@ fn blocked(spec: &ServiceSpec, enabled: bool, job: bool) -> Option<&'static str>
     }
 }
 pub async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let nodes: Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',n.id,'name',n.name,'cordoned',n.cordoned,'draining',n.draining,'last_seen',n.last_seen,'online',coalesce(n.last_seen>now()-interval '30 seconds',false),'cpu_millis',n.cpu_millis,'memory_mib',n.memory_mib,'slots',n.slots,'reserved_disk_gib',(SELECT coalesce(sum(size_gib),0) FROM volumes WHERE node_id=n.id)+(SELECT coalesce(sum(size_gib),0) FROM shared_volumes WHERE node_id=n.id),'capabilities',n.capabilities) FROM nodes n ORDER BY n.name").fetch_all(&pool).await?;
+    let nodes: Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',n.id,'name',n.name,'cordoned',n.cordoned,'draining',n.draining,'lastSeen',n.last_seen,'online',coalesce(n.last_seen>now()-interval '30 seconds',false),'cpuMillis',n.cpu_millis,'memoryMib',n.memory_mib,'slots',n.slots,'reservedDiskGib',(SELECT coalesce(sum(size_gib),0) FROM volumes WHERE node_id=n.id)+(SELECT coalesce(sum(size_gib),0) FROM shared_volumes WHERE node_id=n.id),'capabilities',n.capabilities) FROM nodes n ORDER BY n.name").fetch_all(&pool).await?;
     let rows=sqlx::query("SELECT i.*,d.service_id,d.spec,d.status AS deployment_status,d.job_options IS NOT NULL AS job,s.name,s.relocation_enabled,n.last_seen,r.state AS relocation_state,r.diagnostic AS relocation_diagnostic FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id JOIN nodes n ON n.id=i.node_id LEFT JOIN relocations r ON r.old_instance=i.id AND r.state<>'cancelled' WHERE i.state<>'stopped' ORDER BY n.name,s.name,i.id").fetch_all(&pool).await?;
     let mut instances = Vec::new();
     for r in rows {
         let spec: DbJson<ServiceSpec> = r.get("spec");
         let enabled = r.get("relocation_enabled");
         let reason = blocked(&spec, enabled, r.get("job"));
-        instances.push(json!({"id":r.get::<Uuid,_>("id"),"node_id":r.get::<Uuid,_>("node_id"),"service_id":r.get::<Uuid,_>("service_id"),"name":r.get::<String,_>("name"),"project":spec.project,"environment":spec.environment,"state":r.get::<String,_>("state"),"desired_state":r.get::<String,_>("desired_state"),"observed_at":r.get::<Option<chrono::DateTime<chrono::Utc>>,_>("observed_at"),"diagnostic":r.get::<Option<String>,_>("diagnostic"),"cpu_millis":r.get::<Option<f64>,_>("cpu_millis"),"memory_bytes":r.get::<Option<i64>,_>("memory_bytes"),"requested_cpu_millis":spec.resources.cpu_millis,"requested_memory_mib":spec.resources.memory_mib,"relocation_enabled":enabled,"can_enable":blocked(&spec,true,r.get("job")).is_none(),"blocked_reason":reason,"relocation_state":r.get::<Option<String>,_>("relocation_state"),"relocation_diagnostic":r.get::<Option<String>,_>("relocation_diagnostic")}));
+        instances.push(json!({"id":r.get::<Uuid,_>("id"),"nodeId":r.get::<Uuid,_>("node_id"),"serviceId":r.get::<Uuid,_>("service_id"),"name":r.get::<String,_>("name"),"project":spec.project,"environment":spec.environment,"state":r.get::<String,_>("state"),"desiredState":r.get::<String,_>("desired_state"),"observedAt":r.get::<Option<chrono::DateTime<chrono::Utc>>,_>("observed_at"),"diagnostic":r.get::<Option<String>,_>("diagnostic"),"cpuMillis":r.get::<Option<f64>,_>("cpu_millis"),"memoryBytes":r.get::<Option<i64>,_>("memory_bytes"),"requestedCpuMillis":spec.resources.cpu_millis,"requestedMemoryMib":spec.resources.memory_mib,"relocationEnabled":enabled,"canEnable":blocked(&spec,true,r.get("job")).is_none(),"blockedReason":reason,"relocationState":r.get::<Option<String>,_>("relocation_state"),"relocationDiagnostic":r.get::<Option<String>,_>("relocation_diagnostic")}));
     }
     Ok(Json(json!({"nodes":nodes,"instances":instances})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Action {
     operation_id: Uuid,
     action: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Policy {
     operation_id: Uuid,
     enabled: bool,
@@ -143,7 +145,7 @@ pub async fn action(
             &mut tx,
             id,
             &format!("node.{}", input.action),
-            json!({"operation_id":input.operation_id}),
+            json!({"operationId":input.operation_id}),
         )
         .await?;
     }
@@ -185,7 +187,7 @@ pub async fn policy(
             &mut tx,
             id,
             "service.relocation.configure",
-            json!({"enabled":input.enabled,"operation_id":input.operation_id}),
+            json!({"enabled":input.enabled,"operationId":input.operation_id}),
         )
         .await?;
     }
@@ -228,7 +230,7 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
                 tx,
                 id,
                 "relocation.failed",
-                json!({"old_instance":old,"new_instance":new}),
+                json!({"oldInstance":old,"newInstance":new}),
             )
             .await?;
         } else if state == "preparing" && ready {
@@ -243,7 +245,7 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
                 tx,
                 id,
                 "relocation.promoted",
-                json!({"old_instance":old,"new_instance":new}),
+                json!({"oldInstance":old,"newInstance":new}),
             )
             .await?;
         } else if state == "draining" && ready && r.get::<bool, _>("drained") {
@@ -252,7 +254,7 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
                 .bind(id)
                 .execute(&mut **tx)
                 .await?;
-            audit(tx,id,"relocation.completed",json!({"old_instance":old,"new_instance":new,"cleanup_pending":r.get::<String,_>("old_state")!="stopped"})).await?;
+            audit(tx,id,"relocation.completed",json!({"oldInstance":old,"newInstance":new,"cleanupPending":r.get::<String,_>("old_state")!="stopped"})).await?;
         }
     }
     let candidates=sqlx::query("SELECT i.id,i.node_id,i.deployment_id,d.service_id,d.spec,d.database_ports,n.draining,s.relocation_enabled FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id WHERE i.desired_state='running' AND i.routing_enabled AND d.status='active' AND d.job_options IS NULL AND (n.draining OR n.last_seen<now()-interval '45 seconds') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.old_instance=i.id AND r.state<>'cancelled') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state IN ('preparing','draining')) AND NOT EXISTS(SELECT 1 FROM deployments pending WHERE pending.service_id=d.service_id AND pending.status IN ('preparing','waiting','releasing')) ORDER BY i.id").fetch_all(&mut **tx).await?;
@@ -306,7 +308,7 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
             tx,
             id,
             "relocation.started",
-            json!({"old_instance":old,"new_instance":new,"reason":reason}),
+            json!({"oldInstance":old,"newInstance":new,"reason":reason}),
         )
         .await?;
     }

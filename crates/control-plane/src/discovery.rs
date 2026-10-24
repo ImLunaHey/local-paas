@@ -36,7 +36,7 @@ pub async fn list(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     crate::runtime::service_exists(&pool, id).await?;
-    let items: Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'name',s.name,'ready_instances',(SELECT count(*) FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=s.id AND d.status='active' AND i.desired_state='running' AND i.state='ready' AND i.routing_enabled AND i.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds')) FROM services s JOIN services caller ON caller.environment_id=s.environment_id WHERE caller.id=$1 AND s.id<>$1 AND s.kind='oci-service' AND coalesce(s.spec->'workload'->>'execution','http')='http' ORDER BY s.name").bind(id).fetch_all(&pool).await?;
+    let items: Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'name',s.name,'readyInstances',(SELECT count(*) FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=s.id AND d.status='active' AND i.desired_state='running' AND i.state='ready' AND i.routing_enabled AND i.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds')) FROM services s JOIN services caller ON caller.environment_id=s.environment_id WHERE caller.id=$1 AND s.id<>$1 AND s.kind='oci-service' AND coalesce(s.spec->'workload'->>'execution','http')='http' ORDER BY s.name").bind(id).fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }
 

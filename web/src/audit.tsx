@@ -19,16 +19,16 @@ interface Entry {
   actor: string
   action: string
   outcome: string
-  target_type: string | null
-  target_id: string | null
+  targetType: string | null
+  targetId: string | null
   project: string | null
   environment: string | null
-  request_id: string | null
+  requestId: string | null
   details: Record<string, unknown>
 }
 interface Page {
   entries: Entry[]
-  next_cursor: number | null
+  nextCursor: number | null
 }
 const features = tableFeatures({ columnFilteringFeature, rowExpandingFeature })
 const columns: ColumnDef<typeof features, Entry>[] = [
@@ -155,7 +155,7 @@ export function AuditLog() {
       if (pageParam) q.set('before', String(pageParam))
       return api<Page>('/audit?' + q)
     },
-    getNextPageParam: (page) => page.next_cursor ?? undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
     refetchInterval: 10000,
   })
   useEffect(() => {
@@ -384,12 +384,12 @@ export function AuditLog() {
                           <div>
                             <dt className="mb-1 text-zinc-400">Target</dt>
                             <dd className="break-all">
-                              {row.original.target_type} {row.original.target_id ?? '—'}
+                              {row.original.targetType} {row.original.targetId ?? '—'}
                             </dd>
                           </div>
                           <div>
                             <dt className="mb-1 text-zinc-400">Action ID</dt>
-                            <dd>{row.original.request_id ?? 'Platform change'}</dd>
+                            <dd>{row.original.requestId ?? 'Platform change'}</dd>
                           </div>
                         </dl>
                         <pre className="mt-4 whitespace-pre-wrap break-all text-[11px] text-zinc-400">

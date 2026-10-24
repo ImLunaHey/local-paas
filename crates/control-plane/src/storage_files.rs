@@ -13,6 +13,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 const LIMIT: usize = 16 * 1024 * 1024;
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Browse {
     #[serde(default)]
     path: String,
@@ -166,7 +167,7 @@ pub async fn get(
             .filter(|o| o.key != query.path)
             .map(|o| json!({"path":o.key,"kind":"file","size":o.size,"modified":o.last_modified})),
     );
-    Ok(Json(json!({"items":items,"cursor":listing.next_continuation_token,"read_only":readonly,"limit_bytes":LIMIT})).into_response())
+    Ok(Json(json!({"items":items,"cursor":listing.next_continuation_token,"readOnly":readonly,"limitBytes":LIMIT})).into_response())
 }
 pub async fn upload(
     State(pool): State<PgPool>,

@@ -5,11 +5,12 @@ use serde_json::{Value, json};
 use sqlx::{PgPool, Row, types::Json as DbJson};
 use uuid::Uuid;
 pub(crate) async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',p.name,'name',e.name,'service_count',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e JOIN projects p ON p.id=e.project_id ORDER BY p.name,e.name").fetch_all(&pool).await?;
+    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',e.id,'project',p.name,'name',e.name,'serviceCount',(SELECT count(*) FROM services s WHERE s.environment_id=e.id)) FROM environments e JOIN projects p ON p.id=e.project_id ORDER BY p.name,e.name").fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Create {
     project: String,
     name: String,
@@ -92,15 +93,13 @@ pub(crate) async fn create(
             spec["domains"] = json!([]);
             // Shadow configuration, never attach the source environment's live filesystem.
             spec.as_object_mut().unwrap().remove("volume");
-            if let Some(connections) = spec["workload"]["private_connections"].as_array_mut() {
+            if let Some(connections) = spec["workload"]["privateConnections"].as_array_mut() {
                 for c in connections {
-                    let old = c["service_id"]
-                        .as_str()
-                        .and_then(|s| s.parse::<Uuid>().ok());
+                    let old = c["serviceId"].as_str().and_then(|s| s.parse::<Uuid>().ok());
                     let new = old.and_then(|id| ids.get(&id)).ok_or(ApiError::Conflict(
                         "private connection cannot be shadowed outside its environment",
                     ))?;
-                    c["service_id"] = json!(new);
+                    c["serviceId"] = json!(new);
                 }
             }
             let service = ids[&row.get::<Uuid, _>("id")];

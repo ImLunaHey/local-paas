@@ -94,10 +94,10 @@ export function DatabaseWorkspace({
           },
           {
             label: 'Persistent volume',
-            value: info.data?.volume ? info.data.volume.size_gib + ' GiB' : '—',
+            value: info.data?.volume ? info.data.volume.sizeGib + ' GiB' : '—',
           },
-          { label: 'CPU limit', value: spec.resources.cpu_millis + 'm' },
-          { label: 'Memory limit', value: spec.resources.memory_mib + ' MiB' },
+          { label: 'CPU limit', value: spec.resources.cpuMillis + 'm' },
+          { label: 'Memory limit', value: spec.resources.memoryMib + ' MiB' },
         ]}
       >
         {children}

@@ -10,34 +10,34 @@ import type { Revision, Service } from './api'
 
 export interface Instance {
   id: string
-  deployment_id: string
-  node_id: string
-  node_name: string
+  deploymentId: string
+  nodeId: string
+  nodeName: string
   state: string
-  desired_state: string
+  desiredState: string
   diagnostic: string | null
-  observed_at: string | null
-  cpu_millis: number | null
-  memory_bytes: number | null
+  observedAt: string | null
+  cpuMillis: number | null
+  memoryBytes: number | null
   pids: number | null
-  io_read_bytes_per_second: number | null
-  io_write_bytes_per_second: number | null
-  network_rx_bytes_per_second: number | null
-  network_tx_bytes_per_second: number | null
+  ioReadBytesPerSecond: number | null
+  ioWriteBytesPerSecond: number | null
+  networkRxBytesPerSecond: number | null
+  networkTxBytesPerSecond: number | null
 }
 interface Deployment {
-  pre_deploy?: ReleaseJob | null
+  preDeploy?: ReleaseJob | null
   id: string
-  revision_id: string
+  revisionId: string
   status: string
-  error_code: string | null
-  created_at: string
+  errorCode: string | null
+  createdAt: string
 }
 export interface RuntimeStatus {
   deployments: Deployment[]
   instances: Instance[]
-  healthy_nodes: number
-  preview_url: string | null
+  healthyNodes: number
+  previewUrl: string | null
 }
 export function useRuntime(id: string, enabled = true) {
   return useQuery({
@@ -51,12 +51,12 @@ export function runtimeLabel(data?: RuntimeStatus): string {
   if (!data) return 'Checking runtime'
   const active = data.deployments.find((d) => d.status === 'active')
   if (active)
-    return data.instances.some((i) => i.deployment_id === active.id && i.state === 'ready')
+    return data.instances.some((i) => i.deploymentId === active.id && i.state === 'ready')
       ? 'Running'
       : 'Unavailable'
   const waiting = data.deployments.find((d) => d.status === 'waiting')
   if (waiting)
-    return waiting.error_code === 'waiting_for_capacity'
+    return waiting.errorCode === 'waiting_for_capacity'
       ? 'Waiting for capacity'
       : 'Waiting for shutdown'
   if (data.deployments.some((d) => d.status === 'releasing')) return 'Pre-deploy task'
@@ -82,7 +82,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
       return api(`/services/${service.id}/deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation_id: operation.current.id, revision_id: revision }),
+        body: JSON.stringify({ operationId: operation.current.id, revisionId: revision }),
       })
     },
     onSuccess: async () => {
@@ -106,7 +106,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
     <section className="panel p-6 mb-7 space-y-4" aria-label="Deployments">
       <div className="section-heading">
         <h2>Deployments</h2>
-        <span className="chip">{runtime.data?.healthy_nodes ?? '—'} available workers</span>
+        <span className="chip">{runtime.data?.healthyNodes ?? '—'} available workers</span>
       </div>
       <p className="text-xs text-muted">
         {worker
@@ -124,7 +124,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
             {!revisions.data?.length && <option value="">No built revisions</option>}
             {revisions.data?.map((r) => (
               <option key={r.id} value={r.id}>
-                {new Date(r.created_at).toLocaleString()} · {r.image_digest.slice(0, 19)}
+                {new Date(r.createdAt).toLocaleString()} · {r.imageDigest.slice(0, 19)}
               </option>
             ))}
           </Select>
@@ -134,7 +134,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
           onClick={() => deploy.mutate()}
           disabled={
             !revision ||
-            !runtime.data?.healthy_nodes ||
+            !runtime.data?.healthyNodes ||
             preparing ||
             deploy.isPending ||
             runtime.isError
@@ -161,10 +161,10 @@ export function DeploymentPanel({ service }: { service: Service }) {
             </span>
             <code className="text-xs ml-3">{d.id.slice(0, 8)}</code>
             <p className="text-xs text-muted mt-2">
-              {new Date(d.created_at).toLocaleString()}
-              {d.error_code && ` · ${d.error_code.replaceAll('_', ' ')}`}
+              {new Date(d.createdAt).toLocaleString()}
+              {d.errorCode && ` · ${d.errorCode.replaceAll('_', ' ')}`}
             </p>
-            {d.pre_deploy && <PreDeployResult job={d.pre_deploy} serviceId={service.id} />}
+            {d.preDeploy && <PreDeployResult job={d.preDeploy} serviceId={service.id} />}
           </div>
           {['releasing', 'waiting', 'preparing', 'active'].includes(d.status) && (
             <Button disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
@@ -173,8 +173,8 @@ export function DeploymentPanel({ service }: { service: Service }) {
           )}
         </div>
       ))}
-      {runtime.data?.preview_url && runtimeLabel(runtime.data) === 'Running' && (
-        <a className="back-link" href={runtime.data.preview_url} target="_blank" rel="noreferrer">
+      {runtime.data?.previewUrl && runtimeLabel(runtime.data) === 'Running' && (
+        <a className="back-link" href={runtime.data.previewUrl} target="_blank" rel="noreferrer">
           Open application <ExternalLink size={14} />
         </a>
       )}

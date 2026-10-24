@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateService {
     operation_id: Uuid,
     expected_version: i32,

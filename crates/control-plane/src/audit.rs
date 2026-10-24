@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Filters {
     before: Option<i64>,
     project: Option<Uuid>,
@@ -32,7 +33,7 @@ pub async fn list(
     {
         return Err(ApiError::Conflict("audit filter exceeds 128 characters"));
     }
-    let rows:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT to_jsonb(a) FROM (SELECT l.*,p.name AS project,e.name AS environment FROM audit_log l LEFT JOIN projects p ON p.id=l.project_id LEFT JOIN environments e ON e.id=l.environment_id WHERE l.target_type IS DISTINCT FROM 'request' AND ($1::bigint IS NULL OR l.sequence<$1) AND ($2::uuid IS NULL OR l.project_id=$2) AND ($3::uuid IS NULL OR l.environment_id=$3) AND ($4::text IS NULL OR strpos(lower(l.actor),lower($4))>0) AND ($5::text IS NULL OR strpos(lower(l.action),lower($5))>0) AND ($6::text IS NULL OR l.outcome=$6) AND ($7::timestamptz IS NULL OR l.timestamp>=$7) AND ($8::timestamptz IS NULL OR l.timestamp<=$8) ORDER BY l.sequence DESC LIMIT 101) a").bind(q.before).bind(q.project).bind(q.environment).bind(q.actor).bind(q.action).bind(q.outcome).bind(q.from).bind(q.until).fetch_all(&pool).await?;
+    let rows:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('sequence',a.sequence,'requestId',a.request_id,'timestamp',a.timestamp,'actor',a.actor,'action',a.action,'outcome',a.outcome,'targetType',a.target_type,'targetId',a.target_id,'serviceId',a.service_id,'environmentId',a.environment_id,'projectId',a.project_id,'project',a.project,'environment',a.environment,'details',a.details) FROM (SELECT l.*,p.name AS project,e.name AS environment FROM audit_log l LEFT JOIN projects p ON p.id=l.project_id LEFT JOIN environments e ON e.id=l.environment_id WHERE l.target_type IS DISTINCT FROM 'request' AND ($1::bigint IS NULL OR l.sequence<$1) AND ($2::uuid IS NULL OR l.project_id=$2) AND ($3::uuid IS NULL OR l.environment_id=$3) AND ($4::text IS NULL OR strpos(lower(l.actor),lower($4))>0) AND ($5::text IS NULL OR strpos(lower(l.action),lower($5))>0) AND ($6::text IS NULL OR l.outcome=$6) AND ($7::timestamptz IS NULL OR l.timestamp>=$7) AND ($8::timestamptz IS NULL OR l.timestamp<=$8) ORDER BY l.sequence DESC LIMIT 101) a").bind(q.before).bind(q.project).bind(q.environment).bind(q.actor).bind(q.action).bind(q.outcome).bind(q.from).bind(q.until).fetch_all(&pool).await?;
     let more = rows.len() > 100;
     let rows: Vec<Value> = rows.into_iter().take(100).map(|r| r.0).collect();
     let next = if more {
@@ -40,7 +41,7 @@ pub async fn list(
     } else {
         None
     };
-    Ok(Json(json!({"entries":rows,"next_cursor":next})))
+    Ok(Json(json!({"entries":rows,"nextCursor":next})))
 }
 pub async fn record_action(State(pool): State<PgPool>, request: Request, next: Next) -> Response {
     let request_id = Uuid::now_v7();
@@ -146,7 +147,7 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
     if insert("requested", json!({})).execute(&pool).await.is_err() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error":"audit storage unavailable; request was not executed"})),
+            Json(json!({"code":"audit_unavailable","error":"audit storage unavailable; request was not executed"})),
         )
             .into_response();
     }

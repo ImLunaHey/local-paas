@@ -10,7 +10,7 @@ interface Result {
   kind: 'project' | 'service'
   name: string
   project: string
-  project_id: string
+  projectId: string
   environment: string | null
 }
 interface Action {

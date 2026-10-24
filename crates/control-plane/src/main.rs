@@ -16,9 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&database_url)
         .await
         .map_err(|_| "cannot connect to PostgreSQL")?;
-    control_plane::check_migrations(&pool)
-        .await
-        .map_err(|_| "database migration failed")?;
+    control_plane::check_migrations(&pool).await?;
     let port = env::var("PORT")
         .unwrap_or_else(|_| "8080".into())
         .parse::<u16>()?;

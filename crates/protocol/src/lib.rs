@@ -3,12 +3,13 @@ use platform_domain::{ImageDigest, ServiceSpec};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 fn is_false(value: &bool) -> bool {
     !value
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Assignment {
     pub instance_id: Uuid,
     pub deployment_id: Uuid,
@@ -35,6 +36,7 @@ pub struct Assignment {
 /// ports; the public/scheduler domain never sees container runtime identifiers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct PrivateBackend {
     pub port: u16,
     pub expires_unix_ms: i64,
@@ -42,6 +44,7 @@ pub struct PrivateBackend {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncRequest {
     pub version: u32,
     pub node_id: Uuid,
@@ -51,12 +54,14 @@ pub struct SyncRequest {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncResponse {
     pub version: u32,
     pub assignments: Vec<Assignment>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceReport {
     pub instance_id: Uuid,
     pub generation: i64,
@@ -73,6 +78,7 @@ pub struct InstanceReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct JobExecution {
     /// Empty uses the image command. Otherwise replaces both entrypoint and CMD.
     pub command: Vec<String>,
@@ -81,6 +87,7 @@ pub struct JobExecution {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct JobResult {
     pub outcome: JobOutcome,
     pub exit_code: Option<i32>,
@@ -96,6 +103,7 @@ pub enum JobOutcome {
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Metrics {
     pub cpu_millis: f64,
     pub memory_bytes: u64,
@@ -111,6 +119,7 @@ pub struct Metrics {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct LogEntry {
     pub key: String,
     pub timestamp: String,
@@ -121,11 +130,13 @@ pub struct LogEntry {
 pub const FILE_LIMIT: usize = 16 * 1024 * 1024;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct FilePoll {
     pub node_id: Uuid,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct FileTask {
     pub id: Uuid,
     pub volume_id: Uuid,
@@ -135,7 +146,12 @@ pub struct FileTask {
     pub action: FileAction,
 }
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all_fields = "camelCase",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum FileAction {
     List { offset: usize },
     Download,
@@ -143,13 +159,19 @@ pub enum FileAction {
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct FileEntry {
     pub path: String,
     pub kind: String,
     pub size: Option<u64>,
 }
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all_fields = "camelCase",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum FileResult {
     Listing {
         items: Vec<FileEntry>,
@@ -165,8 +187,54 @@ pub enum FileResult {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct FileReply {
     pub node_id: Uuid,
     pub id: Uuid,
     pub result: FileResult,
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    #[test]
+    fn v2_uses_camel_case_and_rejects_old_fields() {
+        let node = Uuid::now_v7();
+        let value = serde_json::json!({"version":VERSION,"nodeId":node,"observations":[]});
+        let request: SyncRequest = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(request.node_id, node);
+        assert_eq!(
+            serde_json::to_value(&request).unwrap()["nodeId"],
+            value["nodeId"]
+        );
+        let old = serde_json::json!({"version":1,"node_id":node,"observations":[]});
+        assert!(serde_json::from_value::<SyncRequest>(old).is_err());
+    }
+
+    #[test]
+    fn application_log_lines_are_opaque() {
+        let line = r#"{"user_id":"a","cpu_millis":17,"nested":{"build_args":true}}"#;
+        let report = InstanceReport {
+            instance_id: Uuid::now_v7(),
+            generation: 7,
+            observed_unix_ms: 123,
+            process_started_at: None,
+            job_result: None,
+            state: "ready".into(),
+            diagnostic: None,
+            metrics: Some(Metrics::default()),
+            logs: vec![LogEntry {
+                key: "one".into(),
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                stream: "stdout".into(),
+                line: line.into(),
+            }],
+        };
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value["logs"][0]["line"], line);
+        assert!(value["metrics"].get("cpuMillis").is_some());
+        assert!(value["metrics"].get("cpu_millis").is_none());
+        assert!(value.get("instanceId").is_some());
+    }
 }

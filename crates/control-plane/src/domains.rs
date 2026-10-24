@@ -60,16 +60,17 @@ fn normalize(host: &str) -> Option<String> {
     Some(host)
 }
 pub async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('hostname',d.hostname,'service_id',d.service_id,'version',d.version,'created_at',d.created_at,'updated_at',d.updated_at,'project',p.name,'project_id',p.id,'environment',e.name,'service',s.name,'status','pending-edge') FROM domains d LEFT JOIN services s ON s.id=d.service_id LEFT JOIN environments e ON e.id=s.environment_id LEFT JOIN projects p ON p.id=e.project_id ORDER BY d.hostname").fetch_all(&pool).await?;
+    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('hostname',d.hostname,'serviceId',d.service_id,'version',d.version,'createdAt',d.created_at,'updatedAt',d.updated_at,'project',p.name,'projectId',p.id,'environment',e.name,'service',s.name,'status','pending-edge') FROM domains d LEFT JOIN services s ON s.id=d.service_id LEFT JOIN environments e ON e.id=s.environment_id LEFT JOIN projects p ON p.id=e.project_id ORDER BY d.hostname").fetch_all(&pool).await?;
     let target = std::env::var("EDGE_CNAME_TARGET")
         .ok()
         .and_then(|s| normalize(&s));
     Ok(Json(
-        json!({"items":items,"cname_target":target,"edge_ready":false}),
+        json!({"items":items,"cnameTarget":target,"edgeReady":false}),
     ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Create {
     hostname: String,
 }
@@ -89,6 +90,7 @@ pub async fn create(
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Update {
     service_id: Option<Uuid>,
     expected_version: i32,

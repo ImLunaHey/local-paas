@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Service } from './api'
 import { Button, Field, Input, Select } from './ui'
 interface Storage {
-  buckets: { id: string; name: string; status: string; storage_id: string; storage: string }[]
-  binding: { bucket_id: string; status: string; read_only: boolean } | null
+  buckets: { id: string; name: string; status: string; storageId: string; storage: string }[]
+  binding: { bucketId: string; status: string; readOnly: boolean } | null
 }
 export function BucketPanel({ service }: { service: Service }) {
   const managed = service.spec.workload.kind === 'rustfs-service',
@@ -26,7 +26,7 @@ export function BucketPanel({ service }: { service: Service }) {
         return api('/services/' + service.id + '/buckets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, operation_id: operation.current.id }),
+          body: JSON.stringify({ name, operationId: operation.current.id }),
         })
       }
       const secrets = await api<{ version: number }>('/services/' + service.id + '/secrets')
@@ -34,9 +34,9 @@ export function BucketPanel({ service }: { service: Service }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bucket_id: bucket,
-          read_only: readOnly,
-          expected_secret_version: secrets.version,
+          bucketId: bucket,
+          readOnly: readOnly,
+          expectedSecretVersion: secrets.version,
         }),
       })
     },
@@ -53,7 +53,7 @@ export function BucketPanel({ service }: { service: Service }) {
       return api('/services/' + service.id + '/storage-connection', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expected_secret_version: secrets.version }),
+        body: JSON.stringify({ expectedSecretVersion: secrets.version }),
       })
     },
     onSuccess: async () => {
@@ -62,8 +62,8 @@ export function BucketPanel({ service }: { service: Service }) {
       await client.invalidateQueries({ queryKey: ['services'] })
     },
   })
-  const own = state.data?.buckets.filter((b) => b.storage_id === service.id) ?? []
-  const current = state.data?.buckets.find((b) => b.id === state.data?.binding?.bucket_id)
+  const own = state.data?.buckets.filter((b) => b.storageId === service.id) ?? []
+  const current = state.data?.buckets.find((b) => b.id === state.data?.binding?.bucketId)
   return (
     <section className="panel space-y-5 p-6 mt-6">
       <div className="section-heading">
@@ -88,7 +88,7 @@ export function BucketPanel({ service }: { service: Service }) {
       {current && (
         <p className="text-sm">
           Attached: {current.storage} / {current.name} ·{' '}
-          {state.data?.binding?.read_only ? 'read only' : 'read/write'}
+          {state.data?.binding?.readOnly ? 'read only' : 'read/write'}
         </p>
       )}
       {current && (

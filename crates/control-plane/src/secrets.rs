@@ -184,11 +184,12 @@ pub(crate) async fn list(
     let (resolved, origins) = resolved(&pool, id, &bao).await?;
     let refs = references(&pool, id).await?;
     Ok(Json(
-        json!({"configured":true,"version":version,"names":resolved.keys().collect::<Vec<_>>(),"own_names":names,"origins":origins,"references":refs,"path":path}),
+        json!({"configured":true,"version":version,"names":resolved.keys().collect::<Vec<_>>(),"ownNames":names,"origins":origins,"references":refs,"path":path}),
     ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Update {
     name: String,
     value: Option<String>,
@@ -356,6 +357,7 @@ pub async fn snapshot(pool: &PgPool, id: Uuid, names: &[String]) -> Result<Optio
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Delivery {
     node_id: Uuid,
     instance_id: Uuid,

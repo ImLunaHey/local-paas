@@ -2,8 +2,8 @@ import { Link } from '@tanstack/react-router'
 export interface ReleaseJob {
   id: string
   status: string
-  result: { exit_code: number | null } | null
-  instance_id: string | null
+  result: { exitCode: number | null } | null
+  instanceId: string | null
 }
 export function PreDeployResult({ job, serviceId }: { job: ReleaseJob; serviceId: string }) {
   const labels: Record<string, string> = {
@@ -19,18 +19,18 @@ export function PreDeployResult({ job, serviceId }: { job: ReleaseJob; serviceId
       <span className="text-muted">Pre-deploy task</span>
       <span className="chip" data-state={failed ? 'failed' : job.status}>
         {job.status === 'job'
-          ? job.instance_id
+          ? job.instanceId
             ? 'In progress'
             : 'Queued'
           : (labels[job.status] ?? job.status)}
-        {job.result?.exit_code != null && ` · exit ${job.result.exit_code}`}
+        {job.result?.exitCode != null && ` · exit ${job.result.exitCode}`}
       </span>
-      {job.instance_id && (
+      {job.instanceId && (
         <Link
           className="text-orange-300 hover:underline"
           to="/services/$serviceId/logs"
           params={{ serviceId }}
-          search={{ instance: job.instance_id }}
+          search={{ instance: job.instanceId }}
         >
           View task logs
         </Link>

@@ -7,8 +7,8 @@ import { Button, Input } from './ui'
 interface Listing {
   items: { path: string; kind: 'file' | 'directory'; size?: number; modified?: string }[]
   cursor?: string | null
-  read_only: boolean
-  limit_bytes: number
+  readOnly: boolean
+  limitBytes: number
 }
 export function FileBrowser({ service, kind }: { service: Service; kind: 'objects' | 'volume' }) {
   const search = useSearch({ strict: false }) as { path?: string },
@@ -28,7 +28,7 @@ export function FileBrowser({ service, kind }: { service: Service; kind: 'object
   const upload = useMutation({
     mutationFn: async (files: globalThis.File[]) => {
       for (const file of files) {
-        if (file.size > (query.data?.limit_bytes ?? 16 * 1024 * 1024))
+        if (file.size > (query.data?.limitBytes ?? 16 * 1024 * 1024))
           throw new Error(file.name + ' exceeds the 16 MiB transfer limit')
         await api(endpoint + '?' + new URLSearchParams({ path: prefix + file.name }), {
           method: 'PUT',
@@ -72,7 +72,7 @@ export function FileBrowser({ service, kind }: { service: Service; kind: 'object
         <Button aria-label="Refresh files" onClick={() => void query.refetch()}>
           <RefreshCw size={14} />
         </Button>
-        {!query.data?.read_only && query.data && (
+        {!query.data?.readOnly && query.data && (
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-xs">
             <Upload size={14} />
             {upload.isPending ? 'Uploading…' : 'Upload files'}
@@ -89,7 +89,7 @@ export function FileBrowser({ service, kind }: { service: Service; kind: 'object
             />
           </label>
         )}
-        {query.data?.read_only && <span className="chip">Read only</span>}
+        {query.data?.readOnly && <span className="chip">Read only</span>}
       </div>
       {(query.error || upload.error) && (
         <p role="alert" className="error-notice">

@@ -20,8 +20,8 @@ test('scoped creation, breadcrumb environments and shared volume attachments', a
       await post('/environments', { project: name, name: 'development' })
       const make = (app: string) =>
         post('/services', {
-          operation_id: crypto.randomUUID(),
-          build_on_create: false,
+          operationId: crypto.randomUUID(),
+          buildOnCreate: false,
           spec: { ...spec, project: name, environment: 'production', name: app },
         })
       return {

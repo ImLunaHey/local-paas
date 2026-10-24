@@ -25,7 +25,7 @@ export function DatabaseForm({
   const pg = service?.spec.workload.kind === 'postgres-service' ? service.spec.workload : undefined
   const capabilities = useQuery({
     queryKey: ['build-system'],
-    queryFn: () => api<{ database_runtime_ready: boolean }>('/build-system'),
+    queryFn: () => api<{ databaseRuntimeReady: boolean }>('/build-system'),
     refetchInterval: 5000,
   })
   const operation = useRef<{ input: string; id: string } | null>(null)
@@ -38,8 +38,8 @@ export function DatabaseForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           spec,
-          operation_id: operation.current.id,
-          expected_version: service?.version,
+          operationId: operation.current.id,
+          expectedVersion: service?.version,
         }),
       })
     },
@@ -78,19 +78,19 @@ export function DatabaseForm({
           const data = new FormData(e.currentTarget)
           const text = (name: string) => String(data.get(name) ?? '')
           mutation.mutate({
-            schema_version: 1,
+            schemaVersion: 1,
             project: text('project'),
             environment: text('environment'),
             name: text('name'),
             source: { repository: '' },
-            resources: { cpu_millis: Number(text('cpu')), memory_mib: Number(text('memory')) },
-            distinct_nodes: false,
+            resources: { cpuMillis: Number(text('cpu')), memoryMib: Number(text('memory')) },
+            distinctNodes: false,
             domains: [],
             secrets: service?.spec.secrets ?? [],
             workload:
               engine === 'postgres-service'
-                ? { kind: engine, database: text('database'), storage_gib: Number(text('storage')) }
-                : { kind: engine, storage_gib: Number(text('storage')) },
+                ? { kind: engine, database: text('database'), storageGib: Number(text('storage')) }
+                : { kind: engine, storageGib: Number(text('storage')) },
           })
         }}
       >
@@ -166,7 +166,7 @@ export function DatabaseForm({
               type="number"
               min={100}
               max={1000}
-              defaultValue={service?.spec.resources.cpu_millis ?? 250}
+              defaultValue={service?.spec.resources.cpuMillis ?? 250}
             />
           </Field>
           <Field label="Memory (MiB)">
@@ -178,7 +178,7 @@ export function DatabaseForm({
               key={engine}
               max={1400}
               defaultValue={
-                service?.spec.resources.memory_mib ?? (engine === 'rustfs-service' ? 1024 : 512)
+                service?.spec.resources.memoryMib ?? (engine === 'rustfs-service' ? 1024 : 512)
               }
             />
           </Field>
@@ -193,8 +193,8 @@ export function DatabaseForm({
               defaultValue={
                 service?.spec.workload.kind === 'redis-service' ||
                 service?.spec.workload.kind === 'rustfs-service'
-                  ? service.spec.workload.storage_gib
-                  : (pg?.storage_gib ?? 1)
+                  ? service.spec.workload.storageGib
+                  : (pg?.storageGib ?? 1)
               }
             />
           </Field>
@@ -216,11 +216,11 @@ export function DatabaseForm({
         <Button
           variant="primary"
           type="submit"
-          disabled={mutation.isPending || (!service && !capabilities.data?.database_runtime_ready)}
+          disabled={mutation.isPending || (!service && !capabilities.data?.databaseRuntimeReady)}
         >
           {service
             ? 'Save changes'
-            : capabilities.data?.database_runtime_ready
+            : capabilities.data?.databaseRuntimeReady
               ? engine === 'rustfs-service'
                 ? 'Create S3 storage'
                 : 'Create database'
@@ -231,7 +231,7 @@ export function DatabaseForm({
   )
 }
 export interface DatabaseState {
-  volume: { node: string; size_gib: number; host: string; port: number } | null
+  volume: { node: string; sizeGib: number; host: string; port: number } | null
   applications: { id: string; name: string; connected: boolean | null }[]
 }
 export function DatabasePanel({ service }: { service: Service }) {
@@ -249,7 +249,7 @@ export function DatabasePanel({ service }: { service: Service }) {
       return api('/services/' + app + '/database-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ database_id: service.id, expected_secret_version: secrets.version }),
+        body: JSON.stringify({ databaseId: service.id, expectedSecretVersion: secrets.version }),
       })
     },
     onSuccess: async () => {
@@ -265,7 +265,7 @@ export function DatabasePanel({ service }: { service: Service }) {
       </div>
       {query.data?.volume ? (
         <div className="revision-row text-sm">
-          {query.data.volume.node} · {query.data.volume.size_gib} GiB persistent storage
+          {query.data.volume.node} · {query.data.volume.sizeGib} GiB persistent storage
           <p className="mt-2 text-xs text-muted">
             Only explicitly connected services may reach this database.
           </p>

@@ -4,9 +4,9 @@ export type { Service, ServiceSpec, Workload, GitSource as Source } from './gene
 
 export interface AuditEvent {
   id: string
-  operation_id: string
+  operationId: string
   kind: string
-  created_at: string
+  createdAt: string
 }
 
 export type BuildPlan =
@@ -15,30 +15,30 @@ export type BuildPlan =
       kind: 'generated'
       generator: string
       runtime: string
-      package_manager: string
+      packageManager: string
       dockerfile: string
       dockerignore: string
     }
 
 export interface Build {
   id: string
-  service_id: string
+  serviceId: string
   spec: ServiceSpec
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
-  build_plan: BuildPlan | null
-  resolved_commit: string | null
-  no_cache: boolean
-  cancel_requested: boolean
-  error_code: string | null
-  created_at: string
-  logs_truncated: boolean
+  buildPlan: BuildPlan | null
+  resolvedCommit: string | null
+  noCache: boolean
+  cancelRequested: boolean
+  errorCode: string | null
+  createdAt: string
+  logsTruncated: boolean
 }
 export interface Revision {
   id: string
-  build_id: string
-  image_repository: string
-  image_digest: string
-  created_at: string
+  buildId: string
+  imageRepository: string
+  imageDigest: string
+  createdAt: string
 }
 
 export { api } from './api-client'

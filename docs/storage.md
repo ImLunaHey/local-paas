@@ -26,7 +26,7 @@ the database; share database access through connections, not its raw data files.
 The development workers currently allow 1–2 GiB per volume, with an 8 GiB aggregate
 reservation ceiling per worker. Backing files are fully allocated before use,
 mounted nodev/nosuid/noexec, and persist on worker NVMe virtual disks. No data is
-placed on Lake's ZFS array. A volume is not a backup. Automatic backups, expansion,
+placed on a host ZFS array. A volume is not a backup. Automatic backups, expansion,
 delete/restore workflows and physical-worker failover remain unimplemented.
 
 Development qualification includes real VM deployments, shared read/write and

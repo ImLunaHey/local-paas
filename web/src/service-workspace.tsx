@@ -102,14 +102,14 @@ export function ServiceWorkspace({ service, children }: { service: Service; chil
         },
         {
           label: 'Placement',
-          value: spec.distinct_nodes
+          value: spec.distinctNodes
             ? 'Distinct nodes'
             : spec.volume || spec.workload.kind === 'rustfs-service'
               ? 'Volume owner'
               : 'Any eligible node',
         },
-        { label: 'CPU per instance', value: `${spec.resources.cpu_millis}m` },
-        { label: 'Memory per instance', value: `${spec.resources.memory_mib} MiB` },
+        { label: 'CPU per instance', value: `${spec.resources.cpuMillis}m` },
+        { label: 'Memory per instance', value: `${spec.resources.memoryMib} MiB` },
       ]}
     >
       {children}

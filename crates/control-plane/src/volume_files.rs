@@ -228,6 +228,7 @@ pub async fn reply(
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Browse {
     #[serde(default)]
     path: String,
@@ -270,7 +271,7 @@ pub async fn get(
     .await?;
     match result {
         FileResult::Listing { items, cursor } if !q.download && items.len() <= 200 => Ok(Json(
-            json!({"items":items,"cursor":cursor,"read_only":s.read_only,"limit_bytes":FILE_LIMIT}),
+            json!({"items":items,"cursor":cursor,"readOnly":s.read_only,"limitBytes":FILE_LIMIT}),
         )
         .into_response()),
         FileResult::Download { base64 }

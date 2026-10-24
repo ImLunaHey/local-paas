@@ -7,16 +7,16 @@ import { Button, Field, Input, Select } from './ui'
 interface Volume {
   id: string
   name: string
-  size_gib: number
+  sizeGib: number
   node: string | null
-  services: { id: string; name: string; mount_path: string; read_only: boolean }[]
+  services: { id: string; name: string; mountPath: string; readOnly: boolean }[]
 }
 export function StoragePanel({ service }: { service: Service }) {
   const client = useQueryClient(),
     current = service.spec.volume
   const [id, setId] = useState(current?.id ?? ''),
-    [path, setPath] = useState(current?.mount_path ?? '/data'),
-    [readOnly, setReadOnly] = useState(current?.read_only ?? false)
+    [path, setPath] = useState(current?.mountPath ?? '/data'),
+    [readOnly, setReadOnly] = useState(current?.readOnly ?? false)
   const [name, setName] = useState(''),
     [size, setSize] = useState(1)
   const operation = useRef<{ key: string; id: string } | null>(null)
@@ -37,8 +37,8 @@ export function StoragePanel({ service }: { service: Service }) {
         body: JSON.stringify({
           ...scope,
           name,
-          size_gib: size,
-          operation_id: operation.current.id,
+          sizeGib: size,
+          operationId: operation.current.id,
         }),
       })
     },
@@ -55,11 +55,11 @@ export function StoragePanel({ service }: { service: Service }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          operation_id: crypto.randomUUID(),
-          expected_version: service.version,
+          operationId: crypto.randomUUID(),
+          expectedVersion: service.version,
           spec: {
             ...service.spec,
-            volume: id ? { id, mount_path: path, read_only: readOnly } : undefined,
+            volume: id ? { id, mountPath: path, readOnly: readOnly } : undefined,
             workload:
               service.spec.workload.kind === 'oci-service' && id
                 ? { ...service.spec.workload, replicas: 1 }
@@ -111,7 +111,7 @@ export function StoragePanel({ service }: { service: Service }) {
               <option value="">No persistent volume</option>
               {volumes.data?.items.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.name} · {v.size_gib} GiB
+                  {v.name} · {v.sizeGib} GiB
                 </option>
               ))}
             </Select>
@@ -140,13 +140,13 @@ export function StoragePanel({ service }: { service: Service }) {
           <div className="rounded-lg border border-zinc-800 p-4 text-xs space-y-2">
             <p>
               {selected.node ? `Stored on ${selected.node}` : 'Worker assigned at first deployment'}{' '}
-              · {selected.size_gib} GiB
+              · {selected.sizeGib} GiB
             </p>
             {selected.services.length > 0 ? (
               <ul className="space-y-1 text-muted">
                 {selected.services.map((s) => (
                   <li key={s.id}>
-                    {s.name} → {s.mount_path} · {s.read_only ? 'read only' : 'read/write'}
+                    {s.name} → {s.mountPath} · {s.readOnly ? 'read only' : 'read/write'}
                   </li>
                 ))}
               </ul>
