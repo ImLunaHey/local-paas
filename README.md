@@ -42,8 +42,8 @@ uses Rust; frontend uses TypeScript as explicitly requested by Luna.
 ## Run locally
 
 Prerequisites: recent stable Rust (tested with 1.98.1), Node 24 and npm,
-PostgreSQL 18 tools (`initdb`, `pg_ctl`, `psql`, `createdb`), and Make. Development
-commands target a local Unix-like machine and should run as an ordinary user.
+PostgreSQL 18 tools (`postgres`, `initdb`, `pg_ctl`, `psql`, `createdb`), Make, and
+a systemd user manager. Run development commands as an ordinary user.
 
 ```sh
 cd web
@@ -51,13 +51,22 @@ npm ci
 cd ..
 make db
 make api
-```
-
-In another terminal:
-
-```sh
 make web
 ```
+
+`make db`, `make api`, `make web`, and `make build-worker` start independent
+background services and return to the terminal. They survive closing the terminal
+or restarting T3 Code. On the already provisioned Lake checkout, use `make up`
+to start the database, API, frontend, and build worker together:
+
+```sh
+make up
+```
+
+The VM, gateway, OpenBao, and ClickHouse services remain independently supervised.
+See [background services](docs/background-services.md) for status, logs, and restart
+commands. For deliberate foreground development, use `make api-foreground` or
+`make web-foreground`.
 
 Open **http://localhost:5188**. The API listens at `127.0.0.1:8080`, proxied by
 Vite. The UI uses real database state, not seeded deployments or fake metrics.
@@ -65,8 +74,9 @@ Vite. The UI uses real database state, not seeded deployments or fake metrics.
 `make db` initializes only `.local/postgres` in this checkout and listens on
 the private `.local/socket` Unix socket, with TCP disabled. `.local` has mode
 0700. The local development database uses the current OS user's PostgreSQL
-role. This setup is not a production database/backup configuration. `make
-db-stop` stops it without deleting its data. The checkout path should not
+role. It runs under `local-paas-postgres.service`, with graceful shutdown and
+restart-on-failure. This setup is not a production database/backup configuration.
+`make db-stop` stops it without deleting its data. The checkout path should not
 contain spaces when using the supplied Makefile PostgreSQL startup options.
 
 To use a different **development** database:

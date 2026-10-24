@@ -4,25 +4,33 @@
 DATABASE_URL ?= postgresql:///local_paas?host=$(CURDIR)/.local/socket&port=55432
 export DATABASE_URL PUBLIC_ORIGIN
 
-.PHONY: db db-stop api build-worker web check test-db
+.PHONY: db db-stop api api-foreground build-worker web web-foreground up check test-db
 db:
-	mkdir -p .local/socket
-	chmod 700 .local
-	test -f .local/postgres/PG_VERSION || initdb -D .local/postgres --auth-local=trust --auth-host=reject --no-instructions
-	pg_ctl -D .local/postgres status >/dev/null 2>&1 || pg_ctl -D .local/postgres -l .local/postgres.log -o "-k $(CURDIR)/.local/socket -h '' -p 55432" -w start
-	psql 'postgresql:///postgres?host=$(CURDIR)/.local/socket&port=55432' -tAc "SELECT 1 FROM pg_database WHERE datname = 'local_paas'" | grep -q 1 || createdb -h '$(CURDIR)/.local/socket' -p 55432 local_paas
+	bash infra/services/database.sh
 
 db-stop:
-	pg_ctl -D .local/postgres -m fast -w stop
+	bash infra/services/database.sh --stop
 
-api:
+api: db
+	bash infra/services/api.sh
+
+api-foreground:
 	cargo run -p control-plane --bin control-plane
 
-build-worker:
-	cargo run -p control-plane --bin build-worker
+build-worker: db
+	bash infra/builder/worker.sh
 
 web:
+	bash infra/services/web.sh
+
+web-foreground:
 	cd web && npm run dev
+
+# Existing provisioned Lake stack; does not create VMs or initialize OpenBao.
+up:
+	$(MAKE) api
+	$(MAKE) web
+	$(MAKE) build-worker
 
 check:
 	cargo fmt --all --check

@@ -242,7 +242,7 @@ impl IntoResponse for ApiError {
             Self::NotFound => (StatusCode::NOT_FOUND, json!({"error":"service not found"})),
             Self::Database => (
                 StatusCode::SERVICE_UNAVAILABLE,
-                json!({"error":"database operation unavailable; retry with the same operation ID"}),
+                json!({"error":"Could not access the platform database. Please try again shortly."}),
             ),
         };
         (status, Json(value)).into_response()
