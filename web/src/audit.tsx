@@ -114,6 +114,8 @@ export function AuditLog() {
     columns,
     data,
     manualFiltering: true,
+    // The API owns filtering; no auto-selected client filter registry is needed.
+    defaultColumn: { filterFn: () => true },
     getRowId: (entry) => String(entry.sequence),
     getRowCanExpand: () => true,
   })

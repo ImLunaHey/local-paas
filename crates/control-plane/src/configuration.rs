@@ -8,7 +8,7 @@ use serde::Deserialize;
 use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateService {
@@ -17,6 +17,7 @@ pub(crate) struct UpdateService {
     spec: ServiceSpec,
 }
 
+#[utoipa::path(put, path = "/api/services/{id}", params(("id" = Uuid, Path)), request_body = UpdateService, responses((status = 200, body = Service), (status = 409, body = crate::openapi::ErrorResponse)), operation_id = "updateService")]
 pub(crate) async fn update(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,

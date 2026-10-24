@@ -67,6 +67,8 @@ pub struct ProjectDetail {
         crate::validate_spec,
         crate::list_services,
         crate::get_service,
+        crate::list_events,
+        crate::configuration::update,
         crate::create_service,
         crate::projects::list,
         crate::projects::create,

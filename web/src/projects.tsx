@@ -1,5 +1,10 @@
-import type { ProjectList } from './generated/model'
-import { getListProjectsQueryOptions, createProject, updateProject } from './generated/management'
+import type { ProjectList, ProjectDetail as Project } from './generated/model'
+import {
+  getListProjectsQueryOptions,
+  getGetProjectQueryOptions,
+  createProject,
+  updateProject,
+} from './generated/management'
 import { ProjectNameForm } from './features/projects/project-name-form'
 import { Button, Input, Select, Field } from './ui'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -7,18 +12,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Plus, Layers3, ArrowLeft } from 'lucide-react'
 import { api, type Service } from './api'
-interface Environment {
-  id: string
-  name: string
-  parentId: string | null
-  parentName: string | null
-  serviceCount: number
-}
-interface Project {
-  id: string
-  name: string
-  environments: Environment[]
-}
 export const projectsQuery = getListProjectsQueryOptions<ProjectList, Error>({
   query: { queryKey: ['projects'] },
 })
@@ -84,10 +77,11 @@ export function ProjectWorkspace({
   const search = useSearch({ strict: false }) as { environment?: string }
   const navigate = useNavigate(),
     client = useQueryClient()
-  const project = useQuery({
-    queryKey: ['projects', projectId],
-    queryFn: () => api<Project>('/projects/' + projectId),
-  })
+  const project = useQuery(
+    getGetProjectQueryOptions<Project, Error>(projectId, {
+      query: { queryKey: ['projects', projectId] },
+    }),
+  )
   const env =
     project.data?.environments.find((e) => e.name === search.environment) ??
     project.data?.environments.find((e) => e.name === 'production') ??
@@ -268,10 +262,11 @@ export function ProjectBackLink({
 export function ProjectSettings() {
   const { projectId } = useParams({ strict: false }) as { projectId: string }
   const client = useQueryClient()
-  const project = useQuery({
-    queryKey: ['projects', projectId],
-    queryFn: () => api<Project>('/projects/' + projectId),
-  })
+  const project = useQuery(
+    getGetProjectQueryOptions<Project, Error>(projectId, {
+      query: { queryKey: ['projects', projectId] },
+    }),
+  )
   const save = useMutation({
     mutationFn: (name: string) =>
       updateProject(projectId, { name, expectedName: project.data!.name }),

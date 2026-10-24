@@ -51,6 +51,8 @@ async fn registration_is_durable_and_audited(pool: PgPool) {
     .await;
     assert_eq!(events.as_array().unwrap().len(), 1);
     assert_eq!(events[0]["kind"], "service.registered");
+    assert!(events[0]["createdAt"].as_str().is_some());
+    assert!(events[0].get("created_at").is_none());
     let (_, list) = call(&pool, "GET", "/api/services", Value::Null).await;
     assert_eq!(list["total"], 1);
 }

@@ -1,0 +1,4 @@
+[env]
+# Builds use reviewed metadata and never need an operator database connection.
+# Override explicitly only when preparing/checking metadata on a disposable DB.
+SQLX_OFFLINE = "true"

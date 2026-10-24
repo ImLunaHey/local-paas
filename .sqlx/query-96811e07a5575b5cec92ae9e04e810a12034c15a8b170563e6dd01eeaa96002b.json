@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT e.id, e.name, $2::text AS \"project!\", e.parent_id,\n          p.name AS \"parent_name?\",\n          (SELECT count(*) FROM services s WHERE s.environment_id=e.id) AS \"service_count!\"\n        FROM environments e LEFT JOIN environments p ON p.id=e.parent_id\n        WHERE e.project_id=$1 ORDER BY e.name\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "project!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "service_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "96811e07a5575b5cec92ae9e04e810a12034c15a8b170563e6dd01eeaa96002b"
+}

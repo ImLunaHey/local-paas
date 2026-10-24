@@ -362,10 +362,8 @@ async fn list_services(
     State(pool): State<PgPool>,
     Query(page): Query<Pagination>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let items = sqlx::query_as::<_, Service>("SELECT id, operation_id, spec, created_at, version FROM services WHERE ($2::text IS NULL OR spec->>'project'=$2) AND ($3::text IS NULL OR spec->>'environment'=$3) ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1")
-        .bind(i64::from(page.offset)).bind(&page.project).bind(&page.environment).fetch_all(&pool).await?;
-    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM services WHERE ($1::text IS NULL OR spec->>'project'=$1) AND ($2::text IS NULL OR spec->>'environment'=$2)")
-        .bind(&page.project).bind(&page.environment)
+    let items = sqlx::query_as!(Service, r#"SELECT id, operation_id, spec AS "spec: _", created_at, version FROM services WHERE ($2::text IS NULL OR spec->>'project'=$2) AND ($3::text IS NULL OR spec->>'environment'=$3) ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1"#, i64::from(page.offset), page.project.as_deref(), page.environment.as_deref()).fetch_all(&pool).await?;
+    let total: i64 = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM services WHERE ($1::text IS NULL OR spec->>'project'=$1) AND ($2::text IS NULL OR spec->>'environment'=$2)"#, page.project.as_deref(), page.environment.as_deref())
         .fetch_one(&pool)
         .await?;
     Ok(Json(json!({"items":items,"total":total})))
@@ -376,17 +374,15 @@ async fn get_service(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Service>, ApiError> {
-    sqlx::query_as::<_, Service>(
-        "SELECT id, operation_id, spec, created_at, version FROM services WHERE id = $1",
-    )
-    .bind(id)
+    sqlx::query_as!(Service, r#"SELECT id, operation_id, spec AS "spec: _", created_at, version FROM services WHERE id = $1"#, id)
     .fetch_optional(&pool)
     .await?
     .map(Json)
     .ok_or(ApiError::NotFound)
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 struct Event {
     id: Uuid,
     operation_id: Uuid,
@@ -394,19 +390,21 @@ struct Event {
     created_at: DateTime<Utc>,
 }
 
+#[utoipa::path(get, path = "/api/services/{id}/events", params(("id" = Uuid, Path)), responses((status = 200, body = Vec<Event>)), operation_id = "listServiceEvents")]
 async fn list_events(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<Event>>, ApiError> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM services WHERE id = $1)")
-        .bind(id)
-        .fetch_one(&pool)
-        .await?;
+    let exists: bool = sqlx::query_scalar!(
+        r#"SELECT EXISTS(SELECT 1 FROM services WHERE id = $1) AS "exists!""#,
+        id
+    )
+    .fetch_one(&pool)
+    .await?;
     if !exists {
         return Err(ApiError::NotFound);
     }
-    Ok(Json(sqlx::query_as::<_, Event>("SELECT id, operation_id, kind, created_at FROM events WHERE service_id = $1 ORDER BY created_at DESC, id DESC LIMIT 100")
-        .bind(id).fetch_all(&pool).await?))
+    Ok(Json(sqlx::query_as!(Event, "SELECT id, operation_id, kind, created_at FROM events WHERE service_id = $1 ORDER BY created_at DESC, id DESC LIMIT 100", id).fetch_all(&pool).await?))
 }
 
 #[utoipa::path(post, path = "/api/services", request_body = CreateService, responses((status = 201, body = Service), (status = 422, body = openapi::ErrorResponse)), operation_id = "createService")]

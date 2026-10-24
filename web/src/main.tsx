@@ -1,3 +1,4 @@
+import { createService, updateService } from './generated/management'
 import { ServiceDomains } from './service-domains'
 import { CreationSecrets, type CreationSecretsHandle } from './creation-secrets'
 import { SourceUpload } from './source-upload'
@@ -359,16 +360,13 @@ function ServiceForm({ service }: { service?: Service }) {
       const entries = baseline ? [] : secretsDraft.current!.read()
       const saved =
         created.current ??
-        (await api<Service>(baseline ? `/services/${baseline.id}` : '/services', {
-          method: baseline ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            operationId: pending.current!.id,
-            expectedVersion: baseline?.version,
-            spec,
-            ...(!baseline ? { buildOnCreate: false } : {}),
-          }),
-        }))
+        (await (baseline
+          ? updateService(baseline.id, {
+              operationId: pending.current!.id,
+              expectedVersion: baseline.version,
+              spec,
+            })
+          : createService({ operationId: pending.current!.id, spec, buildOnCreate: false })))
       if (baseline) return saved
       created.current = saved
       setCreationLocked(true)
@@ -1209,8 +1207,8 @@ function ServiceStorage() {
   if (service.spec.workload.kind === 'oci-service')
     return (
       <>
-        <StoragePanel key={service.id} service={service} />
-        <BucketPanel key={service.id} service={service} />
+        <StoragePanel key={`volume:${service.id}`} service={service} />
+        <BucketPanel key={`objects:${service.id}`} service={service} />
       </>
     )
   if (service.spec.workload.kind === 'rustfs-service') return <BucketPanel service={service} />

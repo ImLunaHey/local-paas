@@ -116,6 +116,11 @@ Infrastructure fault drills require explicit opt-in fixtures; they are not part
 of ordinary local or CI tests. `pnpm --dir web test:coverage` reports unit coverage
 without imposing an artificial universal threshold.
 
+Compile-checked SQL uses reviewed metadata in `.sqlx`; normal builds run offline.
+After changing a checked query or its schema, migrate a disposable test database,
+then run `SQLX_OFFLINE=false cargo sqlx prepare --workspace -- --all-targets` with
+`DATABASE_URL` pointing to it. CI checks the metadata against real PostgreSQL.
+
 The API schema is exported to `docs/api/openapi.json`. Regenerate it and the Orval
 TanStack Query client with `make api-schema` after changing documented endpoints.
 This development release changes API fields to camelCase and agent protocol to v2;

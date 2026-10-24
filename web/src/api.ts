@@ -2,12 +2,7 @@ import type { Service, ServiceSpec, GitSource as Source } from './generated/mode
 import { getGetServiceQueryOptions } from './generated/management'
 export type { Service, ServiceSpec, Workload, GitSource as Source } from './generated/model'
 
-export interface AuditEvent {
-  id: string
-  operationId: string
-  kind: string
-  createdAt: string
-}
+export type { Event as AuditEvent } from './generated/model'
 
 export type BuildPlan =
   | { kind: 'dockerfile'; path: string }
