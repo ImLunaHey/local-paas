@@ -73,7 +73,7 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_lowercase();
-    let rows=match sqlx::query("SELECT n.endpoint_base+i.slot AS port FROM preview_routes r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE r.authority=$1 AND i.state='ready' AND i.desired_state='running' AND i.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds' ORDER BY i.id").bind(&authority).fetch_all(&p.pool).await{Ok(r) if !r.is_empty()=>r,_=>return(StatusCode::SERVICE_UNAVAILABLE,"No healthy application instances are ready.\n").into_response()};
+    let rows=match sqlx::query("SELECT n.endpoint_base+i.slot AS port FROM preview_routes r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE r.authority=$1 AND i.state='ready' AND i.routing_enabled AND i.desired_state='running' AND i.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds' ORDER BY i.id").bind(&authority).fetch_all(&p.pool).await{Ok(r) if !r.is_empty()=>r,_=>return(StatusCode::SERVICE_UNAVAILABLE,"No healthy application instances are ready.\n").into_response()};
     let port = rows[p.next.fetch_add(1, Ordering::Relaxed) % rows.len()].get::<i32, _>("port");
     forward(&p.client, request, port, authority, permit).await
 }

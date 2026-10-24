@@ -9,8 +9,8 @@ and Vite / React / Tailwind / TanStack for the frontend.
 The local platform registers specifications, builds immutable image revisions,
 and deploys OCI instances through authenticated Rust agents in three NixOS VMs.
 Readiness gates private preview traffic; live logs and cgroup metrics are visible
-in the UI. Candidate failures retain the active deployment. Public edge routing,
-automatic relocation and celld execution remain unimplemented. Workload secrets
+in the UI. Candidate failures retain the active deployment. Public edge routing and celld execution remain unimplemented. Opt-in stateless
+relocation and node maintenance now persist handoffs and audit events transactionally. Workload secrets
 are versioned in dedicated OpenBao storage and delivered through authenticated agents.
 See [build operations](builds.md) and [runtime operations](runtime.md).
 

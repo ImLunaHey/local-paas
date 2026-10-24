@@ -218,6 +218,29 @@ pub(crate) async fn place(
     shared: Option<(Option<Uuid>, i32)>,
     job: bool,
 ) -> Result<Vec<(Uuid, i32)>, sqlx::Error> {
+    place_excluding(
+        tx,
+        service_id,
+        spec,
+        database_ports,
+        volume,
+        shared,
+        job,
+        &[],
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn place_excluding(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    service_id: Uuid,
+    spec: &ServiceSpec,
+    database_ports: &[i32],
+    volume: Option<(Uuid, i32, i32)>,
+    shared: Option<(Option<Uuid>, i32)>,
+    job: bool,
+    excluded: &[Uuid],
+) -> Result<Vec<(Uuid, i32)>, sqlx::Error> {
     let replicas = match spec.workload {
         Workload::OciService { replicas, .. } => replicas,
         _ => 1,
@@ -232,6 +255,9 @@ pub(crate) async fn place(
     let mut placements = Vec::new();
     for node in nodes {
         let id: Uuid = node.get("id");
+        if excluded.contains(&id) {
+            continue;
+        }
         if !spec.workload.private_connections().is_empty()
             && !node
                 .get::<Vec<String>, _>("capabilities")
@@ -449,6 +475,7 @@ pub async fn reconcile(pool: &PgPool) -> Result<(), sqlx::Error> {
             sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,$4) ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::new_v4()).bind(service).bind(id).bind(if failed {"deployment.failed"} else {"deployment.active"}).execute(&mut *tx).await?;
         }
     }
+    crate::nodes::reconcile(&mut tx).await?;
     sqlx::query("DELETE FROM runtime_metrics WHERE timestamp<now()-interval '1 hour'")
         .execute(&mut *tx)
         .await?;
@@ -603,7 +630,7 @@ async fn sync_inner(
             sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line,level,message,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).bind(level).bind(message).bind(fields.map(DbJson)).execute(&mut *tx).await.map_err(db_error)?;
         }
     }
-    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.status AS deployment_status,d.job_options,d.deadline,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
+    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state='preparing') AS recovery_eligible,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.status AS deployment_status,d.job_options,d.deadline,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut assignments = Vec::new();
     for r in rows {
         let mut spec = r.get::<DbJson<ServiceSpec>, _>("spec").0;
@@ -654,6 +681,7 @@ async fn sync_inner(
             generation: r.get("generation"),
             desired_state: r.get("desired_state"),
             recovery_allowed: r.get::<String, _>("deployment_status") == "active"
+                && r.get::<bool, _>("recovery_eligible")
                 && input.capabilities.iter().any(|c| c == "recovery-v1"),
             image_repository: r.get("image_repository"),
             image_digest: digest,

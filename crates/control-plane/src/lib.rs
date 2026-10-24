@@ -29,6 +29,7 @@ pub mod host_metrics;
 pub mod jobs;
 pub mod logging;
 mod networking;
+mod nodes;
 mod object_storage;
 mod overview;
 pub mod preview;
@@ -91,6 +92,12 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
         )
         .route("/api/overview", get(overview::get))
         .route("/api/hosts", get(overview::hosts))
+        .route("/api/nodes", get(nodes::list))
+        .route("/api/nodes/{id}/actions", post(nodes::action))
+        .route(
+            "/api/services/{id}/relocation",
+            axum::routing::put(nodes::policy),
+        )
         .route("/api/services/{id}/database", get(databases::get))
         .route(
             "/api/services/{id}/database-connection",

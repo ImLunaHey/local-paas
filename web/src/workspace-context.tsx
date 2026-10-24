@@ -169,13 +169,15 @@ export function WorkspaceBreadcrumbs() {
         <ChevronRight size={13} />
         {path === '/'
           ? 'Overview'
-          : path === '/hosts'
-            ? 'Hosts'
-            : path === '/domains'
-              ? 'Domains'
-              : path === '/audit'
-                ? 'Audit log'
-                : 'Projects'}
+          : path === '/nodes'
+            ? 'Nodes'
+            : path === '/hosts'
+              ? 'Hosts'
+              : path === '/domains'
+                ? 'Domains'
+                : path === '/audit'
+                  ? 'Audit log'
+                  : 'Projects'}
       </span>
     )
   return (

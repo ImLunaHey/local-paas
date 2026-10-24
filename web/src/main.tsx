@@ -13,6 +13,7 @@ import { DatabaseWorkspace } from './database-workspace'
 import { ServiceWorkspace } from './service-workspace'
 import { Domains } from './domains'
 import { Overview, Hosts } from './overview'
+import { Nodes } from './nodes'
 import { ServiceTrends } from './metrics'
 import { CommandMenu } from './command-menu'
 import { AuditLog } from './audit'
@@ -118,6 +119,10 @@ function Shell() {
           <Link to="/hosts" className={navClass(path === '/hosts')}>
             <Server size={17} />
             <span>Hosts</span>
+          </Link>
+          <Link to="/nodes" className={navClass(path === '/nodes')}>
+            <Server size={17} />
+            <span>Nodes</span>
           </Link>
           <Link to="/domains" className={navClass(path === '/domains')}>
             <Globe size={17} />
@@ -1302,6 +1307,11 @@ const hostsRoute = createRoute({
   path: '/hosts',
   component: Hosts,
 })
+const nodesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/nodes',
+  component: Nodes,
+})
 const domainsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/domains',
@@ -1466,6 +1476,7 @@ const router = createRouter({
     indexRoute,
     projectsRoute,
     hostsRoute,
+    nodesRoute,
     domainsRoute,
     projectRoute,
     projectSettingsRoute,

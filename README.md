@@ -29,8 +29,11 @@ application credentials and a Storage-tab file browser. Shared volumes also prov
 file browsing with upload/download and read-only access enforcement. See
 [storage](docs/storage.md) for development limits and qualification status.
 
-**Not implemented:** automatic relocation after node loss, node cordon/drain UI,
-public DigitalOcean ingress, NetBird provisioning, production authentication and
+Node maintenance supports cordon, drain and opt-in relocation of stateless HTTP
+services after node loss. Pinned storage and singleton workers block relocation.
+See [node maintenance](docs/nodes.md).
+
+**Not implemented:** public DigitalOcean ingress, NetBird provisioning, production authentication and
 complete off-site disaster recovery, and celld fleet
 execution. celld cannot enter the OCI deploy path.
 See [runtime operations and limitations](docs/runtime.md).

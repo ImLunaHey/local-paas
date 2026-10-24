@@ -36,8 +36,9 @@ liveness probe. The candidate startup deadline remains 120 seconds. Configurable
 restart policies and separate startup/liveness probe definitions are still pending.
 Process starts are retained in audit history and as restart markers in runtime logs.
 
-Slots remain reserved until cleanup is acknowledged. This initial scheduler does
-not automatically move allocations from lost nodes; they recover on that node.
+Slots remain reserved until cleanup is acknowledged. Opted-in stateless HTTP
+services can relocate from draining or lost nodes; pinned and singleton workloads
+remain on their owning node. See [node maintenance](nodes.md).
 
 ## Background workers
 
