@@ -344,3 +344,39 @@ application-level database migration locks, and inspect database state before
 retrying an uncertain result. There is no automatic retry or exactly-once external
 side-effect guarantee. Job time limits begin at allocation and require a working
 agent to enforce; an unreachable worker blocks until its outcome is established.
+
+## Private service connections
+
+Networking → Private service connections selects an HTTP app in the same project
+and environment and an environment variable such as `API_URL`. Saving changes the
+next deployment's configuration; existing instances retain their snapshot. The URL
+is `http://svc-<target UUID without hyphens>.internal:24000` (ports increase by
+connection index). The alias is materialized in each workload's `/etc/hosts`, so no
+public DNS record is involved. Names survive renaming a project or service. The
+first version supports the destination's declared HTTP port, including raw TCP
+forwarding for streaming HTTP and WebSockets. It does not expose arbitrary ports,
+UDP, databases, or management services. Use existing DB/S3 bindings for those.
+
+An agent-local bounded TCP proxy authorizes the source workload IP and declared
+connection before choosing a freshly observed, ready instance of the destination's
+active deployment. Candidates, failed members, stopped apps and other environments
+are excluded. Connection mappings refresh on every authenticated node sync. Already
+established streams survive controller interruption; new connections fail closed
+once their short route leases expire. New TCP connections balance across eligible
+members. Requests are never retried after any application bytes have been sent.
+
+This development transport crosses the three Lake VMs through their existing
+loopback QEMU forwards. Host aliases point at each VM's private bridge gateway;
+firewalls expose proxy listeners only to that bridge. NAS/management access remains
+denied. Agent-held routes last at most ten seconds (also capped by readiness and
+heartbeat freshness); PostgreSQL persists leases and quarantines stopped published
+slots through expiry plus five seconds, preventing a stale route from reaching an
+unrelated replacement. Controllers and workers require synchronized clocks.
+There are at most 16 connections per service, 128 concurrent streams per node and
+a 24-hour stream lifetime. NetBird-backed physical worker transport remains future
+work; this does not provision the public edge or claim physical redundancy.
+
+Pre-deploy tasks and one-off jobs inherit the same private connections. Environment
+shadowing remaps references to the new environment's copied services, never the
+original live instances. Connection configuration rejects secret-variable name
+collisions; only non-secret URLs are injected by this feature.

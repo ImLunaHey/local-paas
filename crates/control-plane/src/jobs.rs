@@ -142,6 +142,7 @@ async fn enqueue(
     }
     crate::volumes::validate_scope(tx, &spec).await?;
     spec.secrets = crate::secrets::references(pool, service_id).await?;
+    crate::discovery::validate(tx, &spec).await?;
     let secret_version = crate::secrets::snapshot(pool, service_id, &spec.secrets).await?;
     let ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 UNION SELECT n.endpoint_base+v.slot FROM storage_bindings c JOIN storage_buckets b ON b.id=c.bucket_id JOIN volumes v ON v.id=b.service_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 AND c.status='ready'").bind(service_id).fetch_all(&mut **tx).await?;
     let size: Option<i32> = if let Some(v) = &spec.volume {

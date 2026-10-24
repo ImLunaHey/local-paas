@@ -20,6 +20,7 @@ pub mod builds;
 mod configuration;
 mod database_inspection;
 mod databases;
+mod discovery;
 mod domains;
 mod environments;
 mod history;
@@ -110,6 +111,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
             "/api/environments",
             get(environments::list).post(environments::create),
         )
+        .route("/api/services/{id}/private-network", get(discovery::list))
         .route(
             "/api/services/{id}/networking",
             get(networking::get).put(networking::update),
@@ -355,6 +357,7 @@ async fn create_service(
     let mut tx = pool.begin().await?;
     domains::lock(&mut tx).await?;
     volumes::validate_scope(&mut tx, &request.spec).await?;
+    discovery::validate(&mut tx, &request.spec).await?;
     source_uploads::validate_scope(&mut tx, &request.spec).await?;
     // Concurrent retries of the same operation must observe the first commit.
     // A hash collision only serializes two otherwise unrelated registrations.

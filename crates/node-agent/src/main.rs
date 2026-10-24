@@ -1,4 +1,5 @@
 mod containerd;
+mod discovery;
 mod jobs;
 mod network;
 mod recovery;
@@ -72,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reports: Reports = Arc::new(RwLock::new(HashMap::new()));
     let (desired, rx) = watch::channel(Vec::<Assignment>::new());
     let mut tasks = HashMap::new();
+    let discovery = discovery::Discovery::start().await?;
     println!("Node agent ready: {}", config.node_id);
     loop {
         let request = SyncRequest {
@@ -86,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "recovery-v1".into(),
                 "workers-v1".into(),
                 "jobs-v1".into(),
+                "private-network-v1".into(),
             ],
         };
         match client
@@ -100,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     && response.version == VERSION
                     && response.assignments.len() <= 4
                 {
+                    discovery.update(&response.assignments).await;
                     for assignment in &response.assignments {
                         if !tasks.contains_key(&assignment.instance_id) {
                             let id = assignment.instance_id;
@@ -145,7 +149,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
     {
         return None;
     }
-    let (port, mut mounts, environment) = match &a.spec.workload {
+    let (port, mut mounts, mut environment) = match &a.spec.workload {
         Workload::OciService { port, .. } => (*port, vec![], std::collections::BTreeMap::new()),
         Workload::PostgresService {
             database,
@@ -191,6 +195,16 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
         ),
         _ => return None,
     };
+    let mut hosts = std::collections::BTreeMap::new();
+    for (index, connection) in a.spec.workload.private_connections().iter().enumerate() {
+        let gateway = discovery::gateway()?;
+        let hostname = connection.hostname();
+        environment.insert(
+            connection.env.clone(),
+            format!("http://{hostname}:{}", discovery::BASE + index as u16),
+        );
+        hosts.insert(hostname, gateway.into());
+    }
     if let Some(v) = &a.spec.volume {
         mounts.push(platform_runtime::Mount::Volume {
             id: v.id,
@@ -233,6 +247,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
             environment,
             secret_names: a.spec.secrets.clone(),
             network: NetworkPolicy {
+                hosts,
                 declared_port: port,
                 published_port: a.published_port,
                 allowed_egress: a

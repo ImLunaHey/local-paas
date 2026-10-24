@@ -1,0 +1,173 @@
+import { useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { Button, Field, Input, Select } from './ui'
+import { api, type Service } from './api'
+interface Target {
+  id: string
+  name: string
+  ready_instances: number
+}
+export function PrivateNetworking({ service }: { service: Service }) {
+  const initial =
+    service.spec.workload.kind === 'oci-service'
+      ? (service.spec.workload.private_connections ?? [])
+      : []
+  const [connections, setConnections] = useState(initial)
+  const client = useQueryClient()
+  const operation = useRef<{ value: string; id: string } | null>(null)
+  const targets = useQuery({
+    queryKey: ['private-network', service.id],
+    queryFn: () => api<{ items: Target[] }>(`/services/${service.id}/private-network`),
+    refetchInterval: 5000,
+  })
+  const save = useMutation({
+    mutationFn: async () => {
+      if (service.spec.workload.kind !== 'oci-service') return
+      const spec = {
+        ...service.spec,
+        workload: { ...service.spec.workload, private_connections: connections },
+      }
+      const value = JSON.stringify(spec)
+      if (operation.current?.value !== value) operation.current = { value, id: crypto.randomUUID() }
+      return api(`/services/${service.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation_id: operation.current.id,
+          expected_version: service.version,
+          spec,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ['services', service.id] })
+    },
+  })
+  return (
+    <section className="panel p-6 space-y-5" aria-label="Private service connections">
+      <div>
+        <h2>Private service connections</h2>
+        <p className="text-xs text-muted mt-2">
+          Connect to an app or API in {service.spec.project} / {service.spec.environment}. The
+          platform injects a private HTTP URL and follows healthy instances across deployments. No
+          public domain is needed.
+        </p>
+      </div>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          save.mutate()
+        }}
+      >
+        {connections.map((connection, index) => {
+          const target = targets.data?.items.find((t) => t.id === connection.service_id)
+          return (
+            <div key={index} className="rounded-md border border-zinc-800 p-4 space-y-3">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={`Destination service ${index + 1}`}>
+                  <Select
+                    required
+                    value={connection.service_id}
+                    onChange={(e) =>
+                      setConnections((rows) =>
+                        rows.map((r, i) =>
+                          i === index ? { ...r, service_id: e.target.value } : r,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">Choose a service</option>
+                    {connection.service_id && !target && (
+                      <option value={connection.service_id}>
+                        Unavailable destination · {connection.service_id.slice(0, 8)}
+                      </option>
+                    )}
+                    {targets.data?.items.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} · {t.ready_instances} ready
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field
+                  label={`URL variable ${index + 1}`}
+                  hint="Read this environment variable in your app."
+                >
+                  <Input
+                    required
+                    value={connection.env}
+                    placeholder="API_URL"
+                    pattern="[A-Z_][A-Z0-9_]*"
+                    maxLength={128}
+                    onChange={(e) =>
+                      setConnections((rows) =>
+                        rows.map((r, i) => (i === index ? { ...r, env: e.target.value } : r)),
+                      )
+                    }
+                  />
+                </Field>
+              </div>
+              {connection.service_id && (
+                <code className="block text-[11px] text-muted break-all">
+                  http://svc-{connection.service_id.replaceAll('-', '')}.internal:{24000 + index}
+                </code>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {target && (
+                  <Link
+                    className="text-xs text-orange-300 hover:underline"
+                    to="/services/$serviceId"
+                    params={{ serviceId: target.id }}
+                  >
+                    Open {target.name}
+                  </Link>
+                )}
+                <Button
+                  variant="ghost"
+                  onClick={() => setConnections((rows) => rows.filter((_, i) => i !== index))}
+                >
+                  Remove connection {index + 1}
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+        {!connections.length && (
+          <p className="text-sm text-muted">No private service connections configured.</p>
+        )}
+        <div className="flex flex-wrap gap-3">
+          <Button
+            disabled={connections.length >= 16}
+            onClick={() => setConnections((rows) => [...rows, { service_id: '', env: '' }])}
+          >
+            Add connection
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={save.isPending || JSON.stringify(initial) === JSON.stringify(connections)}
+          >
+            Save connections
+          </Button>
+        </div>
+      </form>
+      {(targets.error || save.error) && (
+        <p role="alert" className="error-notice">
+          {(targets.error || save.error)?.message}
+        </p>
+      )}
+      {save.isSuccess && (
+        <p role="status" className="text-sm text-emerald-300">
+          Connections saved. Deploy again to apply them.
+        </p>
+      )}
+      <p className="text-xs text-muted">
+        Connection changes apply on the next deployment, including pre-deploy tasks and jobs.
+        Existing instances keep their recorded connections. Only declared destinations are
+        reachable; database and storage credentials remain managed by their own connection settings.
+      </p>
+    </section>
+  )
+}

@@ -80,17 +80,30 @@ pub(crate) async fn create(
         .execute(&mut *tx)
         .await?;
     if let Some(parent) = input.parent_id {
-        let rows = sqlx::query("SELECT name,kind,spec FROM services WHERE environment_id=$1")
+        let rows = sqlx::query("SELECT id,name,kind,spec FROM services WHERE environment_id=$1")
             .bind(parent)
             .fetch_all(&mut *tx)
             .await?;
+        let ids: std::collections::HashMap<Uuid, Uuid> =
+            rows.iter().map(|r| (r.get("id"), Uuid::new_v4())).collect();
         for row in rows {
             let DbJson(mut spec): DbJson<Value> = row.get("spec");
             spec["environment"] = json!(input.name);
             spec["domains"] = json!([]);
             // Shadow configuration, never attach the source environment's live filesystem.
             spec.as_object_mut().unwrap().remove("volume");
-            let service = Uuid::new_v4();
+            if let Some(connections) = spec["workload"]["private_connections"].as_array_mut() {
+                for c in connections {
+                    let old = c["service_id"]
+                        .as_str()
+                        .and_then(|s| s.parse::<Uuid>().ok());
+                    let new = old.and_then(|id| ids.get(&id)).ok_or(ApiError::Conflict(
+                        "private connection cannot be shadowed outside its environment",
+                    ))?;
+                    c["service_id"] = json!(new);
+                }
+            }
+            let service = ids[&row.get::<Uuid, _>("id")];
             let operation = Uuid::new_v4();
             sqlx::query("INSERT INTO services(id,environment_id,name,kind,operation_id,spec,registered_spec) VALUES($1,$2,$3,$4,$5,$6,$6)").bind(service).bind(id).bind(row.get::<String,_>("name")).bind(row.get::<String,_>("kind")).bind(operation).bind(DbJson(spec)).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'service.shadowed')").bind(Uuid::new_v4()).bind(service).bind(operation).execute(&mut *tx).await?;

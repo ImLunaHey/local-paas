@@ -70,6 +70,7 @@ pub(crate) async fn deploy(
         .ok_or(ApiError::NotFound)?;
     let mut resolved_spec = service.spec.0.clone();
     resolved_spec.secrets = crate::secrets::references(&pool, service_id).await?;
+    crate::discovery::validate(&mut tx, &resolved_spec).await?;
     let spec = &resolved_spec;
     let (replicas, database_size) = match spec.workload {
         Workload::OciService { replicas, .. } => (replicas, None),
@@ -231,6 +232,14 @@ pub(crate) async fn place(
     let mut placements = Vec::new();
     for node in nodes {
         let id: Uuid = node.get("id");
+        if !spec.workload.private_connections().is_empty()
+            && !node
+                .get::<Vec<String>, _>("capabilities")
+                .iter()
+                .any(|c| c == "private-network-v1")
+        {
+            continue;
+        }
         if job
             && !node
                 .get::<Vec<String>, _>("capabilities")
@@ -293,7 +302,7 @@ pub(crate) async fn place(
                 .bind(service_id)
                 .fetch_all(&mut **tx)
                 .await?;
-        let used = sqlx::query("SELECT i.slot,d.spec FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(id).fetch_all(&mut **tx).await?;
+        let used = sqlx::query("SELECT i.slot,d.spec FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE i.node_id=$1 AND (i.state<>'stopped' OR EXISTS(SELECT 1 FROM private_route_leases l WHERE l.instance_id=i.id AND l.expires_at+interval '5 seconds'>clock_timestamp()))").bind(id).fetch_all(&mut **tx).await?;
         let mut cpu = 0;
         let mut memory = 0;
         let mut slots = Vec::new();
@@ -614,6 +623,14 @@ async fn sync_inner(
         if spec.workload.is_worker() && !input.capabilities.iter().any(|c| c == "workers-v1") {
             continue;
         }
+        if !spec.workload.private_connections().is_empty()
+            && !input.capabilities.iter().any(|c| c == "private-network-v1")
+        {
+            continue;
+        }
+        let private_backends = crate::discovery::backends(&mut tx, r.get("service_id"), &spec)
+            .await
+            .map_err(db_error)?;
         let job = r
             .get::<Option<DbJson<crate::jobs::Options>>, _>("job_options")
             .map(|options| platform_protocol::JobExecution {
@@ -628,6 +645,7 @@ async fn sync_inner(
             .try_into()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "invalid stored image"))?;
         assignments.push(Assignment {
+            private_backends,
             job,
             instance_id: r.get("id"),
             deployment_id: r.get("deployment_id"),

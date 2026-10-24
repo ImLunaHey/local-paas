@@ -64,6 +64,8 @@ pub enum Mount {
 
 #[derive(Debug, Clone)]
 pub struct NetworkPolicy {
+    /// Exact workload-private host aliases, materialized by the runtime.
+    pub hosts: BTreeMap<String, IpAddr>,
     pub declared_port: Option<u16>,
     pub published_port: u16,
     pub allowed_egress: Vec<EgressRule>,

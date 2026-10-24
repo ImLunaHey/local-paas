@@ -50,6 +50,7 @@ pub(crate) async fn update(
         ));
     }
     crate::volumes::validate_scope(&mut tx, &request.spec).await?;
+    crate::discovery::validate(&mut tx, &request.spec).await?;
     crate::source_uploads::validate_scope(&mut tx, &request.spec).await?;
     if current.spec.workload.is_managed() && current.spec.workload != request.spec.workload {
         let allocated: bool =

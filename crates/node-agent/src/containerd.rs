@@ -364,6 +364,17 @@ impl Runtime for Containerd {
             args.push(flag.into());
             args.push(value);
         }
+        for (hostname, address) in &spec.network.hosts {
+            if !hostname.starts_with("svc-")
+                || !hostname.ends_with(".internal")
+                || hostname.len() != 45
+                || !hostname[4..36].bytes().all(|b| b.is_ascii_hexdigit())
+                || Some(*address) != crate::discovery::gateway().map(Into::into)
+            {
+                return Err(RuntimeError::Unsupported);
+            }
+            args.extend(["--add-host".into(), format!("{hostname}:{address}")]);
+        }
         if let Some(port) = port {
             args.extend([
                 "--publish".into(),
@@ -404,14 +415,24 @@ impl Runtime for Containerd {
             ]);
         }
         for (key, value) in &spec.environment {
-            if !matches!(
+            let managed = matches!(
                 key.as_str(),
                 "POSTGRES_DB" | "POSTGRES_USER" | "REDIS_MAXMEMORY" | "RUSTFS_ACCESS_KEY"
-            ) || value.is_empty()
-                || !value
+            ) && !value.is_empty()
+                && value
                     .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-            {
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+            let private = !key.is_empty()
+                && key.len() <= 128
+                && !key.as_bytes()[0].is_ascii_digit()
+                && key
+                    .bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                && spec.network.hosts.keys().any(|host| {
+                    (crate::discovery::BASE..crate::discovery::BASE + 16)
+                        .any(|port| *value == format!("http://{host}:{port}"))
+                });
+            if !managed && !private {
                 return Err(RuntimeError::Unsupported);
             }
             args.extend(["--env".into(), format!("{key}={value}")]);

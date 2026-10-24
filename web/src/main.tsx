@@ -450,6 +450,7 @@ function ServiceForm({ service }: { service?: Service }) {
         ? {
             kind,
             build_mode: buildMode,
+            private_connections: oci?.private_connections,
             build_command:
               buildMode === 'dockerfile' ? undefined : text('build_command') || undefined,
             start_command:

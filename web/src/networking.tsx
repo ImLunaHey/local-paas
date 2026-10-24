@@ -1,3 +1,4 @@
+import { PrivateNetworking } from './private-networking'
 import { Button, Input, Field } from './ui'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,6 +11,16 @@ interface Network {
   scope: string
 }
 export function Networking({ service }: { service: Service }) {
+  return (
+    <div className="space-y-6">
+      <PublicNetworking service={service} />
+      {service.spec.workload.kind === 'oci-service' && (
+        <PrivateNetworking key={service.version} service={service} />
+      )}
+    </div>
+  )
+}
+function PublicNetworking({ service }: { service: Service }) {
   const network = useQuery({
     queryKey: ['networking', service.id],
     queryFn: () => api<Network>('/services/' + service.id + '/networking'),
@@ -19,8 +30,8 @@ export function Networking({ service }: { service: Service }) {
       <section className="panel p-6">
         <h2>Background worker</h2>
         <p className="text-sm text-muted mt-3">
-          This process has no inbound HTTP endpoint. Use database connections and storage bindings
-          for its dependencies.
+          This process has no inbound HTTP endpoint. Use private service connections, database
+          connections and storage bindings for its dependencies.
         </p>
       </section>
     )

@@ -566,3 +566,196 @@ async fn failed_and_cancelled_release_jobs_preserve_the_old_worker(pool: PgPool)
             .unwrap();
     assert_eq!(child, "cancelled");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn private_routes_are_scoped_health_gated_and_quarantine_reused_slots(pool: PgPool) {
+    let (target, revision, nodes) = fixture(&pool).await;
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['workers-v1','jobs-v1','private-network-v1']")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut spec: Value = sqlx::query_scalar("SELECT spec FROM services WHERE id=$1")
+        .bind(target)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    spec["name"] = json!("private-client");
+    spec["workload"]["replicas"] = json!(1);
+    spec["workload"]["private_connections"] = json!([{"service_id":target,"env":"API_URL"}]);
+    let mut wrong = spec.clone();
+    wrong["environment"] = json!("other");
+    let (status, _) = call(
+        &pool,
+        "/api/services",
+        json!({"operation_id":Uuid::new_v4(),"spec":wrong,"build_on_create":false}),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (code, source) = call(
+        &pool,
+        "/api/services",
+        json!({"operation_id":Uuid::new_v4(),"spec":spec,"build_on_create":false}),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{source:?}");
+    let source: Uuid = source["id"].as_str().unwrap().parse().unwrap();
+    call(
+        &pool,
+        &format!("/api/services/{source}/builds"),
+        json!({"operation_id":Uuid::new_v4(),"no_cache":false}),
+        None,
+    )
+    .await;
+    let b = control_plane::builds::claim(&pool).await.unwrap().unwrap();
+    control_plane::builds::finish(
+        &pool,
+        &b,
+        control_plane::builds::Completion::Succeeded {
+            repository: "127.0.0.1:15000/platform/test".into(),
+            digest: format!("sha256:{}", "a".repeat(64)).try_into().unwrap(),
+        },
+    )
+    .await
+    .unwrap();
+    let source_revision: Uuid = sqlx::query_scalar("SELECT id FROM revisions WHERE build_id=$1")
+        .bind(b.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (_, d) = call(
+        &pool,
+        &format!("/api/services/{target}/deployments"),
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let target_deploy: Uuid = d["id"].as_str().unwrap().parse().unwrap();
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY[]::text[]")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let deploy = json!({"operation_id":Uuid::new_v4(),"revision_id":source_revision});
+    assert_eq!(
+        call(
+            &pool,
+            &format!("/api/services/{source}/deployments"),
+            deploy.clone(),
+            None
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT,
+        "legacy nodes cannot run private clients"
+    );
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['private-network-v1']")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (code, d) = call(
+        &pool,
+        &format!("/api/services/{source}/deployments"),
+        deploy,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{d:?}");
+    let source_deploy: Uuid = d["id"].as_str().unwrap().parse().unwrap();
+    let node: Uuid = sqlx::query_scalar("SELECT node_id FROM instances WHERE deployment_id=$1")
+        .bind(source_deploy)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let sync = || json!({"version":1,"node_id":node,"observations":[],"capabilities":["private-network-v1"]});
+    let token = "a".repeat(64);
+    let (_, response) = call(&pool, "/api/agent/sync", sync(), Some(&token)).await;
+    let client = response["assignments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["service_id"] == source.to_string())
+        .unwrap();
+    assert_eq!(
+        client["private_backends"],
+        json!([[]]),
+        "preparing targets are not routable"
+    );
+    sqlx::query("UPDATE deployments SET status='active' WHERE id=$1")
+        .bind(target_deploy)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE instances SET state='ready',observed_at=now() WHERE deployment_id=$1")
+        .bind(target_deploy)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, response) = call(&pool, "/api/agent/sync", sync(), Some(&token)).await;
+    let client = response["assignments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["service_id"] == source.to_string())
+        .unwrap();
+    assert_eq!(client["private_backends"][0].as_array().unwrap().len(), 2);
+    let leases: i64 = sqlx::query_scalar("SELECT count(*) FROM private_route_leases")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(leases, 2);
+    call(
+        &pool,
+        &format!("/api/deployments/{target_deploy}/stop"),
+        json!({}),
+        None,
+    )
+    .await;
+    sqlx::query("UPDATE instances SET state='stopped' WHERE deployment_id=$1")
+        .bind(target_deploy)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, response) = call(&pool, "/api/agent/sync", sync(), Some(&token)).await;
+    let client = response["assignments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["service_id"] == source.to_string())
+        .unwrap();
+    assert_eq!(client["private_backends"], json!([[]]));
+    let (_, d) = call(
+        &pool,
+        &format!("/api/services/{target}/deployments"),
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let new: Uuid = d["id"].as_str().unwrap().parse().unwrap();
+    let reused:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances a JOIN instances b ON a.node_id=b.node_id AND a.slot=b.slot WHERE a.deployment_id=$1 AND b.deployment_id=$2)").bind(target_deploy).bind(new).fetch_one(&pool).await.unwrap();
+    assert!(!reused, "unexpired route leases quarantine old slots");
+    // Shadowing rewrites target references, never points development at production.
+    let environment: Uuid = sqlx::query_scalar("SELECT environment_id FROM services WHERE id=$1")
+        .bind(source)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (code, shadow) = call(
+        &pool,
+        "/api/environments",
+        json!({"project":spec["project"],"name":"shadow-private","parent_id":environment}),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{shadow:?}");
+    let remapped:Uuid=sqlx::query_scalar("SELECT (spec->'workload'->'private_connections'->0->>'service_id')::uuid FROM services WHERE environment_id=$1 AND name='private-client'").bind(shadow["id"].as_str().unwrap().parse::<Uuid>().unwrap()).fetch_one(&pool).await.unwrap();
+    assert_ne!(remapped, target);
+    let env: Uuid = sqlx::query_scalar("SELECT environment_id FROM services WHERE id=$1")
+        .bind(remapped)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(env.to_string(), shadow["id"].as_str().unwrap());
+    assert_eq!(nodes.len(), 3);
+}

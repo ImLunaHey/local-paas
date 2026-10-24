@@ -26,9 +26,20 @@ pub struct Assignment {
     pub published_port: u16,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub database_ports: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub private_backends: Vec<Vec<PrivateBackend>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume_size_gib: Option<u16>,
 }
+/// Node-private proxy destinations. The current VM transport uses host-forwarded
+/// ports; the public/scheduler domain never sees container runtime identifiers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrivateBackend {
+    pub port: u16,
+    pub expires_unix_ms: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncRequest {

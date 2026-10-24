@@ -28,6 +28,7 @@ in {
   networking.dhcpcd.extraConfig = "nohook resolv.conf";
   networking.enableIPv6 = false;
   networking.firewall.allowedTCPPortRanges = [ { from = 20000; to = 20003; } ];
+  networking.firewall.interfaces.lpbr0.allowedTCPPortRanges = [ { from = 24000; to = 24015; } ];
   services.openssh.enable = false;
   services.getty.autologinUser = lib.mkForce null;
   users.users.root.hashedPassword = "!";
@@ -87,7 +88,7 @@ in {
       ${pkgs.nftables}/bin/nft -f - <<'RULES'
       table inet local_paas_workloads {
         set database_egress { type ipv4_addr . inet_service; }
-        chain input { type filter hook input priority -20; policy accept; ct state established,related accept; iifname "lpbr0" drop; }
+        chain input { type filter hook input priority -20; policy accept; ct state established,related accept; iifname "lpbr0" ip saddr ${subnet} tcp dport 24000-24015 accept; tcp dport 24000-24015 drop; iifname "lpbr0" drop; }
         chain forward {
           type filter hook forward priority -20; policy accept;
           ct state established,related accept

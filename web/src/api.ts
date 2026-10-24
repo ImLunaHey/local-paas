@@ -11,6 +11,7 @@ export type Workload =
       build_args?: Record<string, string>
       build_target?: string
       pre_deploy?: { command: string[]; timeout_seconds: number }
+      private_connections?: { service_id: string; env: string }[]
       dockerfile: string
       context: string
       replicas: number

@@ -144,6 +144,8 @@ pub enum Workload {
         build_target: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pre_deploy: Option<PreDeploy>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        private_connections: Vec<PrivateConnection>,
         dockerfile: String,
         context: String,
         replicas: u16,
@@ -157,6 +159,27 @@ pub enum Workload {
         members: u16,
         bucket_ref: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrivateConnection {
+    pub service_id: uuid::Uuid,
+    pub env: String,
+}
+impl PrivateConnection {
+    pub fn valid(&self) -> bool {
+        !self.env.is_empty()
+            && self.env.len() <= 128
+            && self
+                .env
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+            && !self.env.as_bytes()[0].is_ascii_digit()
+    }
+    pub fn hostname(&self) -> String {
+        format!("svc-{}.internal", self.service_id.simple())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,6 +239,15 @@ pub struct ValidationIssue {
 }
 
 impl Workload {
+    pub fn private_connections(&self) -> &[PrivateConnection] {
+        match self {
+            Self::OciService {
+                private_connections,
+                ..
+            } => private_connections,
+            _ => &[],
+        }
+    }
     pub fn is_worker(&self) -> bool {
         matches!(
             self,
@@ -491,7 +523,17 @@ impl ServiceSpec {
                 build_args,
                 build_target,
                 pre_deploy,
+                private_connections,
             } => {
+                let mut names = HashSet::new();
+                check(
+                    private_connections.len() <= 16
+                        && private_connections.iter().all(|c| {
+                            c.valid() && names.insert(&c.env) && !self.secrets.contains(&c.env)
+                        }),
+                    "workload.private_connections",
+                    "use at most 16 private connections with unique uppercase environment variable names that do not conflict with secrets",
+                );
                 if let Some(job) = pre_deploy {
                     check(
                         job.valid(),
