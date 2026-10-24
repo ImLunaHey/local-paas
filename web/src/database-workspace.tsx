@@ -14,7 +14,7 @@ import {
 import { cn } from 'cn'
 import { api } from './api-client'
 import type { Service } from './generated/model/service'
-import type { DatabaseState } from './databases'
+import type { DatabaseState } from './features/databases/database-connections'
 import { ProjectBackLink } from './projects'
 import { Button } from './components/button'
 import { WorkspaceLayout } from './service-workspace'

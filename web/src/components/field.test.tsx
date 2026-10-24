@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test } from 'vitest'
-import { Field } from '../components/field'
-import { Input } from '../components/input'
-import { Button } from '../components/button'
+import { Field } from './field'
+import { Input } from './input'
+import { Button } from './button'
 
 test('field connects its label and description to a keyboard-operable input', async () => {
   const user = userEvent.setup()
