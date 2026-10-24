@@ -16,6 +16,7 @@ use uuid::Uuid;
 mod audit;
 #[cfg(test)]
 mod backup_drills;
+pub mod backups;
 pub mod builds;
 mod configuration;
 mod database_inspection;

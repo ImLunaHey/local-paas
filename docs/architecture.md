@@ -160,6 +160,12 @@ loss/paused-agent/full-disk faults, bounded resources and logs, secret non-persi
 no public celld internal/operator listener, and a written Railway rollback drill.
 All three initial workers share Lake, power, disks and Internet; no hardware HA.
 
+Development backup automation now uses encrypted Restic snapshots for control-plane
+state, active managed PostgreSQL/Redis and offline OpenBao file storage. A separate
+restore drill validates imported databases and pinned secret versions. The current
+repository is local to Lake; off-site custody, other persistent resources and full
+disaster recovery remain release gates. See [backup operations](backups.md).
+
 Lake capacity and the Railway inventory in the conversation are 2026-10-23
 snapshots, not live evidence. Recheck before provisioning workers or migrating
 production state. The builder's later inspection does not establish worker capacity.

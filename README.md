@@ -30,10 +30,15 @@ file browsing with upload/download and read-only access enforcement. See
 [storage](docs/storage.md) for development limits and qualification status.
 
 **Not implemented:** automatic relocation after node loss, node cordon/drain UI,
-public DigitalOcean ingress, NetBird provisioning, production authentication/backup
-recovery, and celld fleet
+public DigitalOcean ingress, NetBird provisioning, production authentication and
+complete off-site disaster recovery, and celld fleet
 execution. celld cannot enter the OCI deploy path.
 See [runtime operations and limitations](docs/runtime.md).
+
+Encrypted development backups cover control-plane PostgreSQL, active managed
+PostgreSQL/Redis databases and OpenBao. Daily restore drills use disposable
+instances and check pinned secret versions. The repository currently remains on
+Lake; see [backup scope, scheduling and recovery limits](docs/backups.md).
 
 Projects contain services and their own environments. New environments can copy
 service configuration and inherit secrets from another environment in the same
