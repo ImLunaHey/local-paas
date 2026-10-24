@@ -36,7 +36,7 @@ quick-xml = { version = "0.42.0", features = ["serialize"] }
 redis = { version = "1.7.0", default-features = false, features = ["tokio-comp"] }
 utoipa = { version = "5", features = ["uuid", "chrono"] }
 garde = { version = "0.23", features = ["derive"] }
-lucid-auth = { version = "=0.1.0", git = "https://github.com/ImLunaHey/auth.git", rev = "6cfd7df2a25a14e0829b73be1d4e0277d96951ab", features = ["axum", "postgres"] }
+lucid-auth = { version = "=0.1.0", git = "https://github.com/ImLunaHey/auth.git", rev = "44a90bada06df2c49d31e9626693f77e4bd7d390", features = ["axum", "postgres"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
