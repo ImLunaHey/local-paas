@@ -45,7 +45,7 @@ pub(crate) async fn get(
         .into_iter()
         .filter(|a| !used.contains(a))
         .collect();
-    let active_port:Option<i32>=sqlx::query_scalar("SELECT (spec->'workload'->>'port')::integer FROM deployments WHERE service_id=$1 AND status='active'").bind(id).fetch_optional(&pool).await?;
+    let active_port:Option<i32>=sqlx::query_scalar::<_,Option<i32>>("SELECT (spec->'workload'->>'port')::integer FROM deployments WHERE service_id=$1 AND status='active'").bind(id).fetch_optional(&pool).await?.flatten();
     Ok(Json(
         json!({"authority":route,"available":available,"active_port":active_port,"scope":"private-tailnet"}),
     ))
@@ -111,7 +111,7 @@ pub(crate) async fn update(
             "celld networking requires its dedicated fleet runtime",
         ));
     };
-    *port = input.port;
+    *port = Some(input.port);
     service.spec.validate().map_err(ApiError::Invalid)?;
     if let Some(authority) = &input.authority {
         let owner: Option<Uuid> =

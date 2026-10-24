@@ -39,6 +39,36 @@ Process starts are retained in audit history and as restart markers in runtime l
 Slots remain reserved until cleanup is acknowledged. This initial scheduler does
 not automatically move allocations from lost nodes; they recover on that node.
 
+## Background workers
+
+OCI services can set `workload.execution` to `worker` (omitting it retains HTTP
+behavior). A worker declares one replica and omits `port`, `readiness` and domains.
+The Dockerfile or generated Node/Bun recipe still defines the start command.
+The agent publishes no port and observes the process running for ten seconds
+before promotion. This confirms process stability, not application progress.
+Logs, metrics, scoped secrets, database connections and volume attachments work
+through the same interfaces as web services. Execution type is fixed at creation.
+
+Worker deployment requests persist a `waiting` deployment and request shutdown
+of previous instances. The reconciler allocates the replacement only after the
+owning agent reports `stopped` at the current generation, including destruction
+and network cleanup. Failed, unknown and stale instances do not count as stopped.
+A lost node therefore blocks replacement; a timeout never grants permission to
+start another copy. Waiting deployments can be cancelled. Once shutdown is
+confirmed, the deployment waits for a capable node and capacity, then starts.
+Shared-volume workers stay pinned to the volume owner.
+
+This creates a deliberate interruption during replacement. A failed candidate
+does not restart the previous worker automatically; deploy a retained revision
+explicitly. Active workers use the same bounded local crash recovery as HTTP
+services. Agents must advertise `workers-v1`; existing HTTP declarations remain
+compatible with older agents. Do not downgrade an agent while it owns a worker.
+
+Singleton ownership is per service identity, not across environments or separate
+services. It prevents platform-managed overlapping replacements, but does not
+provide exactly-once external effects or replace application idempotency/fencing.
+One-off jobs, schedules and release/migration jobs remain separate future work.
+
 Runtime logs are deduplicated by instance and entry identity, limited to 512 KiB
 per instance. Metrics are retained for one hour; the UI query exposes the most
 recent 15 minutes. CPU and memory measurements describe application cgroups,

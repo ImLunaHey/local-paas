@@ -130,6 +130,8 @@ pub enum Workload {
         storage_gib: u16,
     },
     OciService {
+        #[serde(default, skip_serializing_if = "Execution::is_http")]
+        execution: Execution,
         #[serde(default)]
         build_mode: BuildMode,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,14 +141,29 @@ pub enum Workload {
         dockerfile: String,
         context: String,
         replicas: u16,
-        port: u16,
-        readiness: Readiness,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        readiness: Option<Readiness>,
     },
     CelldService {
         wrangler: String,
         members: u16,
         bucket_ref: String,
     },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Execution {
+    #[default]
+    Http,
+    Worker,
+}
+impl Execution {
+    pub fn is_http(&self) -> bool {
+        *self == Self::Http
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,6 +190,15 @@ pub struct ValidationIssue {
 }
 
 impl Workload {
+    pub fn is_worker(&self) -> bool {
+        matches!(
+            self,
+            Self::OciService {
+                execution: Execution::Worker,
+                ..
+            }
+        )
+    }
     pub fn is_managed(&self) -> bool {
         self.is_database() || matches!(self, Self::RustfsService { .. })
     }
@@ -427,6 +453,7 @@ impl ServiceSpec {
             }
 
             Workload::OciService {
+                execution,
                 dockerfile,
                 context,
                 replicas,
@@ -472,27 +499,61 @@ impl ServiceSpec {
                     "workload.replicas",
                     "must be between 1 and 32",
                 );
-                check(*port != 0, "workload.port", "must be between 1 and 65535");
-                check(
-                    readiness.path.len() <= 1024
-                        && readiness.path.starts_with('/')
-                        && !readiness.path.starts_with("//")
-                        && !readiness.path.contains(['\r', '\n', '#', '\\'])
-                        && !readiness.path.chars().any(char::is_control),
-                    "workload.readiness.path",
-                    "use an absolute HTTP path beginning with a single /",
-                );
-                check(
-                    (1..=300).contains(&readiness.interval_seconds),
-                    "workload.readiness.interval_seconds",
-                    "must be between 1 and 300",
-                );
-                check(
-                    readiness.stabilization_seconds >= readiness.interval_seconds
-                        && readiness.stabilization_seconds <= 3600,
-                    "workload.readiness.stabilization_seconds",
-                    "must cover at least one check interval and be at most 3600",
-                );
+                if *execution == Execution::Worker {
+                    check(
+                        *replicas == 1,
+                        "workload.replicas",
+                        "background workers currently require exactly one replica",
+                    );
+                    check(
+                        port.is_none(),
+                        "workload.port",
+                        "background workers do not expose an HTTP port",
+                    );
+                    check(
+                        readiness.is_none(),
+                        "workload.readiness",
+                        "background workers use process stabilization, not HTTP readiness",
+                    );
+                    check(
+                        self.domains.is_empty(),
+                        "domains",
+                        "background workers cannot receive domain mappings",
+                    );
+                } else {
+                    check(
+                        port.is_some_and(|p| p != 0),
+                        "workload.port",
+                        "must be between 1 and 65535",
+                    );
+                    check(
+                        readiness.is_some(),
+                        "workload.readiness",
+                        "HTTP services require a readiness check",
+                    );
+                }
+                if let Some(readiness) = readiness {
+                    check(
+                        readiness.path.len() <= 1024
+                            && readiness.path.starts_with('/')
+                            && !readiness.path.starts_with("//")
+                            && !readiness.path.contains(['\r', '\n', '#', '\\'])
+                            && !readiness.path.chars().any(char::is_control),
+                        "workload.readiness.path",
+                        "use an absolute HTTP path beginning with a single /",
+                    );
+                    check(
+                        (1..=300).contains(&readiness.interval_seconds),
+                        "workload.readiness.interval_seconds",
+                        "must be between 1 and 300",
+                    );
+                    check(
+                        readiness.stabilization_seconds >= readiness.interval_seconds
+                            && readiness.stabilization_seconds <= 3600,
+                        "workload.readiness.stabilization_seconds",
+                        "must cover at least one check interval and be at most 3600",
+                    );
+                }
             }
             Workload::CelldService {
                 wrangler,
@@ -699,13 +760,50 @@ mod tests {
     fn readiness_requires_time_to_stabilize() {
         let mut spec = example();
         if let Workload::OciService { readiness, .. } = &mut spec.workload {
-            readiness.stabilization_seconds = 0;
+            readiness.as_mut().unwrap().stabilization_seconds = 0;
         }
         assert!(
             spec.validate()
                 .unwrap_err()
                 .iter()
                 .any(|i| i.field.ends_with("stabilization_seconds"))
+        );
+    }
+
+    #[test]
+    fn workers_require_one_replica_and_no_http_contract() {
+        let mut value = serde_json::to_value(example()).unwrap();
+        value["workload"]["execution"] = "worker".into();
+        assert!(
+            serde_json::from_value::<ServiceSpec>(value.clone())
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        value["workload"]["replicas"] = 1.into();
+        value["workload"].as_object_mut().unwrap().remove("port");
+        value["workload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("readiness");
+        value["domains"] = serde_json::json!([]);
+        let worker: ServiceSpec = serde_json::from_value(value.clone()).unwrap();
+        worker.validate().unwrap();
+        assert!(worker.workload.is_worker());
+        value["domains"] = serde_json::json!(["worker.example.com"]);
+        assert!(
+            serde_json::from_value::<ServiceSpec>(value.clone())
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        value["domains"] = serde_json::json!([]);
+        value["workload"]["execution"] = "http".into();
+        assert!(
+            serde_json::from_value::<ServiceSpec>(value)
+                .unwrap()
+                .validate()
+                .is_err()
         );
     }
 

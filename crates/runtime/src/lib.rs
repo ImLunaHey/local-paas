@@ -62,7 +62,7 @@ pub enum Mount {
 
 #[derive(Debug, Clone)]
 pub struct NetworkPolicy {
-    pub declared_port: u16,
+    pub declared_port: Option<u16>,
     pub published_port: u16,
     pub allowed_egress: Vec<EgressRule>,
 }

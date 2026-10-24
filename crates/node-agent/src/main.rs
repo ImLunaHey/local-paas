@@ -83,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "rustfs-v1".into(),
                 "volume-files-v1".into(),
                 "recovery-v1".into(),
+                "workers-v1".into(),
             ],
         };
         match client
@@ -135,7 +136,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
             database,
             storage_gib,
         } => (
-            5432,
+            Some(5432),
             vec![platform_runtime::Mount::Volume {
                 id: a.service_id,
                 destination: "/var/lib/postgresql".into(),
@@ -148,7 +149,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
             ]),
         ),
         Workload::RustfsService { storage_gib } => (
-            9000,
+            Some(9000),
             vec![platform_runtime::Mount::Volume {
                 id: a.service_id,
                 destination: "/data".into(),
@@ -161,7 +162,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
             )]),
         ),
         Workload::RedisService { storage_gib } => (
-            6379,
+            Some(6379),
             vec![platform_runtime::Mount::Volume {
                 id: a.service_id,
                 destination: "/data".into(),
@@ -395,10 +396,15 @@ async fn instance_loop(
                         stabilization_seconds: 10,
                     };
                     let readiness = match &a.spec.workload {
-                        Workload::OciService { readiness, .. } => readiness,
+                        Workload::OciService {
+                            readiness: Some(readiness),
+                            ..
+                        } => readiness,
                         _ => &default_readiness,
                     };
-                    let ready = if matches!(a.spec.workload, Workload::RedisService { .. }) {
+                    let ready = if a.spec.workload.is_worker() {
+                        true // Process observation only; no claim of application readiness.
+                    } else if matches!(a.spec.workload, Workload::RedisService { .. }) {
                         runtime.command(&["exec".into(),id.to_string(),"/.platform-secret-exec".into(),"sh".into(),"-c".into(),"REDISCLI_AUTH=\"$REDIS_PASSWORD\" exec redis-cli -h 127.0.0.1 ping".into()]).await.is_ok_and(|out|out==b"PONG\n")
                     } else if matches!(a.spec.workload, Workload::PostgresService { .. }) {
                         runtime

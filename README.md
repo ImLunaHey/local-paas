@@ -14,6 +14,10 @@ leave the previous active deployment intact. Sources support branches, tags,
 commits, and validated ZIP/local file uploads; supported Node/Bun apps can
 generate Dockerfiles with command overrides.
 
+Background workers are available as an OCI process type, with one replica and no
+HTTP port. Replacements wait for confirmed shutdown of the previous instance;
+an unreachable node blocks replacement. See [worker lifecycle](docs/runtime.md#background-workers).
+
 Showcase Studio is privately deployed with two replicas on different worker VMs:
 **https://lake.tail3275e2.ts.net:5201**. The dashboard remains on port 5188.
 All three workers share Lake as a physical failure domain. This is a development

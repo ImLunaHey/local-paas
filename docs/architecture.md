@@ -115,8 +115,11 @@ requests are serialized per service. Controller restart resumes persisted phases
 
 Nodes have stable IDs, capacity versus allocatable resources, labels, lease
 expiry, cordon/drain state, and a physical failure-domain label. Stateless
-rescheduling tolerates overlap; singleton side effects need fencing and are out
-of scope initially. Distinct-node spreading does not guarantee distinct hardware.
+rescheduling tolerates overlap. Singleton background workers now use a durable
+stop-before-start barrier: a replacement waits for authenticated shutdown
+confirmation, even if the old node becomes unreachable. Application-side
+idempotency/fencing remains necessary for external effects. Distinct-node
+spreading does not guarantee distinct hardware.
 
 ## Threat boundaries and tests required before deployment
 

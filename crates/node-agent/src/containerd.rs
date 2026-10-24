@@ -331,7 +331,6 @@ impl Runtime for Containerd {
             ("--device-read-bps", "/dev/vda:20971520".into()),
             ("--device-write-bps", "/dev/vda:20971520".into()),
             ("--ulimit", "core=0".into()),
-            ("--publish", format!("0.0.0.0:{published}:{port}")),
             ("--log-driver", "json-file".into()),
             ("--log-opt", "max-size=1m".into()),
             ("--log-opt", "max-file=2".into()),
@@ -339,9 +338,6 @@ impl Runtime for Containerd {
                 "--log-opt",
                 format!("log-path={}", self.logfile(op.instance_id).display()),
             ),
-            ("--env", format!("PORT={port}")),
-            ("--env", "HOST=0.0.0.0".into()),
-            ("--env", "HOSTNAME=0.0.0.0".into()),
             ("--env", "XDG_CACHE_HOME=/tmp/.cache".into()),
             (
                 "--label",
@@ -367,6 +363,18 @@ impl Runtime for Containerd {
         ] {
             args.push(flag.into());
             args.push(value);
+        }
+        if let Some(port) = port {
+            args.extend([
+                "--publish".into(),
+                format!("0.0.0.0:{published}:{port}"),
+                "--env".into(),
+                format!("PORT={port}"),
+                "--env".into(),
+                "HOST=0.0.0.0".into(),
+                "--env".into(),
+                "HOSTNAME=0.0.0.0".into(),
+            ]);
         }
         for mount in &spec.mounts {
             let Mount::Volume {

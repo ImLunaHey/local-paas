@@ -63,7 +63,9 @@ pub(crate) async fn update(
             ));
         }
     }
-    if current.spec.kind() != request.spec.kind() {
+    if current.spec.kind() != request.spec.kind()
+        || current.spec.workload.is_worker() != request.spec.workload.is_worker()
+    {
         return Err(ApiError::Conflict(
             "an existing service cannot change workload kind; register a separate service",
         ));

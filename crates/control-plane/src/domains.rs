@@ -112,6 +112,13 @@ pub async fn update(
         ));
     }
     if let Some(id) = input.service_id {
+        let worker: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM services WHERE id=$1 AND spec->'workload'->>'execution'='worker')")
+            .bind(id).fetch_one(&mut *tx).await?;
+        if worker {
+            return Err(ApiError::Conflict(
+                "background workers cannot receive domain mappings",
+            ));
+        }
         let kind: Option<String> =
             sqlx::query_scalar("SELECT kind FROM services WHERE id=$1 FOR SHARE")
                 .bind(id)

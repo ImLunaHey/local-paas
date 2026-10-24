@@ -627,3 +627,172 @@ async fn recovery_is_only_authorized_after_promotion_and_for_capable_agents(pool
     assert_eq!(stopped["assignments"][0]["desired_state"], "stopped");
     assert!(stopped["assignments"][0].get("recovery_allowed").is_none());
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(pool: PgPool) {
+    let (service, revision, nodes) = fixture(&pool).await;
+    sqlx::query("UPDATE services SET spec=jsonb_set(jsonb_set(spec,'{workload}',((spec->'workload')-'port'-'readiness')||'{\"execution\":\"worker\",\"replicas\":1}'::jsonb),'{domains}','[]'::jsonb) WHERE id=$1")
+        .bind(service).execute(&pool).await.unwrap();
+    let path = format!("/api/services/{service}/deployments");
+    let request = json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
+    let first = call(&pool, &path, request.clone(), None).await;
+    assert_eq!(first.0, StatusCode::OK);
+    assert_eq!(first, call(&pool, &path, request, None).await);
+    let first_id: Uuid = first.1["id"].as_str().unwrap().parse().unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM instances WHERE deployment_id=$1")
+        .bind(first_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "legacy nodes cannot run workers");
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['workers-v1','recovery-v1'] WHERE id=$1")
+        .bind(nodes[1])
+        .execute(&pool)
+        .await
+        .unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let (old, node, slot): (Uuid, Uuid, i32) =
+        sqlx::query_as("SELECT id,node_id,slot FROM instances WHERE deployment_id=$1")
+            .bind(first_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(node, nodes[1]);
+    let token = "a".repeat(64);
+    let (_, legacy) = call(
+        &pool,
+        "/api/agent/sync",
+        json!({"version":1,"node_id":node,"observations":[]}),
+        Some(&token),
+    )
+    .await;
+    assert_eq!(legacy["assignments"], json!([]));
+    let report = |node, generation, state| json!({"version":1,"node_id":node,"capabilities":["workers-v1","recovery-v1"],"observations":[{"instance_id":old,"generation":generation,"state":state,"observed_unix_ms":chrono::Utc::now().timestamp_millis(),"diagnostic":null,"metrics":null,"logs":[]}]});
+    assert_eq!(
+        call(
+            &pool,
+            "/api/agent/sync",
+            report(node, 1, "ready"),
+            Some(&token)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let (_, second) = call(
+        &pool,
+        &path,
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let second_id: Uuid = second["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(
+        call(
+            &pool,
+            &path,
+            json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+            None
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (desired, generation): (String, i64) =
+        sqlx::query_as("SELECT desired_state,generation FROM instances WHERE id=$1")
+            .bind(old)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((desired.as_str(), generation), ("stopped", 2));
+    // Neither stale generations nor reports from another node may release ownership.
+    call(
+        &pool,
+        "/api/agent/sync",
+        report(node, 1, "stopped"),
+        Some(&token),
+    )
+    .await;
+    call(
+        &pool,
+        "/api/agent/sync",
+        report(nodes[0], 2, "stopped"),
+        Some(&token),
+    )
+    .await;
+    sqlx::query("UPDATE nodes SET last_seen=now()-interval '1 hour' WHERE id=$1")
+        .bind(node)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        control_plane::runtime::reconcile(&pool).await.unwrap();
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM instances WHERE deployment_id=$1")
+        .bind(second_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "unknown old worker must block replacement");
+    assert_eq!(
+        call(
+            &pool,
+            "/api/agent/sync",
+            report(node, 2, "stopped"),
+            Some(&token)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (a, b) = tokio::join!(
+        control_plane::runtime::reconcile(&pool),
+        control_plane::runtime::reconcile(&pool)
+    );
+    a.unwrap();
+    b.unwrap();
+    let allocations: Vec<(Uuid, i32)> =
+        sqlx::query_as("SELECT node_id,slot FROM instances WHERE deployment_id=$1")
+            .bind(second_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    // The other capable node can win placement, but there is exactly one allocation.
+    assert_eq!(allocations.len(), 1);
+    assert!(allocations[0].1 == slot);
+    call(
+        &pool,
+        &format!("/api/deployments/{second_id}/stop"),
+        json!({}),
+        None,
+    )
+    .await;
+    let (_, third) = call(
+        &pool,
+        &path,
+        json!({"operation_id":Uuid::new_v4(),"revision_id":revision}),
+        None,
+    )
+    .await;
+    let third_id: Uuid = third["id"].as_str().unwrap().parse().unwrap();
+    call(
+        &pool,
+        &format!("/api/deployments/{third_id}/stop"),
+        json!({}),
+        None,
+    )
+    .await;
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM instances WHERE deployment_id=$1")
+        .bind(third_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        count, 0,
+        "cancelling a waiting deployment cannot start it later"
+    );
+}
