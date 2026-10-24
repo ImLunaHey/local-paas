@@ -85,6 +85,10 @@ execution is not implemented. Storage remains node-pinned. See
 [architecture and release limits](docs/architecture.md), [runtime](docs/runtime.md),
 [storage](docs/storage.md), [ingress](docs/ingress.md) and [backups](docs/backups.md).
 
+See the [major PaaS feature comparison](docs/paas-comparison.md) for a sourced
+comparison with managed and self-hosted platforms and links to tracked product
+gaps.
+
 ## Develop without provisioning VMs
 
 Use `nix develop` for the pinned Rust, Node, pnpm and PostgreSQL toolchain.
