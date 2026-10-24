@@ -210,6 +210,14 @@ export function WorkspaceBreadcrumbs() {
         <>
           <ChevronRight size={13} />
           <span className="max-w-36 truncate">{service.data.spec.name}</span>
+          <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium text-zinc-300">
+            {service.data.spec.workload.kind === 'postgres-service' ||
+            service.data.spec.workload.kind === 'redis-service'
+              ? 'Database'
+              : service.data.spec.workload.kind === 'rustfs-service'
+                ? 'Storage'
+                : 'Service'}
+          </span>
         </>
       )}
       {error && (
