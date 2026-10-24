@@ -161,3 +161,28 @@ The preview is reachable only inside the tailnet and only routes ready instances
 These are development checks on one physical Lake host. They do not establish
 hardware redundancy, lossless telemetry, automatic cross-node relocation,
 production ingress availability or backup recovery.
+
+## Disposable recovery drill
+
+Build `examples/recovery-canary` as a private, single-replica uploaded service
+named `recovery-canary-<unique suffix>` in `platform-storage-canary`. Use port
+3000 and `/health`, with five-second checks and stabilization. Leave domains,
+secrets and volumes empty. Its `/crash`, `/unhealthy` and `/healthy` endpoints
+deliberately inject faults; do not expose this fixture publicly.
+
+After the build succeeds, run the explicit live test against the development
+controller (the test creates and stops its own deployments):
+
+```sh
+DATABASE_URL="postgresql:///local_paas?host=$PWD/.local/socket&port=55432" \
+PLATFORM_RECOVERY_CANARY=<service UUID> \
+cargo test -p control-plane --test recovery_canary -- --ignored --nocapture
+```
+
+This exercises readiness recovery after more than 120 seconds without restarting,
+five real process exits and recoveries with retained start markers, retry-budget
+exhaustion, replacement with a fresh instance, and stopping during backoff. It
+stops its deployments on assertion failures as well as success. Ordinary test runs
+never inject these faults; the explicit service ID and disposable project/name
+checks are required. Budget persistence and interrupted-start reservations also
+have filesystem-backed node-agent tests.
