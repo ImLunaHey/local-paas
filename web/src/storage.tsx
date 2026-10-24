@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HardDrive } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
 import { api, type Service } from './api'
 import { Button, Field, Input, Select } from './ui'
 interface Volume {
@@ -76,6 +77,16 @@ export function StoragePanel({ service }: { service: Service }) {
       <div className="flex items-center gap-3">
         <HardDrive size={20} className="text-accent" />
         <h2>Persistent storage</h2>
+        {current && volumes.data?.items.some((v) => v.id === current.id && v.node) && (
+          <Link
+            className="ml-auto text-xs text-orange-300 hover:underline"
+            to="/services/$serviceId/storage"
+            params={{ serviceId: service.id }}
+            search={{ browse: 'volume' }}
+          >
+            Browse files
+          </Link>
+        )}
       </div>
       <p className="text-xs leading-relaxed text-muted">
         Share a volume between services in this environment. All attached services run on its owning

@@ -1,6 +1,7 @@
 mod containerd;
 mod network;
 mod secrets;
+mod volume_files;
 mod volumes;
 use containerd::Containerd;
 use platform_domain::Workload;
@@ -60,6 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let helper = std::env::var("SECRET_EXECUTOR")?;
     tokio::fs::copy(helper, root.join("secret-exec.new")).await?;
     tokio::fs::rename(root.join("secret-exec.new"), root.join("secret-exec")).await?;
+    tokio::spawn(volume_files::run(
+        config.clone(),
+        client.clone(),
+        root.clone(),
+    ));
     let runtime = Arc::new(Containerd::new(root, config.node_id));
     let reports: Reports = Arc::new(RwLock::new(HashMap::new()));
     let (desired, rx) = watch::channel(Vec::<Assignment>::new());
@@ -74,6 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "databases-v1".into(),
                 "shared-volumes-v1".into(),
                 "rustfs-v1".into(),
+                "volume-files-v1".into(),
             ],
         };
         match client

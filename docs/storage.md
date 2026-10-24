@@ -81,3 +81,24 @@ errors. PostgreSQL connections default to read-only transactions with a catalog-
 search path, two-second statement timeout and 500 ms lock timeout. Both engines
 have an eight-second overall deadline and share a four-request concurrency cap.
 There is no arbitrary SQL or database editing API in this increment.
+
+## Shared-volume file browsing
+
+An attached app exposes **Browse files** once its volume has an owner. Browsing
+uses outbound authenticated worker polling, separate from workload heartbeats.
+Only the owning worker can claim or complete an operation. Attachment scope and
+version are checked before dispatch and before returning a result. Read-only
+attachments reject uploads on both controller and agent.
+
+The Linux agent uses fd-relative openat2 confinement, disallows symlinks and
+nested mount traversal, and reads regular files only. Uploads use an unnamed
+staging inode and atomic create-only publication; existing paths are never
+replaced. Files use the workload's mapped UID/GID. Workloads must coordinate
+concurrent writes; downloads are not filesystem snapshots.
+
+Transfers are capped at 16 MiB, with four concurrent browser requests and a
+20-second RPC deadline. Listings inspect at most 10,000 entries and return 200
+per page. Payloads remain in memory and are excluded from audit/database records.
+The broker is intentionally ephemeral: a controller restart interrupts transfers
+without stopping workloads. After an uncertain upload, refresh before retrying;
+create-only publication prevents a retry from overwriting a completed file.

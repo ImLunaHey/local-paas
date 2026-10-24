@@ -447,3 +447,130 @@ async fn shared_volumes_colocate_services_and_fence_replacements(pool: PgPool) {
     .unwrap();
     assert_eq!(count, 0);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn volume_file_rpc_checks_owner_permissions_and_attachment_versions(pool: PgPool) {
+    let (service, _, nodes) = fixture(&pool).await;
+    let (_, volume) = call(&pool,"/api/volumes",json!({"operation_id":Uuid::new_v4(),"project":"sandbox","environment":"development","name":"browser-volume","size_gib":1}),None).await;
+    let volume: Uuid = volume["id"].as_str().unwrap().parse().unwrap();
+    sqlx::query("UPDATE shared_volumes SET node_id=$2 WHERE id=$1")
+        .bind(volume)
+        .bind(nodes[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['volume-files-v1']")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE services SET spec=jsonb_set(spec,'{volume}',$2) WHERE id=$1")
+        .bind(service)
+        .bind(json!({"id":volume,"mount_path":"/data","read_only":true}))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let token = "a".repeat(64);
+    assert_eq!(
+        call(
+            &pool,
+            "/api/agent/files/poll",
+            json!({"node_id":nodes[0]}),
+            Some(&"b".repeat(64))
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let app = control_plane::router(pool.clone(), vec![]);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!(
+                    "/api/services/{service}/volume/files?path=test.txt"
+                ))
+                .header("host", "localhost")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from("no"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert!(
+        call(
+            &pool,
+            "/api/agent/files/poll",
+            json!({"node_id":nodes[0]}),
+            Some(&token)
+        )
+        .await
+        .1
+        .is_null()
+    );
+    let pending = tokio::spawn(
+        app.clone().oneshot(
+            Request::builder()
+                .uri(format!("/api/services/{service}/volume/files"))
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    );
+    let mut task = Value::Null;
+    for _ in 0..30 {
+        task = call(
+            &pool,
+            "/api/agent/files/poll",
+            json!({"node_id":nodes[0]}),
+            Some(&token),
+        )
+        .await
+        .1;
+        if !task.is_null() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(task["volume_id"], volume.to_string());
+    assert_eq!(task["read_only"], true);
+    let result = json!({"node_id":nodes[1],"id":task["id"],"result":{"kind":"listing","items":[],"cursor":null}});
+    assert_eq!(
+        call(&pool, "/api/agent/files/result", result, Some(&token))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    sqlx::query("UPDATE services SET version=version+1 WHERE id=$1")
+        .bind(service)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result = json!({"node_id":nodes[0],"id":task["id"],"result":{"kind":"listing","items":[],"cursor":null}});
+    assert_eq!(
+        call(&pool, "/api/agent/files/result", result, Some(&token))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        pending.await.unwrap().unwrap().status(),
+        StatusCode::CONFLICT,
+        "a stale attachment must not receive the result"
+    );
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/services/{service}/volume/files?path=..%2Fsecret"
+                ))
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}

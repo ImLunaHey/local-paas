@@ -52,7 +52,7 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
         .unwrap_or("unmatched")
         .to_string();
     let action = match (method.as_str(), route.as_str()) {
-        ("GET", "/api/services/{id}/storage/files")
+        ("GET", "/api/services/{id}/storage/files" | "/api/services/{id}/volume/files")
             if request
                 .uri()
                 .query()
@@ -60,7 +60,9 @@ pub async fn record_action(State(pool): State<PgPool>, request: Request, next: N
         {
             "storage.file.download"
         }
-        ("PUT", "/api/services/{id}/storage/files") => "storage.file.upload",
+        ("PUT", "/api/services/{id}/storage/files" | "/api/services/{id}/volume/files") => {
+            "storage.file.upload"
+        }
         ("POST", "/api/volumes") => "volume.create",
         ("POST", "/api/services/{id}/buckets") => "bucket.create",
         ("DELETE", "/api/services/{id}/storage-connection") => "bucket.detach",

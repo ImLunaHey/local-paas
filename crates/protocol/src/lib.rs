@@ -73,3 +73,56 @@ pub struct LogEntry {
     pub stream: String,
     pub line: String,
 }
+
+pub const FILE_LIMIT: usize = 16 * 1024 * 1024;
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilePoll {
+    pub node_id: Uuid,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileTask {
+    pub id: Uuid,
+    pub volume_id: Uuid,
+    pub read_only: bool,
+    pub expires_unix_ms: i64,
+    pub path: String,
+    pub action: FileAction,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FileAction {
+    List { offset: usize },
+    Download,
+    Upload { base64: String },
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileEntry {
+    pub path: String,
+    pub kind: String,
+    pub size: Option<u64>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FileResult {
+    Listing {
+        items: Vec<FileEntry>,
+        cursor: Option<String>,
+    },
+    Download {
+        base64: String,
+    },
+    Uploaded,
+    Failed {
+        code: String,
+    },
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileReply {
+    pub node_id: Uuid,
+    pub id: Uuid,
+    pub result: FileResult,
+}

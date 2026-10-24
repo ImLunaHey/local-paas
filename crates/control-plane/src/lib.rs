@@ -32,11 +32,26 @@ pub mod runtime;
 mod s3;
 pub mod secrets;
 mod storage_files;
+mod volume_files;
 mod volumes;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route(
+            "/api/services/{id}/volume/files",
+            get(volume_files::get)
+                .put(volume_files::upload)
+                .layer(DefaultBodyLimit::max(platform_protocol::FILE_LIMIT))
+                .layer(middleware::from_fn(volume_files::limit)),
+        )
+        .route("/api/agent/files/poll", post(volume_files::poll))
+        .route(
+            "/api/agent/files/result",
+            post(volume_files::reply)
+                .layer(DefaultBodyLimit::max(24 * 1024 * 1024))
+                .layer(middleware::from_fn(volume_files::limit_replies)),
+        )
         .route(
             "/api/services/{id}/database/inspect",
             get(database_inspection::get),
@@ -152,6 +167,7 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
                         .into_response();
                 }
                 let secrets = request.uri().path().ends_with("/secrets")
+                    || request.uri().path().starts_with("/api/agent/files/")
                     || request.uri().path().ends_with("/database/inspect")
                     || request.uri().path().ends_with("/files");
                 let mut response = next.run(request).await;
