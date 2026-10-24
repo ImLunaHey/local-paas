@@ -69,6 +69,23 @@ services. It prevents platform-managed overlapping replacements, but does not
 provide exactly-once external effects or replace application idempotency/fencing.
 One-off jobs, schedules and release/migration jobs remain separate future work.
 
+The private `examples/worker-canary` fixture emits structured heartbeat logs and
+delays SIGTERM shutdown by eight seconds without opening a socket. After building
+it as a worker named `worker-canary-<suffix>` in `platform-storage-canary`, run:
+
+```sh
+DATABASE_URL="postgresql:///local_paas?host=$PWD/.local/socket&port=55432" \
+PLATFORM_WORKER_CANARY=<service UUID> \
+cargo test -p control-plane --test worker_canary -- --ignored --nocapture
+```
+
+The drill deploys twice, checks the waiting barrier and recorded process-start
+ordering, verifies no HTTP listener and retained logs, then stops both deployments.
+This passed on Lake on 2026-10-24. Disposable database tests also cover legacy
+agents, concurrent reconciliation, stale/wrong-node shutdown reports, unreachable
+nodes, cancellation, and rejection of domain/HTTP mappings. Desktop and mobile
+browser checks covered creation and the shared configuration form.
+
 Runtime logs are deduplicated by instance and entry identity, limited to 512 KiB
 per instance. Metrics are retained for one hour; the UI query exposes the most
 recent 15 minutes. CPU and memory measurements describe application cgroups,

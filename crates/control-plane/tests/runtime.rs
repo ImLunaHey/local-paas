@@ -634,6 +634,43 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
     let (service, revision, nodes) = fixture(&pool).await;
     sqlx::query("UPDATE services SET spec=jsonb_set(jsonb_set(spec,'{workload}',((spec->'workload')-'port'-'readiness')||'{\"execution\":\"worker\",\"replicas\":1}'::jsonb),'{domains}','[]'::jsonb) WHERE id=$1")
         .bind(service).execute(&pool).await.unwrap();
+    call(
+        &pool,
+        "/api/domains",
+        json!({"hostname":"worker.example.com"}),
+        None,
+    )
+    .await;
+    for (path, body, expected) in [
+        (
+            "/api/domains/worker.example.com".to_string(),
+            json!({"service_id":service,"expected_version":1}),
+            StatusCode::CONFLICT,
+        ),
+        (
+            format!("/api/services/{service}/networking"),
+            json!({"enabled":false,"port":3000,"expected_version":1}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let response = control_plane::router(pool.clone(), vec![])
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(path)
+                    .header("host", "localhost:8080")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            expected,
+            "worker must not acquire HTTP routing through another API"
+        );
+    }
     let path = format!("/api/services/{service}/deployments");
     let request = json!({"operation_id":Uuid::new_v4(),"revision_id":revision});
     let first = call(&pool, &path, request.clone(), None).await;
