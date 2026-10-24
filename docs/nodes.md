@@ -40,3 +40,33 @@ opt-in policy, lost heartbeats, blocked stateful workloads, placement shortage,
 stale readiness, failed candidates, cancellation, and resumption from a fresh
 controller connection. Live VM/network drills are explicitly opt-in development
 operations and must not target unrelated workloads.
+
+## Live Lake fault drill
+
+The opt-in `node_fault_canary` test uses the existing Rust recovery fixture and
+requires a `recovery-canary-*` HTTP service in `platform-storage-canary`, with one
+replica, no domains/secrets/volume, and an already-built revision. It expects the
+initial allocation on worker-2. It drains only opted-in applications, stops the
+controller for 60 seconds while checking the Showcase preview, stops worker-3,
+and then temporarily drops worker-2's controller-gateway traffic using its host
+UID and a dedicated nftables table. Worker-3's other canaries also experience that
+VM outage. Use only this development topology with no other maintenance in flight.
+
+```sh
+PLATFORM_NODE_CANARY=<disposable recovery service UUID> \
+DATABASE_URL="postgresql:///local_paas?host=$PWD/.local/socket&port=55432" \
+cargo test -p control-plane --test node_fault_canary -- --ignored --nocapture
+```
+
+The drill waits for actual replacement readiness, handoff, returning-agent cleanup
+and final shutdown. On ordinary errors it restores the affected VM/network rule,
+controller, scheduling policy and canary stop state. If the test process itself is
+forcibly killed, inspect `local_paas_partition_drill`, the worker-3/API units and
+node cordon state before resuming work. No Railway or public routing is modified.
+
+On 2026-10-24 the complete live drill passed in 466 seconds: drain and recovery
+resumed after controller restart, 20 preview requests succeeded across the
+60-second controller outage, stopped-VM and isolated-gateway loss each caused a
+readiness-gated replacement, and returning agents confirmed cleanup. The canary
+was stopped, the temporary firewall table removed, all nodes uncordoned, and the
+original seven running instances were fresh and ready afterward.
