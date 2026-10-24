@@ -1,23 +1,28 @@
 import { Link } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type Service } from './api'
-import { Button, Field, Input, Select } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
 interface Storage {
   buckets: { id: string; name: string; status: string; storageId: string; storage: string }[]
   binding: { bucketId: string; status: string; readOnly: boolean } | null
 }
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function BucketPanel({ service }: { service: Service }) {
-  const managed = service.spec.workload.kind === 'rustfs-service',
-    client = useQueryClient()
+  const managed = service.spec.workload.kind === 'rustfs-service'
+  const client = useQueryClient()
   const state = useQuery({
     queryKey: ['buckets', service.id],
     queryFn: () => api<Storage>('/services/' + service.id + '/buckets'),
     refetchInterval: 5000,
   })
-  const [name, setName] = useState(''),
-    [bucket, setBucket] = useState(''),
-    [readOnly, setReadOnly] = useState(false)
+  const [name, setName] = useState('')
+  const [bucket, setBucket] = useState('')
+  const [readOnly, setReadOnly] = useState(false)
   const operation = useRef<{ name: string; id: string } | null>(null)
   const mutation = useMutation({
     mutationFn: async () => {

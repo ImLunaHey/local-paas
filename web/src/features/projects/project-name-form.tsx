@@ -1,16 +1,10 @@
 import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
-import { z } from 'zod'
-import { Button, Field, Input } from '../../ui'
+import { projectNameSchema } from './project-name-schema'
+import { Button } from '../../components/button'
+import { Field } from '../../components/field'
+import { Input } from '../../components/input'
 import { cn } from 'cn'
-
-export const projectNameSchema = z.object({
-  name: z
-    .string()
-    .min(1, 'Enter a project name.')
-    .max(63)
-    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use lowercase letters, numbers and single hyphens.'),
-})
 
 export function ProjectNameForm({
   initialName = '',

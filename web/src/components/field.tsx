@@ -11,8 +11,8 @@ export function Field({
   className?: string
   children: ReactElement<{ id?: string; 'aria-describedby'?: string }>
 }) {
-  const generated = useId(),
-    id = children.props.id ?? generated
+  const generatedId = useId()
+  const id = children.props.id ?? generatedId
   return (
     <div className={cn('flex min-w-0 flex-col gap-2', className)}>
       <label htmlFor={id} className="text-xs leading-4 text-zinc-300">

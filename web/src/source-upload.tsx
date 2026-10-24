@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { zip } from 'fflate'
-import { api } from './api'
-import { Field, Input } from './ui'
+import { api } from './api-client'
+import { Field } from './components/field'
+import { Input } from './components/input'
 
 export function SourceUpload({
   project,
@@ -59,6 +60,7 @@ export function SourceUpload({
             )
           if (entries[name])
             throw new Error('Selected files have duplicate names; use a ZIP to preserve folders.')
+          // oxlint-disable-next-line react-doctor/async-await-in-loop -- Validate each file and cumulative memory limit before reading the next file.
           entries[name] = new Uint8Array(await file.arrayBuffer())
         }
         body = await new Promise<Uint8Array<ArrayBuffer>>((resolve, reject) =>

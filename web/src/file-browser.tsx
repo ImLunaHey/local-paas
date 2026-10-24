@@ -2,8 +2,12 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, Folder, File, Download, RefreshCw, Upload } from 'lucide-react'
-import { api, type Service } from './api'
-import { Button, Input } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { Button } from './components/button'
+import { Input } from './components/input'
+const fileSizeFormatter = new Intl.NumberFormat()
+
 interface Listing {
   items: { path: string; kind: 'file' | 'directory'; size?: number; modified?: string }[]
   cursor?: string | null
@@ -11,11 +15,11 @@ interface Listing {
   limitBytes: number
 }
 export function FileBrowser({ service, kind }: { service: Service; kind: 'objects' | 'volume' }) {
-  const search = useSearch({ strict: false }) as { path?: string },
-    prefix = search.path ?? ''
-  const navigate = useNavigate(),
-    client = useQueryClient(),
-    [cursor, setCursor] = useState('')
+  const search = useSearch({ strict: false }) as { path?: string }
+  const prefix = search.path ?? ''
+  const navigate = useNavigate()
+  const client = useQueryClient()
+  const [cursor, setCursor] = useState('')
   const endpoint =
     '/services/' + service.id + (kind === 'objects' ? '/storage/files' : '/volume/files')
   const query = useQuery({
@@ -30,6 +34,7 @@ export function FileBrowser({ service, kind }: { service: Service; kind: 'object
       for (const file of files) {
         if (file.size > (query.data?.limitBytes ?? 16 * 1024 * 1024))
           throw new Error(file.name + ' exceeds the 16 MiB transfer limit')
+        // oxlint-disable-next-line react-doctor/async-await-in-loop -- Serialize transfers to bound memory/agent load and stop at the first failed upload.
         await api(endpoint + '?' + new URLSearchParams({ path: prefix + file.name }), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/octet-stream' },
@@ -120,6 +125,7 @@ export function FileBrowser({ service, kind }: { service: Service; kind: 'object
                       )}
                       {f.kind === 'directory' ? (
                         <button
+                          type="button"
                           className="text-left break-all hover:text-orange-300"
                           onClick={() => change(f.path)}
                         >
@@ -131,7 +137,7 @@ export function FileBrowser({ service, kind }: { service: Service; kind: 'object
                     </div>
                   </td>
                   <td className="px-4 text-right text-muted whitespace-nowrap">
-                    {f.kind === 'file' ? new Intl.NumberFormat().format(f.size ?? 0) + ' B' : '—'}
+                    {f.kind === 'file' ? fileSizeFormatter.format(f.size ?? 0) + ' B' : '—'}
                   </td>
                   <td className="text-right">
                     {f.kind === 'file' && (

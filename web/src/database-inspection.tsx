@@ -3,8 +3,9 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useSearch } from '@tanstack/react-router'
 import { tableFeatures, useTable, type ColumnDef } from '@tanstack/react-table'
 import { Database, RefreshCw } from 'lucide-react'
-import { api, type Service } from './api'
-import { Button } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { Button } from './components/button'
 
 type Row = Record<string, string | number | boolean | null>
 interface Snapshot {
@@ -95,6 +96,7 @@ function DataTable({
       fields.map((f) => ({
         accessorKey: f.key,
         header: f.label,
+        // oxlint-disable-next-line react-doctor/no-unstable-nested-components -- TanStack cell renderer is cached by useMemo until its column definition changes.
         cell: ({ row }) =>
           serviceId && f.key === 'name' ? (
             <Link
@@ -139,6 +141,7 @@ function DataTable({
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
                 {group.headers.map((header) => (
+                  // oxlint-disable-next-line react-doctor/control-has-associated-label -- TanStack FlexRender supplies cell content; cells are not interactive controls.
                   <th key={header.id} scope="col" className="px-5 py-3 font-medium">
                     <table.FlexRender header={header} />
                   </th>
@@ -150,6 +153,7 @@ function DataTable({
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id} className="border-t border-zinc-800/70">
                 {row.getAllCells().map((cell) => (
+                  // oxlint-disable-next-line react-doctor/control-has-associated-label -- TanStack FlexRender supplies cell content; cells are not interactive controls.
                   <td key={cell.id} className="max-w-80 break-words px-5 py-3 tabular-nums">
                     <table.FlexRender cell={cell} />
                   </td>
@@ -163,6 +167,7 @@ function DataTable({
     </section>
   )
 }
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function DatabaseInspector({ service }: { service: Service }) {
   const { table } = useSearch({ strict: false }) as { table?: number }
   const isDatabase =

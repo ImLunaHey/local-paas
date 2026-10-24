@@ -2,9 +2,15 @@ import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Database } from 'lucide-react'
-import { api, type Service, type ServiceSpec } from './api'
-import { Button, Field, Input, Select } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import type { ServiceSpec } from './generated/model/serviceSpec'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
 import { ProjectBackLink } from './projects'
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function DatabaseForm({
   service,
   initialEngine = 'postgres-service',
@@ -13,8 +19,8 @@ export function DatabaseForm({
   initialEngine?: 'postgres-service' | 'rustfs-service'
 }) {
   const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
-  const navigate = useNavigate(),
-    client = useQueryClient()
+  const navigate = useNavigate()
+  const client = useQueryClient()
   const [engine, setEngine] = useState<'postgres-service' | 'redis-service' | 'rustfs-service'>(
     service?.spec.workload.kind === 'redis-service'
       ? 'redis-service'
@@ -236,8 +242,8 @@ export interface DatabaseState {
 }
 export function DatabasePanel({ service }: { service: Service }) {
   const secretName = service.spec.workload.kind === 'redis-service' ? 'REDIS_URL' : 'DATABASE_URL'
-  const client = useQueryClient(),
-    [app, setApp] = useState('')
+  const client = useQueryClient()
+  const [app, setApp] = useState('')
   const query = useQuery({
     queryKey: ['database', service.id],
     queryFn: () => api<DatabaseState>('/services/' + service.id + '/database'),

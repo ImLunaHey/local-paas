@@ -1,11 +1,15 @@
-import { Button, Input, Select, Field } from './ui'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Select } from './components/select'
+import { Field } from './components/field'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearch } from '@tanstack/react-router'
 import { ChevronRight, Pause, Play, Terminal } from 'lucide-react'
 import { cn } from 'cn'
-import { api, type Service } from './api'
-import { useRuntime } from './runtime'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { useRuntime } from './runtime-query'
 
 interface Log {
   sequence: number
@@ -261,6 +265,7 @@ function LogWorkspace({ service, instance }: { service: Service; instance: strin
     </section>
   )
 }
+// oxlint-disable-next-line react-doctor/no-giant-component, react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 function LogFeed({
   serviceId,
   filters,
@@ -424,7 +429,17 @@ function LogFeed({
                   ...structure.columns,
                   ...(structure.message ? ['Message'] : []),
                 ].map((name, index) => (
-                  <th key={index} scope="col" title={name}>
+                  <th
+                    key={
+                      (index < 4
+                        ? 'metadata:'
+                        : index < 4 + structure.columns.length
+                          ? 'field:'
+                          : 'message:') + name
+                    }
+                    scope="col"
+                    title={name}
+                  >
                     {name}
                   </th>
                 ))}

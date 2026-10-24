@@ -6,7 +6,7 @@ export default defineConfig({
   resolve: { alias: { cn: fileURLToPath(new URL('./src/cn.ts', import.meta.url)) } },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'tooling/**/*.test.ts'],
     setupFiles: ['./src/test-setup.ts'],
     coverage: {
       provider: 'v8',

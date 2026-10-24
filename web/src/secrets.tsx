@@ -1,7 +1,10 @@
-import { Button, Input, Field } from './ui'
-import { useEffect, useRef, useState } from 'react'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Field } from './components/field'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type Service } from './api'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 interface SecretSet {
   configured: boolean
   version: number
@@ -11,13 +14,8 @@ interface SecretSet {
   references: string[]
   path: string
 }
-export function SecretManager({
-  service,
-  onReadyChange,
-}: {
-  service: Service
-  onReadyChange?: (ready: boolean) => void
-}) {
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
+export function SecretManager({ service }: { service: Service }) {
   const client = useQueryClient()
   const form = useRef<HTMLFormElement>(null)
   const [notice, setNotice] = useState('')
@@ -62,9 +60,8 @@ export function SecretManager({
     onSuccess: changed,
   })
   const busy = save.isPending || remove.isPending
-  useEffect(() => {
-    onReadyChange?.(!busy && !dirty && !save.isError && !remove.isError)
-  }, [busy, dirty, save.isError, remove.isError, onReadyChange])
+  const storedNames = new Set(secrets.data?.names)
+  const ownNames = new Set(secrets.data?.ownNames)
   return (
     <section className="panel p-6 space-y-5" aria-label="Service secrets">
       <div className="section-heading">
@@ -132,7 +129,6 @@ export function SecretManager({
               disabled={busy}
               onClick={() => {
                 form.current?.reset()
-                setDirty(false)
                 save.reset()
                 setNotice('')
               }}
@@ -149,17 +145,14 @@ export function SecretManager({
               <div>
                 <code className="text-sm">{name}</code>
                 <p className="text-xs text-muted mt-1">
-                  {secrets.data?.names.includes(name)
-                    ? secrets.data.origins[name] === service.id
+                  {storedNames.has(name)
+                    ? secrets.data?.origins[name] === service.id
                       ? 'Local value stored'
                       : 'Inherited from shadow source · save this name to override'
                     : 'Missing value · deployment will be blocked'}
                 </p>
               </div>
-              <Button
-                disabled={busy || !secrets.data?.ownNames.includes(name)}
-                onClick={() => remove.mutate(name)}
-              >
+              <Button disabled={busy || !ownNames.has(name)} onClick={() => remove.mutate(name)}>
                 Remove local value
               </Button>
             </div>

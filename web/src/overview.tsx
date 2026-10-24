@@ -3,9 +3,9 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Activity, ArrowUpRight, Box, Layers3, Server, GitBranch } from 'lucide-react'
 import { cn } from 'cn'
-import { api } from './api'
+import { api } from './api-client'
 import { Trend } from './trend'
-import { Select } from './ui'
+import { Select } from './components/select'
 interface Recent {
   id: string
   serviceId: string
@@ -237,6 +237,7 @@ const fields: {
   { field: 'networkTxBytesPerSecond', label: 'Network sent', unit: 'MiB/s', scale: 2 ** 20 },
 ]
 const gib = (n: number | null | undefined) => (n == null ? '—' : (n / 2 ** 30).toFixed(1) + ' GiB')
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function Hosts() {
   const [range, setRange] = useState('15m')
   const query = useQuery({
@@ -244,8 +245,8 @@ export function Hosts() {
     queryFn: () => api<HostsData>(`/hosts?range=${range}`),
     refetchInterval: 5000,
   })
-  const samples = query.data?.host.samples ?? [],
-    latest = samples.at(-1)
+  const samples = query.data?.host.samples ?? []
+  const latest = samples.at(-1)
   const fresh = latest && Date.now() - Date.parse(latest.timestamp) < 20000 && !query.isError
   return (
     <>

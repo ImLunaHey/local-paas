@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Server, ShieldCheck } from 'lucide-react'
 import { cn } from 'cn'
-import { api } from './api'
-import { Button, Input } from './ui'
+import { api } from './api-client'
+import { Button } from './components/button'
+import { Input } from './components/input'
 
 type Node = {
   id: string
@@ -75,8 +76,8 @@ function Capacity({
   )
 }
 export function Nodes() {
-  const client = useQueryClient(),
-    [filter, setFilter] = useState('')
+  const client = useQueryClient()
+  const [filter, setFilter] = useState('')
   const query = useQuery({
     queryKey: ['nodes'],
     queryFn: () => api<{ nodes: Node[]; instances: Instance[] }>('/nodes'),

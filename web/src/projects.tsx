@@ -1,23 +1,20 @@
-import type { ProjectList, ProjectDetail as Project } from './generated/model'
-import {
-  getListProjectsQueryOptions,
-  getGetProjectQueryOptions,
-  createProject,
-  updateProject,
-} from './generated/management'
+import { projectsQuery } from './projects-query'
+import type { ProjectDetail as Project } from './generated/model/projectDetail'
+import { getGetProjectQueryOptions, createProject, updateProject } from './generated/management'
 import { ProjectNameForm } from './features/projects/project-name-form'
-import { Button, Input, Select, Field } from './ui'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Select } from './components/select'
+import { Field } from './components/field'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Plus, Layers3, ArrowLeft } from 'lucide-react'
-import { api, type Service } from './api'
-export const projectsQuery = getListProjectsQueryOptions<ProjectList, Error>({
-  query: { queryKey: ['projects'] },
-})
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 export function Projects() {
-  const client = useQueryClient(),
-    navigate = useNavigate()
+  const client = useQueryClient()
+  const navigate = useNavigate()
   const projects = useQuery(projectsQuery)
   const create = useMutation({
     mutationFn: (name: string) => createProject({ name }),
@@ -75,8 +72,8 @@ export function ProjectWorkspace({
 }) {
   const { projectId } = useParams({ strict: false }) as { projectId: string }
   const search = useSearch({ strict: false }) as { environment?: string }
-  const navigate = useNavigate(),
-    client = useQueryClient()
+  const navigate = useNavigate()
+  const client = useQueryClient()
   const project = useQuery(
     getGetProjectQueryOptions<Project, Error>(projectId, {
       query: { queryKey: ['projects', projectId] },
@@ -86,9 +83,9 @@ export function ProjectWorkspace({
     project.data?.environments.find((e) => e.name === search.environment) ??
     project.data?.environments.find((e) => e.name === 'production') ??
     project.data?.environments[0]
-  const [offset, setOffset] = useState(0),
-    [name, setName] = useState(''),
-    [parent, setParent] = useState('')
+  const [offset, setOffset] = useState(0)
+  const [name, setName] = useState('')
+  const [parent, setParent] = useState('')
   useEffect(() => setOffset(0), [env?.id])
   const params = new URLSearchParams({
     project: project.data?.name ?? '',

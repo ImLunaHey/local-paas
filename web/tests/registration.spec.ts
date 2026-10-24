@@ -360,9 +360,9 @@ test('project environment form uses aligned shared controls at desktop and mobil
   test.skip(!project, 'Requires an existing project')
   await page.goto('/projects/' + project.id)
   await page.getByText('Create or shadow an environment', { exact: true }).click()
-  const input = page.getByLabel('Environment name', { exact: true }),
-    select = page.getByLabel('Shadow source', { exact: true }),
-    button = page.getByRole('button', { name: 'Create environment', exact: true })
+  const input = page.getByLabel('Environment name', { exact: true })
+  const select = page.getByLabel('Shadow source', { exact: true })
+  const button = page.getByRole('button', { name: 'Create environment', exact: true })
   await expect(input).toBeVisible()
   await expect(select).toBeVisible()
   const boxes = await Promise.all([input.boundingBox(), select.boundingBox(), button.boundingBox()])

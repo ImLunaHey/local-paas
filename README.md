@@ -97,8 +97,13 @@ make test-db
 ```
 
 `make check` runs Rust formatting, Clippy with warnings denied, workspace tests,
-Oxfmt, Oxlint (including accessibility rules), TypeScript, Vitest and the frontend
-production build. CI also runs nextest, doc tests, coverage, dependency/license
+Oxfmt, Oxlint (including accessibility, React Doctor recommended and TanStack Query
+rules), TypeScript, Vitest and the frontend
+production build. Shared visual variants use CVA and `cn`; components are imported
+directly, with no handwritten barrels. Oxlint also enforces one variable per statement.
+Rule exceptions are documented beside the affected declaration or in
+`web/oxlint.config.ts`; existing large views still need decomposition.
+CI also runs nextest, doc tests, coverage, dependency/license
 checks, secret scanning and generated OpenAPI/client drift checks.
 
 For isolated browser tests, use a disposable PostgreSQL database named

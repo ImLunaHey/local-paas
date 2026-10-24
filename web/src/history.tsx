@@ -1,9 +1,9 @@
 import { PreDeployResult, type ReleaseJob } from './release-job'
 import { Diagnostic } from './diagnostic'
-import { Button } from './ui'
+import { Button } from './components/button'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { api } from './api'
+import { api } from './api-client'
 interface Deployment {
   preDeploy?: ReleaseJob | null
   id: string

@@ -1,10 +1,14 @@
-import { Button, Input, Select } from './ui'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Select } from './components/select'
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Box, Hammer, LoaderCircle, RefreshCw, Terminal, X } from 'lucide-react'
-import { api, sourceLabel, sourceReference } from './api'
-import type { Build, Revision, Service, SourceKind } from './api'
+import { api } from './api-client'
+import { sourceLabel, sourceReference } from './api'
+import type { Service } from './generated/model/service'
+import type { Build, Revision, SourceKind } from './api'
 
 const active = (build?: Build) => build?.status === 'queued' || build?.status === 'running'
 const errors: Record<string, string> = {
@@ -46,6 +50,7 @@ const errors: Record<string, string> = {
   invalid_image_metadata: 'The builder returned no valid image digest. No revision was created.',
 }
 
+// oxlint-disable-next-line react-doctor/no-giant-component, react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function BuildPanel({ service }: { service: Service }) {
   const client = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)

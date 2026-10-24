@@ -2,9 +2,13 @@ import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams, useRouterState, useSearch } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
-import { api, serviceQuery, type Service } from './api'
-import { projectsQuery } from './projects'
-import { Button, Field, Select } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { serviceQuery } from './api'
+import { projectsQuery } from './projects-query'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Select } from './components/select'
 interface Project {
   id: string
   name: string
@@ -12,8 +16,8 @@ interface Project {
 }
 export function CreationScope({ children }: { children: ReactNode }) {
   const search = useSearch({ strict: false }) as { project?: string; environment?: string }
-  const navigate = useNavigate(),
-    projects = useQuery(projectsQuery)
+  const navigate = useNavigate()
+  const projects = useQuery(projectsQuery)
   const [chosen, setChosen] = useState('')
   const selected = projects.data?.items.find((p) => p.name === search.project)
   const id = chosen || selected?.id || ''
@@ -100,6 +104,7 @@ export function CreationScope({ children }: { children: ReactNode }) {
     </>
   )
 }
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function WorkspaceBreadcrumbs() {
   const params = useParams({ strict: false }) as { projectId?: string; serviceId?: string }
   const search = useSearch({ strict: false }) as { project?: string; environment?: string }
@@ -123,8 +128,8 @@ export function WorkspaceBreadcrumbs() {
     project.data?.environments.find((e) => e.name === 'production')?.name ??
     project.data?.environments[0]?.name ??
     ''
-  const [switching, setSwitching] = useState(false),
-    [error, setError] = useState('')
+  const [switching, setSwitching] = useState(false)
+  const [error, setError] = useState('')
   async function change(environment: string) {
     setSwitching(true)
     setError('')

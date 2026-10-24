@@ -1,5 +1,6 @@
 import { Trend } from './trend'
-import { Select, Field } from './ui'
+import { Select } from './components/select'
+import { Field } from './components/field'
 import { useMemo, useState } from 'react'
 import { defineChart, lineY } from '@tanstack/charts'
 import { Chart as TanStackChart } from '@tanstack/charts/react'
@@ -7,8 +8,9 @@ import { scaleLinear } from '@tanstack/charts/scales/linear'
 import { tooltip } from '@tanstack/charts/tooltip'
 import { useQuery } from '@tanstack/react-query'
 import { Activity } from 'lucide-react'
-import { api, type Service } from './api'
-import { useRuntime, type Instance } from './runtime'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { useRuntime, type Instance } from './runtime-query'
 
 type Field =
   | 'cpuMillis'
@@ -136,7 +138,7 @@ export function MetricsViewer({ service }: { service: Service }) {
     </section>
   )
 }
-export function combine(samples: Sample[]): Sample[] {
+function combine(samples: Sample[]): Sample[] {
   const buckets = new Map<number, Sample[]>()
   for (const sample of samples) {
     const time = Math.floor(Date.parse(sample.timestamp) / 5000) * 5000

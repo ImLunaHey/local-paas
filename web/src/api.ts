@@ -1,8 +1,7 @@
-import type { Service, ServiceSpec, GitSource as Source } from './generated/model'
+import type { Service } from './generated/model/service'
+import type { ServiceSpec } from './generated/model/serviceSpec'
+import type { GitSource as Source } from './generated/model/gitSource'
 import { getGetServiceQueryOptions } from './generated/management'
-export type { Service, ServiceSpec, Workload, GitSource as Source } from './generated/model'
-
-export type { Event as AuditEvent } from './generated/model'
 
 export type BuildPlan =
   | { kind: 'dockerfile'; path: string }
@@ -35,8 +34,6 @@ export interface Revision {
   imageDigest: string
   createdAt: string
 }
-
-export { api } from './api-client'
 
 export const serviceQuery = (id: string) =>
   getGetServiceQueryOptions<Service, Error>(id, { query: { queryKey: ['services', id] } })

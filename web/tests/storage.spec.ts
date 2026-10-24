@@ -88,8 +88,8 @@ test('RustFS file browser uploads, downloads and preserves existing objects', as
   ])
   await page.getByRole('link', { name: 'Browse files', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Browse bucket' })).toBeVisible()
-  const name = `browser-${Date.now()}.txt`,
-    body = 'browser storage canary\n'
+  const name = `browser-${Date.now()}.txt`
+  const body = 'browser storage canary\n'
   await page
     .getByLabel('Upload storage files')
     .setInputFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(body) })
@@ -130,11 +130,11 @@ test('RustFS file browser uploads, downloads and preserves existing objects', as
 test('shared volume browser restores downloaded files and enforces read-only attachments', async ({
   page,
 }) => {
-  const writer = process.env.E2E_VOLUME_WRITER_ID,
-    reader = process.env.E2E_VOLUME_READER_ID
+  const writer = process.env.E2E_VOLUME_WRITER_ID
+  const reader = process.env.E2E_VOLUME_READER_ID
   test.skip(!writer || !reader, 'Requires disposable services sharing a mounted volume')
-  const name = `volume-browser-${Date.now()}.txt`,
-    body = 'shared browser restore canary\n'
+  const name = `volume-browser-${Date.now()}.txt`
+  const body = 'shared browser restore canary\n'
   await page.goto(`/services/${writer}/storage`)
   await page.getByRole('link', { name: 'Browse files', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Browse volume' })).toBeVisible()

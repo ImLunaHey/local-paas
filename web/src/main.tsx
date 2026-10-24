@@ -1,5 +1,6 @@
 import { createService, updateService } from './generated/management'
 import { ServiceDomains } from './service-domains'
+import { domainsQuery } from './domains-query'
 import { CreationSecrets, type CreationSecretsHandle } from './creation-secrets'
 import { SourceUpload } from './source-upload'
 import { ContentBoundary, RouteError } from './error-boundary'
@@ -19,7 +20,11 @@ import { ServiceTrends } from './metrics'
 import { CommandMenu } from './command-menu'
 import { AuditLog } from './audit'
 import { cn } from 'cn'
-import { Button, Input, Select, Field, Textarea } from './ui'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Select } from './components/select'
+import { Field } from './components/field'
+import { Textarea } from './components/textarea'
 import { Projects, ProjectWorkspace, ProjectBackLink, ProjectSettings } from './projects'
 import { SecretManager } from './secrets'
 import { TanStackDevtools } from '@tanstack/react-devtools'
@@ -64,11 +69,17 @@ import {
   ShieldCheck,
   Workflow,
 } from 'lucide-react'
-import { api, serviceQuery, sourceLabel, sourceReference } from './api'
-import type { AuditEvent, Service, ServiceSpec, SourceKind, Workload } from './api'
+import { api } from './api-client'
+import { serviceQuery, sourceLabel, sourceReference } from './api'
+import type { Event as AuditEvent } from './generated/model/event'
+import type { Service } from './generated/model/service'
+import type { ServiceSpec } from './generated/model/serviceSpec'
+import type { Workload } from './generated/model/workload'
+import type { SourceKind } from './api'
 import './styles.css'
 import { BuildPanel } from './builds'
-import { DeploymentPanel, RuntimePanel, useRuntime, runtimeLabel } from './runtime'
+import { DeploymentPanel, RuntimePanel } from './runtime'
+import { useRuntime, runtimeLabel } from './runtime-query'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
@@ -200,6 +211,7 @@ function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
   )
 }
 
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 function ServiceRow({ service }: { service: Service }) {
   const { spec } = service
   const runtime = useRuntime(service.id, spec.workload.kind !== 'celld-service')
@@ -317,6 +329,7 @@ function CreationKind() {
   )
 }
 
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function, react-doctor/no-giant-component -- Existing view retained during tooling migration; decomposition is a separate refactor.
 function ServiceForm({ service }: { service?: Service }) {
   const scope = useSearch({ strict: false }) as { project?: string; environment?: string }
   const [baseline, setBaseline] = useState(service)
@@ -335,7 +348,8 @@ function ServiceForm({ service }: { service?: Service }) {
   )
   const [execution, setExecution] = useState<'http' | 'worker'>(oci?.execution ?? 'http')
   const [dirty, setDirty] = useState(false)
-  const [domainsReady, setDomainsReady] = useState(false)
+  const domains = useQuery(domainsQuery)
+  const domainsReady = domains.isSuccess
   const secretsDraft = useRef<CreationSecretsHandle>(null)
   const created = useRef<Service | null>(null)
   const [creationLocked, setCreationLocked] = useState(false)
@@ -371,6 +385,7 @@ function ServiceForm({ service }: { service?: Service }) {
       created.current = saved
       setCreationLocked(true)
       for (const entry of entries) {
+        // oxlint-disable-next-line react-doctor/async-await-in-loop -- Each secret update consumes the version returned by the preceding write.
         const { version } = await api<{ version: number }>(`/services/${saved.id}/secrets`)
         await api(`/services/${saved.id}/secrets`, {
           method: 'PUT',
@@ -966,11 +981,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       Background workers do not accept inbound HTTP traffic or domain mappings.
                     </p>
                   ) : (
-                    <ServiceDomains
-                      serviceId={baseline?.id}
-                      onChange={() => setDirty(true)}
-                      onReadyChange={setDomainsReady}
-                    />
+                    <ServiceDomains serviceId={baseline?.id} onChange={() => setDirty(true)} />
                   )}
                 </div>
               </section>
@@ -1089,6 +1100,7 @@ function useCurrentService() {
   return service
 }
 
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 function ServiceDetail() {
   const { serviceId } = detailRoute.useParams()
   const service = useQuery(serviceQuery(serviceId))
@@ -1325,7 +1337,7 @@ const environmentsRoute = createRoute({
 const networkingRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'networking',
-  component: () => {
+  component: function ServiceNetworking() {
     const service = useCurrentService()
     if (service.spec.workload.kind === 'rustfs-service')
       return (
@@ -1413,7 +1425,9 @@ const serviceBuildsRoute = createRoute({
 const serviceJobsRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'jobs',
-  component: () => <JobsPanel service={useCurrentService()} />,
+  component: function ServiceJobs() {
+    return <JobsPanel service={useCurrentService()} />
+  },
 })
 const serviceDatabaseRoute = createRoute({
   getParentRoute: () => detailRoute,
@@ -1424,7 +1438,9 @@ const serviceDatabaseRoute = createRoute({
         ? Number(s.table)
         : undefined,
   }),
-  component: () => <DatabaseInspector service={useCurrentService()} />,
+  component: function ServiceDatabase() {
+    return <DatabaseInspector service={useCurrentService()} />
+  },
 })
 const serviceConfigurationRoute = createRoute({
   getParentRoute: () => detailRoute,
@@ -1445,7 +1461,9 @@ const serviceStorageRoute = createRoute({
 const serviceSecretsRoute = createRoute({
   getParentRoute: () => detailRoute,
   path: 'secrets',
-  component: () => <SecretManager service={useCurrentService()} />,
+  component: function ServiceSecrets() {
+    return <SecretManager service={useCurrentService()} />
+  },
 })
 const serviceLogsRoute = createRoute({
   getParentRoute: () => detailRoute,

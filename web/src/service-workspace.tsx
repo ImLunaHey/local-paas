@@ -12,7 +12,7 @@ import {
   Settings2,
   type LucideIcon,
 } from 'lucide-react'
-import type { Service } from './api'
+import type { Service } from './generated/model/service'
 import { ContentBoundary } from './error-boundary'
 
 interface NavigationItem {

@@ -12,10 +12,11 @@ import {
   Settings2,
 } from 'lucide-react'
 import { cn } from 'cn'
-import { api, type Service } from './api'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 import type { DatabaseState } from './databases'
 import { ProjectBackLink } from './projects'
-import { Button } from './ui'
+import { Button } from './components/button'
 import { WorkspaceLayout } from './service-workspace'
 
 const navigation = [

@@ -1,9 +1,12 @@
 import { PrivateNetworking } from './private-networking'
-import { Button, Input, Field } from './ui'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Field } from './components/field'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
-import { api, type Service } from './api'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 interface Network {
   authority: string | null
   available: string[]
@@ -59,6 +62,7 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
   const desiredPort =
     service.spec.workload.kind === 'oci-service' ? (service.spec.workload.port ?? 3000) : 3000
   const [port, setPort] = useState(desiredPort)
+  // oxlint-disable-next-line react-doctor/no-derived-useState -- Draft resets through the parent key when service version or authority changes.
   const [enabled, setEnabled] = useState(!!network.authority)
   const save = useMutation({
     mutationFn: () =>

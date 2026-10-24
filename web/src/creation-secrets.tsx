@@ -1,5 +1,7 @@
 import { useImperativeHandle, useRef, useState, type Ref } from 'react'
-import { Button, Field, Input } from './ui'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
 
 export interface CreationSecretsHandle {
   read: () => { id: string; name: string; value: string }[]
@@ -18,7 +20,7 @@ export function CreationSecrets({
   const container = useRef<HTMLDivElement>(null)
   const completed = useRef(new Set<string>())
   const [rows, setRows] = useState<string[]>([])
-  const [savedRows, setSavedRows] = useState<string[]>([])
+  const [savedRows, setSavedRows] = useState<Set<string>>(() => new Set())
   useImperativeHandle(ref, () => ({
     read() {
       const names = new Set<string>()
@@ -39,7 +41,7 @@ export function CreationSecrets({
         `[data-secret-row="${id}"] [data-value]`,
       )!.value = ''
       completed.current.add(id)
-      setSavedRows([...completed.current])
+      setSavedRows(new Set(completed.current))
     },
   }))
   return (
@@ -67,9 +69,9 @@ export function CreationSecrets({
               data-value
               type="password"
               autoComplete="new-password"
-              required={!savedRows.includes(id)}
-              disabled={savedRows.includes(id)}
-              placeholder={savedRows.includes(id) ? 'Saved in OpenBao' : 'Enter value'}
+              required={!savedRows.has(id)}
+              disabled={savedRows.has(id)}
+              placeholder={savedRows.has(id) ? 'Saved in OpenBao' : 'Enter value'}
             />
           </Field>
           <Button

@@ -22,7 +22,9 @@ docs/architecture.md before changing platform behaviour.
   cargo test --workspace, and pnpm --dir web check for relevant changes.
   Database integration tests require a disposable PostgreSQL test database.
 
-- Reuse `web/src/ui.tsx` for form controls (Button, Input, Select, Textarea, Field).
+- Reuse the form controls in `web/src/components` (Button, Input, Select, Textarea, Field), importing directly from their defining modules. Do not add handwritten barrels; Orval owns its generated model index.
   Style shared controls with Tailwind, and compose conditional/override classes
   with `cn` from `cn` (clsx + tailwind-merge), not manual string concatenation.
+  Use CVA with `VariantProps` for named visual variants. Declare one variable per statement.
+  Run the recommended React Doctor and TanStack Query rules through Oxlint; do not add its standalone CLI.
   Check affected forms visually at desktop and mobile widths.

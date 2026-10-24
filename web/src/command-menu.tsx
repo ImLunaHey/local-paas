@@ -3,8 +3,9 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { Search } from 'lucide-react'
 import { cn } from 'cn'
-import { api } from './api'
-import { Button, Input } from './ui'
+import { api } from './api-client'
+import { Button } from './components/button'
+import { Input } from './components/input'
 interface Result {
   id: string
   kind: 'project' | 'service'
@@ -174,6 +175,7 @@ export function CommandMenu() {
               setSelected(0)
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault()
                 setSelected(

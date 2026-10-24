@@ -1,6 +1,12 @@
 import { cn } from 'cn'
+import { cva } from 'class-variance-authority'
 import { type InputHTMLAttributes, type Ref } from 'react'
 import { control } from './control'
+
+const inputVariants = cva('', {
+  variants: { checkbox: { true: 'accent-orange-400', false: control } },
+  defaultVariants: { checkbox: false },
+})
 export function Input({
   className = '',
   type,
@@ -10,7 +16,7 @@ export function Input({
     <input
       {...props}
       type={type}
-      className={cn(type === 'checkbox' ? 'accent-orange-400' : control, className)}
+      className={cn(inputVariants({ checkbox: type === 'checkbox' }), className)}
     />
   )
 }

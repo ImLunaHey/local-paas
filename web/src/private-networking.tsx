@@ -1,8 +1,12 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Button, Field, Input, Select } from './ui'
-import { api, type Service } from './api'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
 interface Target {
   id: string
   name: string
@@ -13,7 +17,10 @@ export function PrivateNetworking({ service }: { service: Service }) {
     service.spec.workload.kind === 'oci-service'
       ? (service.spec.workload.privateConnections ?? [])
       : []
-  const [connections, setConnections] = useState(initial)
+  const [connections, setConnections] = useState(() =>
+    initial.map((connection) => ({ ...connection, rowId: crypto.randomUUID() })),
+  )
+  const configuration = connections.map(({ serviceId, env }) => ({ serviceId, env }))
   const client = useQueryClient()
   const operation = useRef<{ value: string; id: string } | null>(null)
   const targets = useQuery({
@@ -26,7 +33,7 @@ export function PrivateNetworking({ service }: { service: Service }) {
       if (service.spec.workload.kind !== 'oci-service') return
       const spec = {
         ...service.spec,
-        workload: { ...service.spec.workload, privateConnections: connections },
+        workload: { ...service.spec.workload, privateConnections: configuration },
       }
       const value = JSON.stringify(spec)
       if (operation.current?.value !== value) operation.current = { value, id: crypto.randomUUID() }
@@ -64,7 +71,7 @@ export function PrivateNetworking({ service }: { service: Service }) {
         {connections.map((connection, index) => {
           const target = targets.data?.items.find((t) => t.id === connection.serviceId)
           return (
-            <div key={index} className="rounded-md border border-zinc-800 p-4 space-y-3">
+            <div key={connection.rowId} className="rounded-md border border-zinc-800 p-4 space-y-3">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={`Destination service ${index + 1}`}>
                   <Select
@@ -138,14 +145,19 @@ export function PrivateNetworking({ service }: { service: Service }) {
         <div className="flex flex-wrap gap-3">
           <Button
             disabled={connections.length >= 16}
-            onClick={() => setConnections((rows) => [...rows, { serviceId: '', env: '' }])}
+            onClick={() =>
+              setConnections((rows) => [
+                ...rows,
+                { rowId: crypto.randomUUID(), serviceId: '', env: '' },
+              ])
+            }
           >
             Add connection
           </Button>
           <Button
             variant="primary"
             type="submit"
-            disabled={save.isPending || JSON.stringify(initial) === JSON.stringify(connections)}
+            disabled={save.isPending || JSON.stringify(initial) === JSON.stringify(configuration)}
           >
             Save connections
           </Button>

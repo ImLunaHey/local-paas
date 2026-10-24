@@ -2,8 +2,12 @@ import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HardDrive } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import { api, type Service } from './api'
-import { Button, Field, Input, Select } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
 interface Volume {
   id: string
   name: string
@@ -11,14 +15,15 @@ interface Volume {
   node: string | null
   services: { id: string; name: string; mountPath: string; readOnly: boolean }[]
 }
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function StoragePanel({ service }: { service: Service }) {
-  const client = useQueryClient(),
-    current = service.spec.volume
-  const [id, setId] = useState(current?.id ?? ''),
-    [path, setPath] = useState(current?.mountPath ?? '/data'),
-    [readOnly, setReadOnly] = useState(current?.readOnly ?? false)
-  const [name, setName] = useState(''),
-    [size, setSize] = useState(1)
+  const client = useQueryClient()
+  const current = service.spec.volume
+  const [id, setId] = useState(current?.id ?? '')
+  const [path, setPath] = useState(current?.mountPath ?? '/data')
+  const [readOnly, setReadOnly] = useState(current?.readOnly ?? false)
+  const [name, setName] = useState('')
+  const [size, setSize] = useState(1)
   const operation = useRef<{ key: string; id: string } | null>(null)
   const scope = { project: service.spec.project, environment: service.spec.environment }
   const volumes = useQuery({

@@ -9,9 +9,11 @@ import {
 } from '@tanstack/react-table'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from 'cn'
-import { api } from './api'
-import { projectsQuery } from './projects'
-import { Button, Input, Select } from './ui'
+import { api } from './api-client'
+import { projectsQuery } from './projects-query'
+import { Button } from './components/button'
+import { Input } from './components/input'
+import { Select } from './components/select'
 
 interface Entry {
   sequence: number
@@ -105,6 +107,7 @@ const empty = {
 }
 const compact = 'min-h-8 h-8 rounded px-2 py-1 text-[11px] font-normal'
 
+// oxlint-disable-next-line react-doctor/no-giant-component -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function AuditLog() {
   // Table owns the column filter and expansion state; the API filters the complete history.
   const [data, setData] = useState<Entry[]>([])
@@ -364,6 +367,7 @@ export function AuditLog() {
                     )}
                   >
                     {row.getAllCells().map((cell) => (
+                      // oxlint-disable-next-line react-doctor/control-has-associated-label -- TanStack FlexRender supplies cell content; cells are not interactive controls.
                       <td
                         key={cell.id}
                         className={cn(

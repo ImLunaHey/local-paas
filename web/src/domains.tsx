@@ -2,9 +2,13 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Globe, Plus, ArrowRight } from 'lucide-react'
-import { api, type Service } from './api'
-import { projectsQuery } from './projects'
-import { Button, Field, Input, Select } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { projectsQuery } from './projects-query'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
 interface Domain {
   hostname: string
   serviceId: string | null
@@ -131,6 +135,7 @@ export function Domains() {
     </>
   )
 }
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 function DomainAssignment({ domain }: { domain: Domain }) {
   const client = useQueryClient()
   const [project, setProject] = useState(domain.projectId ?? '')

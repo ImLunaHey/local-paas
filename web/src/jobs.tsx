@@ -3,8 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Clock3, Play, Terminal } from 'lucide-react'
 import { cn } from 'cn'
-import { api, type Revision, type Service } from './api'
-import { Button, Field, Input, Select, Textarea } from './ui'
+import { api } from './api-client'
+import type { Service } from './generated/model/service'
+import { type Revision } from './api'
+import { Button } from './components/button'
+import { Field } from './components/field'
+import { Input } from './components/input'
+import { Select } from './components/select'
+import { Textarea } from './components/textarea'
 
 interface Options {
   command: string[]
@@ -257,6 +263,7 @@ function JobForm({
   )
 }
 
+// oxlint-disable-next-line react-doctor/no-high-complexity-react-function -- Existing view retained during tooling migration; decomposition is a separate refactor.
 export function JobsPanel({ service }: { service: Service }) {
   const client = useQueryClient()
   const supported = service.spec.workload.kind === 'oci-service'
