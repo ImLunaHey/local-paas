@@ -10,7 +10,7 @@ test('PostgreSQL opens its inspector with schemas, columns and indexes', async (
   ).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Database overview' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Database navigation' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Service tabs' })).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Service navigation' })).toHaveCount(0)
   await expect(page.getByText('Requested members', { exact: true })).toHaveCount(0)
   await page.getByRole('link', { name: 'platform_inspection_canary', exact: true }).click()
   await expect(page.getByRole('table', { name: 'Columns', exact: true })).toContainText('bigint')

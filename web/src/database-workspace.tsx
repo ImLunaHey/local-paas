@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   Cable,
@@ -16,6 +16,7 @@ import { api, type Service } from './api'
 import type { DatabaseState } from './databases'
 import { ProjectBackLink } from './projects'
 import { Button } from './ui'
+import { WorkspaceLayout } from './service-workspace'
 
 const navigation = [
   { path: 'overview', label: 'Overview', icon: Database },
@@ -78,54 +79,29 @@ export function DatabaseWorkspace({
           </Button>
         </div>
       </header>
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[170px_minmax(0,1fr)]">
-        <aside className="min-w-0 space-y-6">
-          <nav className="flex flex-wrap gap-1 lg:flex-col" aria-label="Database navigation">
-            {navigation.map(({ path, label, icon: Icon }) => (
-              <Link
-                key={path}
-                to={'/services/$serviceId/' + path}
-                params={{ serviceId: service.id }}
-                resetScroll={false}
-                activeProps={{ 'aria-current': 'page' }}
-                className="flex min-h-10 items-center gap-2.5 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100 aria-[current=page]:bg-orange-400/10 aria-[current=page]:text-orange-300"
-              >
-                <Icon size={15} />
-                {label}
-              </Link>
-            ))}
-          </nav>
-          <dl className="grid grid-cols-2 gap-4 border-t border-zinc-800 pt-5 text-xs sm:grid-cols-4 lg:grid-cols-1">
-            <div>
-              <dt className="text-muted">Worker</dt>
-              <dd className="mt-1.5">
-                {info.error
-                  ? 'Unavailable'
-                  : info.isPending
-                    ? 'Loading…'
-                    : (info.data?.volume?.node ?? 'Not allocated')}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted">Persistent volume</dt>
-              <dd className="mt-1.5">
-                {info.data?.volume ? `${info.data.volume.size_gib} GiB` : '—'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted">CPU limit</dt>
-              <dd className="mt-1.5">{spec.resources.cpu_millis}m</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Memory limit</dt>
-              <dd className="mt-1.5">{spec.resources.memory_mib} MiB</dd>
-            </div>
-          </dl>
-        </aside>
-        <section className="min-w-0" aria-label="Database content">
-          {children}
-        </section>
-      </div>
+      <WorkspaceLayout
+        serviceId={service.id}
+        navigation={navigation}
+        label="Database navigation"
+        details={[
+          {
+            label: 'Worker',
+            value: info.error
+              ? 'Unavailable'
+              : info.isPending
+                ? 'Loading…'
+                : (info.data?.volume?.node ?? 'Not allocated'),
+          },
+          {
+            label: 'Persistent volume',
+            value: info.data?.volume ? info.data.volume.size_gib + ' GiB' : '—',
+          },
+          { label: 'CPU limit', value: spec.resources.cpu_millis + 'm' },
+          { label: 'Memory limit', value: spec.resources.memory_mib + ' MiB' },
+        ]}
+      >
+        {children}
+      </WorkspaceLayout>
     </>
   )
 }

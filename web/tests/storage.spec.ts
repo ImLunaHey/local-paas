@@ -73,9 +73,18 @@ test('RustFS file browser uploads, downloads and preserves existing objects', as
   const id = process.env.E2E_BUCKET_SERVICE_ID
   test.skip(!id, 'Requires a disposable service attached to a RustFS bucket')
   await page.goto(`/services/${id}/storage`)
-  await expect(page.getByRole('navigation', { name: 'Service tabs' }).getByRole('link')).toHaveText(
-    ['Builds', 'Logs', 'Metrics', 'Activity', 'Configuration', 'Networking', 'Storage', 'Secrets'],
-  )
+  await expect(
+    page.getByRole('navigation', { name: 'Service navigation' }).getByRole('link'),
+  ).toHaveText([
+    'Builds',
+    'Logs',
+    'Metrics',
+    'Activity',
+    'Configuration',
+    'Networking',
+    'Storage',
+    'Secrets',
+  ])
   await page.getByRole('link', { name: 'Browse files', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Browse bucket' })).toBeVisible()
   const name = `browser-${Date.now()}.txt`,

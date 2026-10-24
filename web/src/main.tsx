@@ -5,6 +5,7 @@ import { CreationScope, WorkspaceBreadcrumbs } from './workspace-context'
 import { DatabaseForm, DatabasePanel } from './databases'
 import { DatabaseInspector } from './database-inspection'
 import { DatabaseWorkspace } from './database-workspace'
+import { ServiceWorkspace } from './service-workspace'
 import { Domains } from './domains'
 import { Overview, Hosts } from './overview'
 import { ServiceTrends } from './metrics'
@@ -20,7 +21,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { DeploymentHistory } from './history'
 import { Networking } from './networking'
 import { createContext, StrictMode, useContext, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   QueryClient,
@@ -182,29 +183,6 @@ function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
           Try again
         </Button>
       )}
-    </div>
-  )
-}
-
-function Metric({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: ReactNode
-  label: string
-  value: string
-  detail: string
-}) {
-  return (
-    <div className="metric">
-      <div className="flex items-center justify-between text-muted text-xs">
-        {label}
-        {icon}
-      </div>
-      <strong>{value}</strong>
-      <p>{detail}</p>
     </div>
   )
 }
@@ -854,12 +832,6 @@ function ServiceDetail() {
         </DatabaseWorkspace>
       </CurrentService.Provider>
     )
-  const count =
-    spec.workload.kind === 'oci-service'
-      ? spec.workload.replicas
-      : spec.workload.kind === 'celld-service'
-        ? spec.workload.members
-        : 1
   return (
     <>
       <ProjectBackLink project={spec.project} environment={spec.environment} />
@@ -911,71 +883,10 @@ function ServiceDetail() {
           </span>
         </div>
       </div>
-      <div className="phase-banner">
-        <span className="phase-icon">
-          <Check size={19} />
-        </span>
-        <div>
-          <strong>
-            {runtime.isError ? 'Cannot read runtime status.' : `${runtimeLabel(runtime.data)}.`}
-          </strong>
-          <p>
-            {spec.workload.kind === 'celld-service'
-              ? 'The dedicated celld fleet runtime is not implemented yet.'
-              : runtimeLabel(runtime.data) === 'Running'
-                ? 'The active deployment has ready instances. Logs and metrics report application data.'
-                : 'Build an image, then deploy its revision. Readiness checks control when instances can receive traffic.'}
-          </p>
-        </div>
-      </div>
-      <div className="grid sm:grid-cols-3 gap-4 my-7">
-        <Metric
-          icon={<Layers3 size={16} />}
-          label={spec.workload.kind === 'oci-service' ? 'Requested replicas' : 'Requested members'}
-          value={String(count)}
-          detail={
-            spec.distinct_nodes
-              ? 'Distinct-node placement requested'
-              : 'No distinct-node constraint'
-          }
-        />
-        <Metric
-          icon={<Server size={16} />}
-          label="CPU per instance"
-          value={`${spec.resources.cpu_millis}m`}
-          detail="Desired allocation"
-        />
-        <Metric
-          icon={<Box size={16} />}
-          label="Memory per instance"
-          value={`${spec.resources.memory_mib} MiB`}
-          detail="Desired allocation"
-        />
-      </div>
-      <nav className="detail-nav" aria-label="Service tabs">
-        {[
-          ['builds', spec.workload.kind === 'celld-service' ? 'Fleet deployments' : 'Builds'],
-          ['logs', 'Logs'],
-          ['metrics', 'Metrics'],
-          ['activity', 'Activity'],
-          ['configuration', 'Configuration'],
-          ['networking', 'Networking'],
-          ['storage', 'Storage'],
-          ['secrets', 'Secrets'],
-        ].map(([tab, label]) => (
-          <Link
-            key={tab}
-            to={'/services/$serviceId/' + tab}
-            params={{ serviceId }}
-            resetScroll={false}
-            activeProps={{ 'aria-current': 'page' }}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
       <CurrentService.Provider value={service.data}>
-        <Outlet />
+        <ServiceWorkspace service={service.data}>
+          <Outlet />
+        </ServiceWorkspace>
       </CurrentService.Provider>
     </>
   )
