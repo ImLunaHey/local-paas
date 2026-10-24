@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE nodes SET token_hash='',cordoned=true,last_seen=NULL WHERE id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8ce62f2d833bc811e949842c4597afb17648f515dbd35f79020980bbf4c5fff4"
+}

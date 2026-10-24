@@ -10,6 +10,7 @@ import { Input } from './components/input'
 type Node = {
   id: string
   name: string
+  failureDomain: string
   online: boolean
   cordoned: boolean
   draining: boolean
@@ -170,10 +171,13 @@ export function Nodes() {
                 className="overflow-hidden rounded-xl border border-zinc-800 bg-[light-dark(#fafafa,#111113)]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 p-5">
-                  <div className="flex items-center gap-3">
-                    <Server size={20} className="text-zinc-400" />
-                    <div>
-                      <h2 className="text-sm font-medium">{node.name}</h2>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Server size={20} className="shrink-0 text-zinc-400" />
+                    <div className="min-w-0">
+                      <h2 className="break-all text-sm font-medium">{node.name}</h2>
+                      <p className="mt-1 break-all text-[11px] text-zinc-400">
+                        Physical host: {node.failureDomain}
+                      </p>
                       <p className="mt-1 text-[11px] text-zinc-400">
                         {node.lastSeen
                           ? `Last heartbeat ${new Date(node.lastSeen).toLocaleTimeString()}`

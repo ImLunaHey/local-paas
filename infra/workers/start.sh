@@ -2,8 +2,8 @@
 # Explicit development provisioning; no host-wide rebuild or unrelated service changes.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-worker_index=${1:?usage: start.sh 1|2|3}
-case "$worker_index" in 1|2|3) ;; *) exit 2;; esac
+worker_index=${1:?usage: start.sh 1..7}
+case "$worker_index" in 1|2|3|4|5|6|7) ;; *) exit 2;; esac
 worker_name="local-paas-worker-$worker_index"
 worker_tools=$(readlink -f .local/worker-tools)
 worker_vm=$(readlink -f ".local/worker-$worker_index-vm")
@@ -26,7 +26,7 @@ table inet local_paas_worker_$worker_index {
  }
  chain worker_egress {
   ct state established,related accept
-  ip daddr 127.0.0.1 tcp dport { 18443, 15000, 21000-21003, 21100-21103, 21200-21203 } accept
+  ip daddr 127.0.0.1 tcp dport { 18443, 15000, 21000-21003, 21100-21103, 21200-21203, 21300-21303, 21400-21403, 21500-21503, 21600-21603 } accept
   meta nfproto ipv6 reject
   fib daddr type local reject
   ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4 } reject

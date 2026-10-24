@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO nodes(id,name,token_hash,cpu_millis,memory_mib,slots,endpoint_base,failure_domain,cordoned) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "957f505e629a1f7526aca1e805b83e70ec9ca9b52c87ffb4a7db4bab6cd8ee12"
+}

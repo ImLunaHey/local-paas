@@ -828,3 +828,81 @@ async fn singleton_workers_wait_for_authenticated_current_generation_shutdown(po
         "cancelling a waiting deployment cannot start it later"
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn remote_nodes_require_admission_then_use_the_same_assignment_protocol(pool: PgPool) {
+    let (service, revision, _) = fixture(&pool).await;
+    sqlx::query("UPDATE nodes SET cordoned=true")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let config: control_plane::enrollment::Enrollment = serde_json::from_value(json!({
+        "node_id":Uuid::now_v7(),"name":"remote-7","token":"b".repeat(64),
+        "controller_url":"https://controller.local-paas:18443","cpu_millis":1000,
+        "memory_mib":1400,"slots":4,"endpoint_base":21600,"failure_domain":"host-b","cordoned":true
+    }))
+    .unwrap();
+    control_plane::enrollment::enroll(&pool, &config)
+        .await
+        .unwrap();
+    let sync =
+        json!({"version":platform_protocol::VERSION,"nodeId":config.node_id,"observations":[]});
+    let (status, _) = call(&pool, "/api/agent/sync", sync.clone(), Some(&config.token)).await;
+    assert_eq!(status, StatusCode::OK);
+    let path = format!("/api/services/{service}/deployments");
+    assert_eq!(
+        call(
+            &pool,
+            &path,
+            json!({"operationId":Uuid::now_v7(),"revisionId":revision}),
+            None
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    // Admit one local node and the remote node for the two distinct replicas.
+    sqlx::query("UPDATE nodes SET cordoned=false WHERE name='node-0'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        call(
+            &pool,
+            &format!("/api/nodes/{}/actions", config.node_id),
+            json!({"operationId":Uuid::now_v7(),"action":"uncordon"}),
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (status, _) = call(
+        &pool,
+        &path,
+        json!({"operationId":Uuid::now_v7(),"revisionId":revision}),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, response) = call(&pool, "/api/agent/sync", sync.clone(), Some(&config.token)).await;
+    let assignments = response["assignments"].as_array().unwrap();
+    assert_eq!(assignments.len(), 1);
+    assert_eq!(assignments[0]["publishedPort"], 20000);
+    assert!(
+        assignments[0]["imageRepository"]
+            .as_str()
+            .unwrap()
+            .starts_with("127.0.0.1:15000/platform/")
+    );
+    control_plane::enrollment::revoke(&pool, config.node_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&pool, "/api/agent/sync", sync, Some(&config.token))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+}

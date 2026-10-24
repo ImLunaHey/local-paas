@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO audit_log(actor,action,outcome,target_type,target_id,details) VALUES('operator','node.revoke','succeeded','node',$1,'{}')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01298608b923eb2f0ebe77bf59167e79ed8705af853b8faa6ba14fea03298079"
+}

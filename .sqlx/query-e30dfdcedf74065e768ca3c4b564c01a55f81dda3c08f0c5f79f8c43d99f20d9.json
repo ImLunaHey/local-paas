@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name,token_hash,cpu_millis,memory_mib,slots,endpoint_base,failure_domain FROM nodes WHERE id=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "cpu_millis",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "memory_mib",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "slots",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "endpoint_base",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "failure_domain",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e30dfdcedf74065e768ca3c4b564c01a55f81dda3c08f0c5f79f8c43d99f20d9"
+}

@@ -485,6 +485,9 @@ fn vm_unit(name: &str, vm: &str, builder: bool) -> String {
     )
 }
 fn install_vm_units(root: &Path) -> Result<()> {
+    install_selected_vm_units(root, &[0, 1, 2, 3])
+}
+fn install_selected_vm_units(root: &Path, indexes: &[u16]) -> Result<()> {
     let staging = root.join(".local/system-units");
     fs::create_dir_all(&staging)?;
     let nft = root.join(".local/worker-tools/bin/nft").canonicalize()?;
@@ -504,12 +507,23 @@ fn install_vm_units(root: &Path) -> Result<()> {
             "/var/lib/local-paas/platform-setup",
         ],
     )?;
+    let remote = indexes.len() == 1 && (4..=7).contains(&indexes[0]);
+    let firewall_name = if remote {
+        format!("local-paas-worker-{}-firewall.service", indexes[0])
+    } else {
+        "local-paas-firewall.service".into()
+    };
+    let selection = if remote {
+        format!(" {}", indexes[0])
+    } else {
+        String::new()
+    };
     let firewall = format!(
-        "[Unit]\nDescription=Local PaaS VM egress isolation\nBefore=local-paas-builder.service local-paas-worker-1.service local-paas-worker-2.service local-paas-worker-3.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/var/lib/local-paas/platform-setup firewall {}\n",
+        "[Unit]\nDescription=Local PaaS VM egress isolation\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/var/lib/local-paas/platform-setup firewall {}{selection}\n",
         safe_path(&nft)?
     );
-    let mut units = vec![("local-paas-firewall.service".to_owned(), firewall)];
-    for index in 0..=3 {
+    let mut units = vec![(firewall_name.clone(), firewall)];
+    for &index in indexes {
         let (name, path) = if index == 0 {
             (
                 "local-paas-builder".to_owned(),
@@ -523,7 +537,8 @@ fn install_vm_units(root: &Path) -> Result<()> {
         };
         units.push((
             format!("{name}.service"),
-            vm_unit(&name, &safe_path(&path.canonicalize()?)?, index == 0),
+            vm_unit(&name, &safe_path(&path.canonicalize()?)?, index == 0)
+                .replace("local-paas-firewall.service", &firewall_name),
         ));
     }
     for (name, body) in &units {
@@ -547,11 +562,11 @@ fn install_vm_units(root: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn firewall(nft: &str) -> Result<()> {
+fn firewall(nft: &str, indexes: &[u16]) -> Result<()> {
     if output("id", &["-u"])? != "0" {
         return Err("firewall operation requires root".into());
     }
-    for index in 0..=3 {
+    for &index in indexes {
         let (name, table) = if index == 0 {
             (
                 "local-paas-builder".to_owned(),
@@ -563,7 +578,8 @@ fn firewall(nft: &str) -> Result<()> {
                 format!("local_paas_worker_{index}"),
             )
         };
-        let original = fs::read_to_string(format!("/var/lib/local-paas/firewall/{name}.nft"))?;
+        let rule_path = format!("/var/lib/local-paas/firewall/{name}.nft");
+        let original = fs::read_to_string(rule_path)?;
         let rules = original
             .lines()
             .filter(|l| !l.starts_with("delete table "))
@@ -601,13 +617,35 @@ fn main() {
 fn cli() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("firewall") {
-        return firewall(args.get(2).ok_or("missing nft executable")?);
+        let indexes = match args.get(3) {
+            Some(value) => {
+                let index: u16 = value.parse()?;
+                if !(4..=7).contains(&index) {
+                    return Err("remote index must be 4–7".into());
+                }
+                vec![index]
+            }
+            None => vec![0, 1, 2, 3],
+        };
+        return firewall(args.get(2).ok_or("missing nft executable")?, &indexes);
     }
     let root = std::env::current_dir()?.canonicalize()?;
     if !root.join("infra/workers/vm.nix").exists() {
         return Err("run from the repository root".into());
     }
     match args.get(1).map(String::as_str) {
+        Some("remote-worker") => {
+            let index: u16 = args.get(2).ok_or("remote worker index required")?.parse()?;
+            if !(4..=7).contains(&index) { return Err("remote index must be 4–7".into()); }
+            if output("id", &["-u"])? == "0" || !Path::new("/dev/kvm").exists()
+                || !Path::new("/sys/fs/cgroup/cgroup.controllers").exists()
+                || !succeeds("systemctl", &["--user", "show-environment"])
+            { return Err("run as an operator on systemd Linux with KVM and cgroup v2".into()); }
+            // Preparation installs only this VM's identity, disk directory and firewall.
+            // It never initializes a controller, database, builder or other workers.
+            run("bash", &["infra/workers/start.sh", &index.to_string(), "--prepare"])?;
+            install_selected_vm_units(&root, &[index])
+        }
         Some("check") => check(&root, false),
         Some("prepare") => prepare(&root),
         Some("install") => install(&root),
@@ -621,7 +659,7 @@ fn cli() -> Result<()> {
             }
             Ok(())
         }
-        _ => Err("usage: platform-setup check|prepare|install|render (see docs/install.md)".into()),
+        _ => Err("usage: platform-setup check|prepare|install|render|remote-worker INDEX (see docs/install.md)".into()),
     }
 }
 #[cfg(test)]

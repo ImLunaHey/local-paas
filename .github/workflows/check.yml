@@ -46,6 +46,8 @@ jobs:
       - run: cargo test --workspace --doc --all-features
       - run: pnpm --dir web test:coverage
       - run: make test-db
+      - run: nix build .#remote-test-tools --out-link /tmp/remote-test-tools
+      - run: PATH="/tmp/remote-test-tools/bin:$PATH" cargo test -p platform-remote-worker -- --ignored
       - run: cargo run -p control-plane --bin export-openapi > /tmp/openapi.json
       - run: diff -u docs/api/openapi.json /tmp/openapi.json
       - run: pnpm --dir web generate:api

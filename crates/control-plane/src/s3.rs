@@ -14,10 +14,7 @@ pub(crate) struct Client {
 }
 impl Client {
     pub fn new(port: i32, access: String, secret: String) -> Result<Self, ApiError> {
-        if ![21000..21004, 21100..21104, 21200..21204]
-            .iter()
-            .any(|r| r.contains(&port))
-        {
+        if !u16::try_from(port).is_ok_and(platform_protocol::valid_node_port) {
             return Err(ApiError::Conflict("invalid storage endpoint"));
         }
         Ok(Self {

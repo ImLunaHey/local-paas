@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO audit_log(actor,action,outcome,target_type,target_id,details) VALUES('operator','node.enroll','succeeded','node',$1,$2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "148df9d5db8b81bf05a6ab3c0415e5427acb45a802688a4f842af13a12afd461"
+}

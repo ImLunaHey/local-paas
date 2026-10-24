@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const VERSION: u32 = 2;
+/// Host-facing slots for the bounded seven-node topology. TLS links preserve
+/// these addresses across remote hosts without exposing arbitrary private ports.
+pub fn valid_node_port(port: u16) -> bool {
+    (21000..=21603).contains(&port) && (port - 21000) % 100 < 4
+}
 fn is_false(value: &bool) -> bool {
     !value
 }

@@ -25,6 +25,7 @@ mod database_inspection;
 mod databases;
 mod discovery;
 mod domains;
+pub mod enrollment;
 mod environments;
 mod history;
 pub mod host_metrics;
