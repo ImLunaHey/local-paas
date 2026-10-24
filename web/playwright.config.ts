@@ -2,25 +2,27 @@ import { defineConfig } from '@playwright/test'
 
 const baseURL = process.env.E2E_BASE_URL || 'http://localhost:5188'
 const authState = process.env.E2E_AUTH_STATE
-const browserNames = process.env.CI
-  ? (['chromium', 'firefox', 'webkit'] as const)
-  : (['chromium'] as const)
+const supportedBrowserNames = ['chromium', 'firefox', 'webkit'] as const
+const requestedBrowser = process.env.E2E_BROWSER
+if (
+  requestedBrowser &&
+  !supportedBrowserNames.includes(requestedBrowser as (typeof supportedBrowserNames)[number])
+)
+  throw new Error(`Unsupported E2E browser: ${requestedBrowser}`)
+const browserNames = requestedBrowser
+  ? ([requestedBrowser] as (typeof supportedBrowserNames)[number][])
+  : process.env.CI
+    ? supportedBrowserNames
+    : (['chromium'] as const)
 
 export default defineConfig({
   testDir: './tests',
+  globalSetup: authState ? './tests/auth.setup.ts' : undefined,
   projects: authState
-    ? [
-        {
-          name: 'setup',
-          testMatch: /auth\.setup\.ts/,
-        },
-        ...browserNames.map((browserName) => ({
-          name: browserName,
-          dependencies: ['setup'],
-          testIgnore: /auth\.setup\.ts/,
-          use: { browserName, storageState: authState },
-        })),
-      ]
+    ? browserNames.map((browserName) => ({
+        name: browserName,
+        use: { browserName, storageState: authState },
+      }))
     : undefined,
   workers: 1,
   use: {
