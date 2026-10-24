@@ -1,7 +1,7 @@
 //! Local-only closed-registration bootstrap for the first administrator and organization user.
 use lucid_auth::{NewOrganization, NewOrganizationInvitation, NewPasswordUser};
-use sqlx::postgres::PgPoolOptions;
-use std::{fs, io, path::PathBuf};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use std::{fs, io, net::IpAddr, path::PathBuf};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -142,14 +142,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn require_local_database(url: &str) -> Result<(), &'static str> {
-    let local = url.starts_with("postgresql:///")
-        || url.contains("host=localhost")
-        || url.contains("host=127.0.0.1")
-        || url.contains("host=%2F")
-        || url.contains("host=/");
+    let options = url
+        .parse::<PgConnectOptions>()
+        .map_err(|_| "DATABASE_URL is not a valid PostgreSQL connection string")?;
+    let host = options
+        .get_host()
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or_else(|| options.get_host());
+    let local = host == "localhost"
+        || host.starts_with('/')
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
     if local {
         Ok(())
     } else {
         Err("platform-auth-bootstrap only accepts a local PostgreSQL connection")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_local_database;
+
+    #[test]
+    fn accepts_local_postgres_connections() {
+        for url in [
+            "postgresql:///local_paas",
+            "postgres://user:password@localhost:5432/platform_test",
+            "postgres://user:password@127.0.0.1:5432/platform_test",
+            "postgres://user:password@[::1]:5432/platform_test",
+            "postgresql:///local_paas?host=%2Fsrv%2Fplatform%2Fsocket",
+        ] {
+            assert!(require_local_database(url).is_ok(), "rejected {url}");
+        }
+    }
+
+    #[test]
+    fn rejects_remote_postgres_connections() {
+        for url in [
+            "postgres://user:password@database.example.com:5432/platform",
+            "postgres://user:password@10.0.2.2:5432/platform",
+            "postgres://user:password@localhost.example.com:5432/platform",
+        ] {
+            assert!(require_local_database(url).is_err(), "accepted {url}");
+        }
     }
 }
