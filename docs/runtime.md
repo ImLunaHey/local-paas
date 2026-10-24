@@ -186,3 +186,11 @@ stops its deployments on assertion failures as well as success. Ordinary test ru
 never inject these faults; the explicit service ID and disposable project/name
 checks are required. Budget persistence and interrupted-start reservations also
 have filesystem-backed node-agent tests.
+
+Verified on 2026-10-24 with a real BuildKit-built canary on worker 2: the complete
+live drill passed, including all five backoffs, exhaustion and stopping during
+backoff. Both drill deployments were stopped afterward. All three workers were
+upgraded separately; the seven existing application/database/storage instances
+returned to ready. `make check` and the disposable-database integration suite
+passed. The initial drill exposed stale CNI reservations after VM reboot; moving
+the reservations to the worker's `/run` filesystem resolved that startup failure.
