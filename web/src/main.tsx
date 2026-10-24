@@ -951,7 +951,7 @@ function ServiceForm({ service }: { service?: Service }) {
                     />
                     <span>
                       Spread across distinct nodes
-                      <small>Different VMs on Lake still share one physical failure domain.</small>
+                      <small>VMs on the same host share one physical failure domain.</small>
                     </span>
                   </label>
                 )}

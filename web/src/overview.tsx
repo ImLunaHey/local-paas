@@ -172,7 +172,9 @@ export function Overview() {
         <Server size={20} className="text-accent" />
         <div className="flex-1">
           <h2>Infrastructure</h2>
-          <p className="mt-1 text-xs text-muted">Lake’s live resource usage and worker capacity.</p>
+          <p className="mt-1 text-xs text-muted">
+            Controller host resource usage and worker capacity.
+          </p>
         </div>
         <ArrowUpRight size={17} />
       </Link>
@@ -344,8 +346,8 @@ export function Hosts() {
         <div className="border-b border-zinc-800 p-5">
           <h2>Worker capacity</h2>
           <p className="mt-2 text-xs text-muted">
-            Scheduling reservations, not measured VM usage. All three development workers share
-            Lake’s physical failure domain.
+            Scheduling reservations, not measured VM usage. Workers on the same host share one
+            physical failure domain.
           </p>
         </div>
         <div className="overflow-x-auto">

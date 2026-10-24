@@ -116,9 +116,9 @@ export function Nodes() {
       <div className="mb-6 flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-xs leading-6 text-zinc-400">
         <ShieldCheck size={17} className="mt-1 shrink-0 text-orange-400" />
         <p>
-          The three initial workers share Lake as one physical failure domain. Cordon pauses new
-          placements. Drain moves opted-in stateless apps after their replacements are ready; pinned
-          storage, jobs and singleton workers stay put.
+          Workers on the same host share one physical failure domain. Cordon pauses new placements.
+          Drain moves opted-in stateless apps after their replacements are ready; pinned storage,
+          jobs and singleton workers stay put.
         </p>
       </div>
       {error && (

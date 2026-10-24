@@ -1,4 +1,4 @@
-//! Explicit integration test against the disposable Lake VM, never run in CI.
+//! Explicit integration test against the disposable builder VM, never run in CI.
 use platform_build_runner::Config;
 use std::sync::{
     Arc,
@@ -11,7 +11,7 @@ use tokio::process::Command;
 
 #[tokio::test]
 #[ignore = "requires the isolated development VM and .local/builder.env"]
-async fn dockerfile_can_reach_public_internet_but_not_lake() {
+async fn dockerfile_can_reach_public_internet_but_not_host() {
     let config = Config::from_env().expect("source .local/builder.env first");
     let listener = TcpListener::bind("127.0.0.1:18089").await.unwrap();
     let hits = Arc::new(AtomicUsize::new(0));
@@ -91,7 +91,7 @@ async fn dockerfile_can_reach_public_internet_but_not_lake() {
     assert_eq!(
         hits.load(Ordering::SeqCst),
         0,
-        "a Dockerfile reached Lake's loopback listener"
+        "a Dockerfile reached the host loopback listener"
     );
 }
 

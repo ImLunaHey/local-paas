@@ -245,24 +245,38 @@ test('open the application from its header and inspect networking', async ({ pag
   const serviceId = process.env.E2E_RUNNING_SERVICE_ID
   test.skip(!serviceId, 'Requires a ready private application')
   await page.goto('/services/' + serviceId + '/logs')
+  const { service, networking } = await page.evaluate(async (id) => {
+    const [service, networking] = await Promise.all([
+      fetch('/api/services/' + id).then((r) => r.json()),
+      fetch('/api/services/' + id + '/networking').then((r) => r.json()),
+    ])
+    return { service, networking }
+  }, serviceId)
+  test.skip(!networking.authority, 'Requires a configured private preview URL')
   await expect(page.getByRole('link', { name: 'Open app ↗', exact: true })).toHaveAttribute(
     'href',
-    'https://lake.tail3275e2.ts.net:5201',
+    `https://${networking.authority}`,
   )
   await page.getByRole('link', { name: 'Networking', exact: true }).click()
   await expect(page).toHaveURL(/\/networking$/)
-  await expect(page.getByLabel('Container port', { exact: true })).toHaveValue('3000')
+  await expect(page.getByLabel('Container port', { exact: true })).toHaveValue(
+    String(service.spec.workload.port),
+  )
   await expect(page.getByRole('switch', { name: 'Enable private URL' })).toHaveAttribute(
     'aria-checked',
     'true',
   )
-  await expect(page.getByText('HTTPS → container port 3000')).toBeVisible()
+  await expect(page.getByText(`HTTPS → container port ${networking.activePort}`)).toBeVisible()
   await page.reload()
   await expect(page.getByLabel('Service networking')).toBeVisible()
   await page.getByRole('link', { name: 'Project services', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'showcase-studio', exact: true })).toBeVisible()
-  await page.getByLabel('Project environment').selectOption('development')
-  await expect(page.getByRole('heading', { name: 'showcase-studio', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: service.spec.project, exact: true })).toBeVisible()
+  const environments = page.getByLabel('Project environment')
+  const alternatives = await environments
+    .locator('option')
+    .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))
+  if (alternatives.length > 1) await environments.selectOption(alternatives[1])
+  await expect(page.getByRole('heading', { name: service.spec.project, exact: true })).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,

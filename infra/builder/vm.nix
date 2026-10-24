@@ -25,7 +25,7 @@
       "-sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
     ];
   };
-  # DNS goes directly to public resolvers, never Lake's LAN resolver.
+  # DNS goes directly to public resolvers, never the host LAN resolver.
   networking.nameservers = [ "1.1.1.1" "8.8.8.8" ];
   networking.dhcpcd.extraConfig = "nohook resolv.conf";
   networking.firewall.allowedTCPPorts = [ 1234 15000 ];

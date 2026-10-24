@@ -191,13 +191,16 @@ async fn tailnet_and_local_origins_work_without_allowing_other_origins(pool: PgP
         pool,
         vec![
             "http://localhost:5188".into(),
-            "https://lake.example.ts.net:5188".into(),
+            "https://platform.example.ts.net:5188".into(),
         ],
     );
     for (origin, expected) in [
         ("http://localhost:5188", StatusCode::OK),
-        ("https://lake.example.ts.net:5188", StatusCode::OK),
-        ("https://lake.example.ts.net:5189", StatusCode::FORBIDDEN),
+        ("https://platform.example.ts.net:5188", StatusCode::OK),
+        (
+            "https://platform.example.ts.net:5189",
+            StatusCode::FORBIDDEN,
+        ),
         ("https://other.example.ts.net:5188", StatusCode::FORBIDDEN),
         ("null", StatusCode::FORBIDDEN),
     ] {

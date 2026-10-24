@@ -1,4 +1,4 @@
-//! Explicit Lake-only destructive fault drill, against the disposable Rust recovery fixture.
+//! Explicit three-worker destructive fault drill, against the disposable Rust recovery fixture.
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 use std::{process::Stdio, time::Duration};
