@@ -4,14 +4,15 @@ export type Workload =
   | { kind: 'postgres-service'; database: string; storage_gib: number }
   | {
       kind: 'oci-service'
+      execution?: 'http' | 'worker'
       build_mode?: 'auto' | 'dockerfile' | 'generated'
       build_command?: string
       start_command?: string
       dockerfile: string
       context: string
       replicas: number
-      port: number
-      readiness: { path: string; interval_seconds: number; stabilization_seconds: number }
+      port?: number
+      readiness?: { path: string; interval_seconds: number; stabilization_seconds: number }
     }
   | { kind: 'celld-service'; wrangler: string; members: number; bucket_ref: string }
 

@@ -232,7 +232,8 @@ function DomainAssignment({ domain }: { domain: Domain }) {
             {services.data?.items
               .filter(
                 (s) =>
-                  s.spec.workload.kind === 'oci-service' ||
+                  (s.spec.workload.kind === 'oci-service' &&
+                    s.spec.workload.execution !== 'worker') ||
                   s.spec.workload.kind === 'celld-service',
               )
               .map((s) => (

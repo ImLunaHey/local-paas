@@ -14,6 +14,16 @@ export function Networking({ service }: { service: Service }) {
     queryKey: ['networking', service.id],
     queryFn: () => api<Network>('/services/' + service.id + '/networking'),
   })
+  if (service.spec.workload.kind === 'oci-service' && service.spec.workload.execution === 'worker')
+    return (
+      <section className="panel p-6">
+        <h2>Background worker</h2>
+        <p className="text-sm text-muted mt-3">
+          This process has no inbound HTTP endpoint. Use database connections and storage bindings
+          for its dependencies.
+        </p>
+      </section>
+    )
   if (network.error)
     return (
       <p role="alert" className="error-notice">
@@ -36,7 +46,7 @@ export function Networking({ service }: { service: Service }) {
 function NetworkForm({ service, network }: { service: Service; network: Network }) {
   const client = useQueryClient()
   const desiredPort =
-    service.spec.workload.kind === 'oci-service' ? service.spec.workload.port : 3000
+    service.spec.workload.kind === 'oci-service' ? (service.spec.workload.port ?? 3000) : 3000
   const [port, setPort] = useState(desiredPort)
   const [enabled, setEnabled] = useState(!!network.authority)
   const save = useMutation({

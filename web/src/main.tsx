@@ -217,7 +217,9 @@ function ServiceRow({ service }: { service: Service }) {
       </div>
       <span className="text-xs text-muted">
         {spec.workload.kind === 'oci-service'
-          ? `${spec.workload.replicas} requested replicas`
+          ? spec.workload.execution === 'worker'
+            ? 'Singleton background worker'
+            : `${spec.workload.replicas} requested replicas`
           : spec.workload.kind === 'celld-service'
             ? `${spec.workload.members} requested members`
             : '1 pinned database'}
@@ -324,6 +326,7 @@ function ServiceForm({ service }: { service?: Service }) {
   const [buildMode, setBuildMode] = useState<'auto' | 'dockerfile' | 'generated'>(
     oci?.build_mode ?? 'auto',
   )
+  const [execution, setExecution] = useState<'http' | 'worker'>(oci?.execution ?? 'http')
   const [dirty, setDirty] = useState(false)
   const [domainsReady, setDomainsReady] = useState(false)
   const secretsDraft = useRef<CreationSecretsHandle>(null)
@@ -337,6 +340,7 @@ function ServiceForm({ service }: { service?: Service }) {
   const [kind, setKind] = useState<'oci-service' | 'celld-service'>(
     spec?.workload.kind === 'celld-service' ? 'celld-service' : 'oci-service',
   )
+  const worker = kind === 'oci-service' && execution === 'worker'
   // Preserve the operation ID across retries of an identical submission, even
   // if a response was lost. A changed spec is a different operation.
   const pending = useRef<{ serialized: string; id: string } | null>(null)
@@ -437,13 +441,16 @@ function ServiceForm({ service }: { service?: Service }) {
               buildMode === 'dockerfile' ? undefined : text('start_command') || undefined,
             dockerfile: text('dockerfile'),
             context: text('context'),
-            replicas: number('replicas'),
-            port: number('port'),
-            readiness: {
-              path: text('readiness'),
-              interval_seconds: number('interval'),
-              stabilization_seconds: number('stabilization'),
-            },
+            execution: worker ? 'worker' : undefined,
+            replicas: worker ? 1 : number('replicas'),
+            port: worker ? undefined : number('port'),
+            readiness: worker
+              ? undefined
+              : {
+                  path: text('readiness'),
+                  interval_seconds: number('interval'),
+                  stabilization_seconds: number('stabilization'),
+                },
           }
         : {
             kind,
@@ -461,8 +468,8 @@ function ServiceForm({ service }: { service?: Service }) {
           ? { repository: '', upload: uploadDigest }
           : { repository: text('repository'), [sourceKind]: sourceValue.trim() },
       resources: { cpu_millis: number('cpu'), memory_mib: number('memory') },
-      distinct_nodes: data.has('distinct'),
-      domains: data.getAll('domains').map(String),
+      distinct_nodes: worker ? false : data.has('distinct'),
+      domains: worker ? [] : data.getAll('domains').map(String),
       secrets: spec?.secrets ?? [],
       workload,
       volume: spec?.volume,
@@ -518,7 +525,9 @@ function ServiceForm({ service }: { service?: Service }) {
                           {type === 'oci-service' ? 'Dockerfile service' : 'celld application'}
                         </strong>
                         <small>
-                          {type === 'oci-service' ? 'Web apps & APIs' : 'Workers & Durable Objects'}
+                          {type === 'oci-service'
+                            ? 'Web apps, APIs & background workers'
+                            : 'Workers & Durable Objects'}
                         </small>
                       </span>
                       {kind === type && <Check size={15} className="ml-auto text-accent" />}
@@ -735,55 +744,87 @@ function ServiceForm({ service }: { service?: Service }) {
                   </Field>
                   {kind === 'oci-service' ? (
                     <>
-                      <Field label="Replicas">
-                        <Input
-                          name="replicas"
-                          type="number"
-                          defaultValue={oci?.replicas ?? 2}
-                          min={1}
-                          max={32}
-                          required
-                        />
+                      <Field
+                        label="Process type"
+                        hint={
+                          baseline
+                            ? 'Process type is fixed when the service is created.'
+                            : 'Workers run continuously without receiving HTTP requests.'
+                        }
+                        className="sm:col-span-2"
+                      >
+                        <Select
+                          name="execution"
+                          value={execution}
+                          disabled={!!baseline}
+                          onChange={(e) => {
+                            setExecution(e.target.value as 'http' | 'worker')
+                            setDirty(true)
+                          }}
+                        >
+                          <option value="http">Web application / API</option>
+                          <option value="worker">Background worker · singleton</option>
+                        </Select>
                       </Field>
-                      <Field label="HTTP port">
-                        <Input
-                          name="port"
-                          type="number"
-                          defaultValue={oci?.port ?? 3000}
-                          min={1}
-                          max={65535}
-                          required
-                        />
-                      </Field>
-                      <div className="sm:col-span-2">
-                        <Field label="Readiness path">
-                          <Input
-                            name="readiness"
-                            defaultValue={oci?.readiness.path ?? '/health'}
-                            required
-                          />
-                        </Field>
-                      </div>
-                      <Field label="Check interval (seconds)">
-                        <Input
-                          name="interval"
-                          type="number"
-                          defaultValue={oci?.readiness.interval_seconds ?? 10}
-                          min={1}
-                          max={300}
-                          required
-                        />
-                      </Field>
-                      <Field label="Stabilization period (seconds)">
-                        <Input
-                          name="stabilization"
-                          type="number"
-                          defaultValue={oci?.readiness.stabilization_seconds ?? 30}
-                          min={1}
-                          max={3600}
-                          required
-                        />
-                      </Field>
+                      {worker ? (
+                        <p className="sm:col-span-2 text-sm text-muted">
+                          One running instance. Deployments stop the previous instance and wait for
+                          confirmed shutdown before starting its replacement. A running process is
+                          observed for 10 seconds; this does not verify application progress.
+                        </p>
+                      ) : (
+                        <>
+                          <Field label="Replicas">
+                            <Input
+                              name="replicas"
+                              type="number"
+                              defaultValue={oci?.replicas ?? 2}
+                              min={1}
+                              max={32}
+                              required
+                            />
+                          </Field>
+                          <Field label="HTTP port">
+                            <Input
+                              name="port"
+                              type="number"
+                              defaultValue={oci?.port ?? 3000}
+                              min={1}
+                              max={65535}
+                              required
+                            />
+                          </Field>
+                          <div className="sm:col-span-2">
+                            <Field label="Readiness path">
+                              <Input
+                                name="readiness"
+                                defaultValue={oci?.readiness?.path ?? '/health'}
+                                required
+                              />
+                            </Field>
+                          </div>
+                          <Field label="Check interval (seconds)">
+                            <Input
+                              name="interval"
+                              type="number"
+                              defaultValue={oci?.readiness?.interval_seconds ?? 10}
+                              min={1}
+                              max={300}
+                              required
+                            />
+                          </Field>
+                          <Field label="Stabilization period (seconds)">
+                            <Input
+                              name="stabilization"
+                              type="number"
+                              defaultValue={oci?.readiness?.stabilization_seconds ?? 30}
+                              min={1}
+                              max={3600}
+                              required
+                            />
+                          </Field>
+                        </>
+                      )}
                     </>
                   ) : (
                     <Field label="Fleet members">
@@ -798,28 +839,36 @@ function ServiceForm({ service }: { service?: Service }) {
                     </Field>
                   )}
                 </div>
-                <label className="checkbox-field">
-                  <Input
-                    type="checkbox"
-                    name="distinct"
-                    defaultChecked={spec?.distinct_nodes ?? true}
-                  />
-                  <span>
-                    Spread across distinct nodes
-                    <small>Different VMs on Lake still share one physical failure domain.</small>
-                  </span>
-                </label>
+                {!worker && (
+                  <label className="checkbox-field">
+                    <Input
+                      type="checkbox"
+                      name="distinct"
+                      defaultChecked={spec?.distinct_nodes ?? true}
+                    />
+                    <span>
+                      Spread across distinct nodes
+                      <small>Different VMs on Lake still share one physical failure domain.</small>
+                    </span>
+                  </label>
+                )}
               </section>
               <section className="panel form-section">
                 <h2>
                   <span className="step">04</span> Domains
                 </h2>
                 <div className="space-y-4">
-                  <ServiceDomains
-                    serviceId={baseline?.id}
-                    onChange={() => setDirty(true)}
-                    onReadyChange={setDomainsReady}
-                  />
+                  {worker ? (
+                    <p className="text-sm text-muted">
+                      Background workers do not accept inbound HTTP traffic or domain mappings.
+                    </p>
+                  ) : (
+                    <ServiceDomains
+                      serviceId={baseline?.id}
+                      onChange={() => setDirty(true)}
+                      onReadyChange={setDomainsReady}
+                    />
+                  )}
                 </div>
               </section>
             </fieldset>
@@ -873,7 +922,7 @@ function ServiceForm({ service }: { service?: Service }) {
                 type="submit"
                 className="button primary"
                 disabled={
-                  !domainsReady ||
+                  (!worker && !domainsReady) ||
                   mutation.isPending ||
                   (!!baseline && !dirty) ||
                   (kind === 'oci-service' && sourceMode === 'upload' && !uploadDigest)
@@ -921,7 +970,7 @@ function ServiceForm({ service }: { service?: Service }) {
           <div className="aside-divider" />
           <span className="flex gap-2 text-xs text-muted">
             <ShieldCheck size={15} className="shrink-0" />
-            Secret values never belong in this form.
+            Secrets stay out of images and build logs.
           </span>
         </aside>
       </div>
@@ -976,7 +1025,9 @@ function ServiceDetail() {
           <h1>{spec.name}</h1>
           <p>
             {spec.workload.kind === 'oci-service'
-              ? 'Dockerfile service'
+              ? spec.workload.execution === 'worker'
+                ? 'Background worker · singleton'
+                : 'Dockerfile service'
               : spec.workload.kind === 'postgres-service' || spec.workload.kind === 'redis-service'
                 ? spec.workload.kind === 'redis-service'
                   ? 'Redis database'
@@ -987,7 +1038,8 @@ function ServiceDetail() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {runtime.data?.preview_url ? (
+          {spec.workload.kind === 'oci-service' &&
+          spec.workload.execution === 'worker' ? null : runtime.data?.preview_url ? (
             <a
               className="button primary"
               href={runtime.data.preview_url}

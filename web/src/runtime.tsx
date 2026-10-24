@@ -52,6 +52,7 @@ export function runtimeLabel(data?: RuntimeStatus): string {
     return data.instances.some((i) => i.deployment_id === active.id && i.state === 'ready')
       ? 'Running'
       : 'Unavailable'
+  if (data.deployments.some((d) => d.status === 'waiting')) return 'Waiting to replace'
   if (data.deployments.some((d) => d.status === 'preparing')) return 'Deploying'
   if (data.deployments[0]?.status === 'failed') return 'Deployment failed'
   return data.deployments.length ? 'Stopped' : 'Not deployed'
@@ -89,7 +90,11 @@ export function DeploymentPanel({ service }: { service: Service }) {
     },
   })
   if (service.spec.workload.kind === 'celld-service') return null
-  const preparing = runtime.data?.deployments.some((d) => d.status === 'preparing')
+  const worker =
+    service.spec.workload.kind === 'oci-service' && service.spec.workload.execution === 'worker'
+  const preparing = runtime.data?.deployments.some((d) =>
+    ['waiting', 'preparing'].includes(d.status),
+  )
   return (
     <section className="panel p-6 mb-7 space-y-4" aria-label="Deployments">
       <div className="section-heading">
@@ -97,8 +102,9 @@ export function DeploymentPanel({ service }: { service: Service }) {
         <span className="chip">{runtime.data?.healthy_nodes ?? '—'} available workers</span>
       </div>
       <p className="text-xs text-muted">
-        Deploy an image revision. Traffic switches after every candidate passes readiness; the
-        previous healthy deployment stays available until then.
+        {worker
+          ? 'Deploying stops the previous worker first. Its replacement waits for confirmed shutdown, including when the old node is unreachable. A failed replacement requires another deployment; the old process is not restarted automatically.'
+          : 'Deploy an image revision. Traffic switches after every candidate passes readiness; the previous healthy deployment stays available until then.'}
       </p>
       <div className="flex flex-wrap gap-3 items-end">
         <Field label="Image revision" className="flex-1 min-w-0">
@@ -152,7 +158,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
               {d.error_code && ` · ${d.error_code.replaceAll('_', ' ')}`}
             </p>
           </div>
-          {['preparing', 'active'].includes(d.status) && (
+          {['waiting', 'preparing', 'active'].includes(d.status) && (
             <Button disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
               Stop deployment
             </Button>
