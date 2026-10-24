@@ -6,11 +6,12 @@
     each = nixpkgs.lib.genAttrs systems;
     tools = pkgs: with pkgs; [
       bash coreutils curl git nix gnumake gnugrep gnused gawk findutils
-      rustc cargo rustfmt clippy gcc pkg-config nodejs_24 postgresql_18
+      rustc cargo rustfmt clippy gcc pkg-config nodejs_24 pnpm postgresql_18
       openssl caddy nftables cdrkit util-linux systemd
     ];
   in {
     packages = each (system: let pkgs = import nixpkgs { inherit system; }; in {
+      quality-tools = pkgs.symlinkJoin { name = "local-paas-quality-tools"; paths = with pkgs; [ cargo-nextest cargo-audit cargo-deny gitleaks sqlx-cli ]; };
       browser-test-tools = pkgs.symlinkJoin { name = "local-paas-browser-test-tools"; paths = [ pkgs.openbao ]; };
       default = pkgs.symlinkJoin { name = "local-paas-host-tools"; paths = tools pkgs; };
     });

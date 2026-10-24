@@ -1,0 +1,17 @@
+{
+  "name": "local-paas",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@11.27.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "format": "pnpm --dir web format",
+    "lint": "pnpm --dir web lint",
+    "typecheck": "pnpm --dir web typecheck",
+    "test": "pnpm --dir web test",
+    "build": "pnpm --dir web build",
+    "check": "pnpm --dir web check"
+  }
+}

@@ -167,7 +167,7 @@ independent recovery custody are not claimed.
 
 Before upgrades, take and verify a backup. Stop the API/build worker, update the
 checkout and enter the new `nix develop`, run `cargo build --workspace --bins` and
-`npm ci --prefix web && npm run build --prefix web`, then start the API/build worker
+`pnpm install --frozen-lockfile && pnpm build --prefix web`, then start the API/build worker
 and restart ingress. Embedded PostgreSQL migrations run on startup. **An old binary
 is not a database migration rollback**; restore the matching backup if needed.
 Refresh the pinned service tools with `nix build path:./infra/services -o

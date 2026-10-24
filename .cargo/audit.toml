@@ -1,0 +1,5 @@
+[advisories]
+# Lockfile-only optional SQLx MySQL dependency; absent from the compiled graph.
+# cargo deny forbids both rsa and sqlx-mysql so enabling them fails CI.
+# Verified with cargo tree --workspace --all-features -i rsa on 2026-10-24.
+ignore = ["RUSTSEC-2023-0071"]

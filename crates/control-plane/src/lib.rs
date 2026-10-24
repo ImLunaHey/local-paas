@@ -1,3 +1,4 @@
+pub mod openapi;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, Query, Request, State},
@@ -45,6 +46,7 @@ mod volumes;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     Router::new()
+        .route("/api/openapi.json", get(openapi::document))
         .route("/api/health", get(health))
         .route(
             "/api/source-uploads",
@@ -213,16 +215,48 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
         .with_state(pool)
 }
 
+/// Application processes verify the exact deployed schema without issuing DDL.
+pub async fn check_migrations(pool: &PgPool) -> Result<(), &'static str> {
+    let applied: Vec<(i64, Vec<u8>, bool)> =
+        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .map_err(|_| "database migrations unavailable; run platform-migrate")?;
+    let expected = sqlx::migrate!();
+    if applied.len() != expected.iter().count()
+        || applied
+            .iter()
+            .zip(expected.iter())
+            .any(|((version, checksum, success), migration)| {
+                !success
+                    || *version != migration.version
+                    || checksum.as_slice() != migration.checksum.as_ref()
+            })
+    {
+        return Err(
+            "database schema does not match this release; run platform-migrate or restore a compatible release",
+        );
+    }
+    Ok(())
+}
+
 pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!().run(pool).await
 }
 
+#[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("valid workload identity required")]
     Unauthorized,
+    #[error("invalid service specification")]
     Invalid(Vec<ValidationIssue>),
+    #[error("{0}")]
     Conflict(&'static str),
+    #[error("resource not found")]
     NotFound,
+    #[error("database operation unavailable")]
     Database,
+    #[error("{0}")]
     Unavailable(&'static str),
 }
 
@@ -243,7 +277,15 @@ impl From<sqlx::Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, value) = match self {
+        let code = match &self {
+            Self::Unauthorized => "unauthorized",
+            Self::Invalid(_) => "validation_failed",
+            Self::Conflict(_) => "conflict",
+            Self::NotFound => "not_found",
+            Self::Database => "database_unavailable",
+            Self::Unavailable(_) => "dependency_unavailable",
+        };
+        let (status, mut value) = match self {
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 json!({"error":"valid workload identity required"}),
@@ -262,20 +304,22 @@ impl IntoResponse for ApiError {
                 json!({"error":"Could not access the platform database. Please try again shortly."}),
             ),
         };
+        value["code"] = json!(code);
         (status, Json(value)).into_response()
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct Service {
     pub id: Uuid,
     pub operation_id: Uuid,
     pub version: i32,
+    #[schema(value_type = ServiceSpec)]
     pub spec: DbJson<ServiceSpec>,
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateService {
     pub operation_id: Uuid,
@@ -287,6 +331,7 @@ fn default_build_on_create() -> bool {
     true
 }
 
+#[utoipa::path(get, path = "/api/health", responses((status = 200, body = Object)), operation_id = "getHealth")]
 async fn health(State(pool): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&pool).await?;
     Ok(Json(
@@ -294,6 +339,7 @@ async fn health(State(pool): State<PgPool>) -> Result<Json<serde_json::Value>, A
     ))
 }
 
+#[utoipa::path(post, path = "/api/specs/validate", request_body = ServiceSpec, responses((status = 200, body = Object), (status = 422, body = openapi::ErrorResponse)), operation_id = "validateServiceSpec")]
 async fn validate_spec(Json(spec): Json<ServiceSpec>) -> Result<Json<serde_json::Value>, ApiError> {
     spec.validate().map_err(ApiError::Invalid)?;
     Ok(Json(json!({"valid":true})))
@@ -307,6 +353,7 @@ struct Pagination {
     environment: Option<String>,
 }
 
+#[utoipa::path(get, path = "/api/services", params(("offset" = Option<u32>, Query), ("project" = Option<String>, Query), ("environment" = Option<String>, Query)), responses((status = 200, body = openapi::ServiceList)), operation_id = "listServices")]
 async fn list_services(
     State(pool): State<PgPool>,
     Query(page): Query<Pagination>,
@@ -320,6 +367,7 @@ async fn list_services(
     Ok(Json(json!({"items":items,"total":total})))
 }
 
+#[utoipa::path(get, path = "/api/services/{id}", params(("id" = Uuid, Path)), responses((status = 200, body = Service), (status = 404, body = openapi::ErrorResponse)), operation_id = "getService")]
 async fn get_service(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
@@ -357,6 +405,7 @@ async fn list_events(
         .bind(id).fetch_all(&pool).await?))
 }
 
+#[utoipa::path(post, path = "/api/services", request_body = CreateService, responses((status = 201, body = Service), (status = 422, body = openapi::ErrorResponse)), operation_id = "createService")]
 async fn create_service(
     State(pool): State<PgPool>,
     Json(request): Json<CreateService>,

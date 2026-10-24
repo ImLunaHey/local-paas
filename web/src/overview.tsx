@@ -129,24 +129,29 @@ export function Overview() {
       )}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-7">
         {[
-          ['Projects', s?.projects, `${s?.services ?? '—'} services`, <Layers3 size={17} />],
+          [
+            'Projects',
+            s?.projects,
+            `${s?.services ?? '—'} services`,
+            <Layers3 key="Layers3" size={17} />,
+          ],
           [
             'Healthy instances',
             s?.ready_instances,
             'Fresh readiness reports',
-            <Activity size={17} />,
+            <Activity key="Activity" size={17} />,
           ],
           [
             'Workers online',
             s ? `${s.healthy_nodes} / ${s.total_nodes}` : undefined,
             'One physical failure domain',
-            <Server size={17} />,
+            <Server key="Server" size={17} />,
           ],
           [
             'Builds in progress',
             s?.pending_builds,
             `${s?.failed_deployments ?? '—'} failed deployments in 24h`,
-            <GitBranch size={17} />,
+            <GitBranch key="GitBranch" size={17} />,
           ],
         ].map(([label, value, detail, icon]) => (
           <div className="metric" key={String(label)}>

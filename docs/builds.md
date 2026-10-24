@@ -296,7 +296,7 @@ it as the Railway web canary.
 Git ref contracts: [ls-remote](https://git-scm.com/docs/git-ls-remote),
 [check-ref-format](https://git-scm.com/docs/git-check-ref-format).
 
-Generated build references: [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/),
+Generated build references: [pnpm install --frozen-lockfile](https://docs.npmjs.com/cli/v11/commands/npm-ci/),
 [npm start](https://docs.npmjs.com/cli/v11/commands/npm-start/),
 [pnpm install](https://pnpm.io/cli/install), [Yarn install](https://yarnpkg.com/cli/install),
 [BuildKit Dockerfile selection](https://github.com/moby/buildkit/blob/v0.30.0/frontend/dockerui/config.go).

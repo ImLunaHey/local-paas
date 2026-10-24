@@ -128,13 +128,14 @@ function DataTable({
         className="max-h-[32rem] overflow-auto"
         role="region"
         aria-label={`${title}, scroll for more columns`}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users must be able to scroll this overflow region.
         tabIndex={0}
       >
         <table
           className="w-full min-w-[600px] border-collapse text-left text-xs"
           aria-label={title}
         >
-          <thead className="sticky top-0 bg-[#171719] text-muted">
+          <thead className="sticky top-0 bg-[light-dark(#f4f4f5,#171719)] text-muted">
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
                 {group.headers.map((header) => (

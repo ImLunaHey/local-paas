@@ -7,12 +7,7 @@ use std::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "control_plane=info".into()),
-        )
-        .init();
+    platform_telemetry::init()?;
     let database_url =
         env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required; see README.md")?;
     let pool = PgPoolOptions::new()
@@ -21,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&database_url)
         .await
         .map_err(|_| "cannot connect to PostgreSQL")?;
-    control_plane::migrate(&pool)
+    control_plane::check_migrations(&pool)
         .await
         .map_err(|_| "database migration failed")?;
     let port = env::var("PORT")

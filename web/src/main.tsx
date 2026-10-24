@@ -618,7 +618,7 @@ function ServiceForm({ service }: { service?: Service }) {
                   {kind === 'oci-service' && sourceMode === 'upload' ? (
                     <SourceUpload
                       project={spec?.project ?? scope.project ?? ''}
-                      digest={uploadDigest}
+                      digest={uploadDigest ?? undefined}
                       onChange={(digest) => {
                         setUploadDigest(digest)
                         setDirty(true)
@@ -698,7 +698,7 @@ function ServiceForm({ service }: { service?: Service }) {
                           >
                             <Input
                               name="build_command"
-                              defaultValue={oci?.build_command}
+                              defaultValue={oci?.build_command ?? ''}
                               placeholder="npm run build"
                               maxLength={4096}
                             />
@@ -709,7 +709,7 @@ function ServiceForm({ service }: { service?: Service }) {
                           >
                             <Input
                               name="start_command"
-                              defaultValue={oci?.start_command}
+                              defaultValue={oci?.start_command ?? ''}
                               placeholder="npm start"
                               maxLength={4096}
                             />
@@ -722,7 +722,7 @@ function ServiceForm({ service }: { service?: Service }) {
                       >
                         <Input
                           name="build_target"
-                          defaultValue={oci?.build_target}
+                          defaultValue={oci?.build_target ?? ''}
                           placeholder="production"
                           maxLength={128}
                         />

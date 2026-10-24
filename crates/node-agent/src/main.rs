@@ -36,6 +36,7 @@ struct Config {
 type Reports = Arc<RwLock<HashMap<Uuid, InstanceReport>>>;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    platform_telemetry::init()?;
     let dir =
         PathBuf::from(std::env::var("AGENT_CREDENTIALS").unwrap_or("/run/node-credentials".into()));
     let config: Config = serde_json::from_slice(&tokio::fs::read(dir.join("config.json")).await?)?;

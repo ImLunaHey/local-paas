@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceSpec {
     pub schema_version: u32,
@@ -20,7 +20,7 @@ pub struct ServiceSpec {
     pub volume: Option<VolumeAttachment>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VolumeAttachment {
     pub id: uuid::Uuid,
@@ -59,7 +59,7 @@ pub fn volume_mount_path(path: &str) -> bool {
         .any(|p| path == *p || path.starts_with(&format!("{p}/")))
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GitSource {
     #[serde(default)]
@@ -109,14 +109,14 @@ fn git_ref_name(value: &str) -> bool {
             .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Resources {
     pub cpu_millis: u32,
     pub memory_mib: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Workload {
     RustfsService {
@@ -161,7 +161,7 @@ pub enum Workload {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PrivateConnection {
     pub service_id: uuid::Uuid,
@@ -182,7 +182,7 @@ impl PrivateConnection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PreDeploy {
     pub command: Vec<String>,
@@ -202,7 +202,7 @@ impl PreDeploy {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Execution {
     #[default]
@@ -215,7 +215,7 @@ impl Execution {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum BuildMode {
     #[default]
@@ -224,7 +224,7 @@ pub enum BuildMode {
     Generated,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Readiness {
     pub path: String,
@@ -232,7 +232,7 @@ pub struct Readiness {
     pub stabilization_seconds: u16,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct ValidationIssue {
     pub field: String,
     pub message: String,
@@ -730,7 +730,7 @@ fn relative_path(value: &str, directory: bool) -> bool {
 }
 
 /// The only image identifier accepted by the runtime: a SHA-256 OCI digest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(try_from = "String", into = "String")]
 pub struct ImageDigest(String);
 

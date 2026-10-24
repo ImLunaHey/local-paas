@@ -70,7 +70,7 @@ Use `nix develop` for the pinned Rust, Node and PostgreSQL toolchain, or supply
 compatible tools yourself (Rust 2024 edition, Node 24, PostgreSQL 18, Make/systemd).
 
 ```sh
-npm ci --prefix web
+pnpm install --frozen-lockfile
 make db
 make api
 make web
@@ -101,8 +101,8 @@ require a separate development API/database and a stopped build worker:
 
 ```sh
 cd web
-npx playwright install chromium
-npm run test:e2e
+pnpm exec playwright install chromium
+pnpm test:e2e
 ```
 
 CI is configured for Ubuntu 22.04 and 24.04 on x86-64, and Ubuntu 24.04 on ARM64.

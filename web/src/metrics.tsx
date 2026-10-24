@@ -212,9 +212,9 @@ function Chart({
         },
       },
       theme: {
-        foreground: '#a1a1aa',
-        muted: '#81818b',
-        grid: '#29292f',
+        foreground: 'light-dark(#52525b,#a1a1aa)',
+        muted: 'light-dark(#52525b,#81818b)',
+        grid: 'light-dark(#e4e4e7,#29292f)',
         background: 'transparent',
       },
       focus: 'nearest-x',

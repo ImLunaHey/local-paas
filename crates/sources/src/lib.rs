@@ -155,7 +155,10 @@ pub fn inspect(bytes: &[u8], destination: Option<&Path>) -> Result<Summary, Erro
         let mut entry = archive
             .by_index(i)
             .map_err(|_| Error("encrypted or invalid ZIP entry"))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|_| Error("invalid ZIP filename encoding"))?
+            .into_owned();
         let name = safe_name(&name)?.to_string();
         if !names.insert(name.clone()) {
             return Err(Error("duplicate ZIP paths are forbidden"));

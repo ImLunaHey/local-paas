@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-platform-domain = { path = "../domain" }
+platform-domain = { version = "0.1.0", path = "../domain" }
 async-trait = "0.1"
 futures-core = "0.3"
 uuid.workspace = true

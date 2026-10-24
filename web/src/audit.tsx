@@ -190,7 +190,7 @@ export function AuditLog() {
               {draft.from || draft.until ? 'Date range selected' : 'Any time'}{' '}
               <ChevronDown size={12} className="ml-auto" />
             </summary>
-            <div className="absolute left-0 top-10 z-30 w-64 space-y-3 rounded-md border border-zinc-700 bg-[#171719] p-3 shadow-xl">
+            <div className="absolute left-0 top-10 z-30 w-64 space-y-3 rounded-md border border-zinc-700 bg-[light-dark(#f4f4f5,#171719)] p-3 shadow-xl">
               <label className="block space-y-1">
                 <span>From</span>
                 <Input
@@ -310,6 +310,7 @@ export function AuditLog() {
         )}
         <div
           className="max-h-[70vh] overflow-auto"
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users must be able to scroll this overflow region.
           tabIndex={0}
           role="region"
           aria-label="Audit table, scroll for more columns"
@@ -319,7 +320,7 @@ export function AuditLog() {
             aria-label="Audit entries"
             aria-busy={logs.isFetching}
           >
-            <thead className="sticky top-0 z-10 bg-[#161618]">
+            <thead className="sticky top-0 z-10 bg-[light-dark(#f4f4f5,#161618)]">
               {table.getHeaderGroups().map((group) => (
                 <tr key={group.id}>
                   {group.headers.map((header) => (
@@ -381,13 +382,13 @@ export function AuditLog() {
                       >
                         <dl className="grid gap-3 text-xs text-zinc-400 sm:grid-cols-2">
                           <div>
-                            <dt className="mb-1 text-zinc-500">Target</dt>
+                            <dt className="mb-1 text-zinc-400">Target</dt>
                             <dd className="break-all">
                               {row.original.target_type} {row.original.target_id ?? '—'}
                             </dd>
                           </div>
                           <div>
-                            <dt className="mb-1 text-zinc-500">Action ID</dt>
+                            <dt className="mb-1 text-zinc-400">Action ID</dt>
                             <dd>{row.original.request_id ?? 'Platform change'}</dd>
                           </div>
                         </dl>
@@ -401,7 +402,7 @@ export function AuditLog() {
               ))}
               {!data.length && (
                 <tr>
-                  <td colSpan={columns.length} className="px-6 py-12 text-center text-zinc-500">
+                  <td colSpan={columns.length} className="px-6 py-12 text-center text-zinc-400">
                     {logs.isPending
                       ? 'Loading audit entries…'
                       : logs.error
@@ -414,7 +415,7 @@ export function AuditLog() {
           </table>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-4 border-t border-zinc-800 px-4 py-3">
-          <p className="max-w-2xl text-[11px] leading-relaxed text-zinc-500">
+          <p className="max-w-2xl text-[11px] leading-relaxed text-zinc-400">
             Updates every 10 seconds. Actions identify the private API caller or node; individual
             administrator accounts are not available yet.
           </p>

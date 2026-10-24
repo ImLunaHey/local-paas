@@ -14,20 +14,32 @@ pub fn valid_name(s: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         && s.as_bytes()[0].is_ascii_alphanumeric()
 }
+fn validate_project_name(value: &str, _: &()) -> garde::Result {
+    if valid_name(value) {
+        Ok(())
+    } else {
+        Err(garde::Error::new("invalid project name"))
+    }
+}
+
+#[utoipa::path(get, path = "/api/projects", responses((status = 200, body = crate::openapi::ProjectList)), operation_id = "listProjects")]
 pub async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
     let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',p.id,'name',p.name,'environments',(SELECT count(*) FROM environments e WHERE e.project_id=p.id),'services',(SELECT count(DISTINCT s.name) FROM services s JOIN environments e ON e.id=s.environment_id WHERE e.project_id=p.id)) FROM projects p ORDER BY p.name").fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[schema(as = ProjectCreate)]
 pub struct Create {
+    #[garde(custom(validate_project_name))]
     name: String,
 }
+#[utoipa::path(post, path = "/api/projects", request_body = Create, responses((status = 200, body = crate::openapi::ProjectIdentity), (status = 409, body = crate::openapi::ErrorResponse)), operation_id = "createProject")]
 pub async fn create(
     State(pool): State<PgPool>,
     Json(input): Json<Create>,
 ) -> Result<Json<Value>, ApiError> {
-    if !valid_name(&input.name) {
+    if garde::Validate::validate(&input).is_err() {
         return Err(ApiError::Conflict(
             "use a lowercase project name up to 63 characters",
         ));
@@ -47,6 +59,7 @@ pub async fn create(
     tx.commit().await?;
     Ok(Json(json!({"id":id,"name":input.name})))
 }
+#[utoipa::path(get, path = "/api/projects/{id}", params(("id" = Uuid, Path)), responses((status = 200, body = crate::openapi::ProjectDetail), (status = 404, body = crate::openapi::ErrorResponse)), operation_id = "getProject")]
 pub async fn get(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
@@ -60,18 +73,22 @@ pub async fn get(
     Ok(Json(json!({"id":id,"name":name,"environments":envs})))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
+#[schema(as = ProjectUpdate)]
 pub struct Update {
+    #[garde(custom(validate_project_name))]
     name: String,
+    #[garde(skip)]
     expected_name: String,
 }
+#[utoipa::path(put, path = "/api/projects/{id}", params(("id" = Uuid, Path)), request_body = Update, responses((status = 200, body = crate::openapi::ProjectIdentity), (status = 409, body = crate::openapi::ErrorResponse)), operation_id = "updateProject")]
 pub async fn update(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
     Json(input): Json<Update>,
 ) -> Result<Json<Value>, ApiError> {
-    if !valid_name(&input.name) {
+    if garde::Validate::validate(&input).is_err() {
         return Err(ApiError::Conflict(
             "use a lowercase project name up to 63 characters",
         ));
@@ -108,7 +125,7 @@ pub async fn update(
     tx.commit().await?;
     Ok(Json(json!({"id":id,"name":input.name})))
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct Search {
     #[serde(default)]
     q: String,

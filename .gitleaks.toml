@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "RFC WebSocket handshake test nonce, not a credential"
+paths = ['''crates/control-plane/src/preview\.rs''']
+regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']
+condition = "AND"

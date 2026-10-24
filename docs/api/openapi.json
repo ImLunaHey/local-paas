@@ -1,0 +1,1014 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "local-paas management API",
+    "description": "Private operator API. Existing v1 field names are retained for compatibility with persisted service specifications and agents.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "crate"
+        ],
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": [
+          "crate::projects"
+        ],
+        "operationId": "listProjects",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "crate::projects"
+        ],
+        "operationId": "createProject",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectIdentity"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{id}": {
+      "get": {
+        "tags": [
+          "crate::projects"
+        ],
+        "operationId": "getProject",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::projects"
+        ],
+        "operationId": "updateProject",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectIdentity"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/services": {
+      "get": {
+        "tags": [
+          "crate"
+        ],
+        "operationId": "listServices",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "crate"
+        ],
+        "operationId": "createService",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateService"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Service"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/services/{id}": {
+      "get": {
+        "tags": [
+          "crate"
+        ],
+        "operationId": "getService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Service"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/specs/validate": {
+      "post": {
+        "tags": [
+          "crate"
+        ],
+        "operationId": "validateServiceSpec",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BuildMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "dockerfile",
+          "generated"
+        ]
+      },
+      "CreateService": {
+        "type": "object",
+        "required": [
+          "operation_id",
+          "spec"
+        ],
+        "properties": {
+          "build_on_create": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ServiceSpec"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EnvironmentSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "project",
+          "service_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "parent_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "type": "string"
+          },
+          "service_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "error"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "issues": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          }
+        }
+      },
+      "Execution": {
+        "type": "string",
+        "enum": [
+          "http",
+          "worker"
+        ]
+      },
+      "GitSource": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repository": {
+            "type": "string"
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "upload": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreDeploy": {
+        "type": "object",
+        "required": [
+          "command",
+          "timeout_seconds"
+        ],
+        "properties": {
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "PrivateConnection": {
+        "type": "object",
+        "required": [
+          "service_id",
+          "env"
+        ],
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectCreate": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "environments"
+        ],
+        "properties": {
+          "environments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentSummary"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectIdentity": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            }
+          }
+        }
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "environments",
+          "services"
+        ],
+        "properties": {
+          "environments": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "services": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ProjectUpdate": {
+        "type": "object",
+        "required": [
+          "name",
+          "expected_name"
+        ],
+        "properties": {
+          "expected_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Readiness": {
+        "type": "object",
+        "required": [
+          "path",
+          "interval_seconds",
+          "stabilization_seconds"
+        ],
+        "properties": {
+          "interval_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "stabilization_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "Resources": {
+        "type": "object",
+        "required": [
+          "cpu_millis",
+          "memory_mib"
+        ],
+        "properties": {
+          "cpu_millis": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "memory_mib": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "Service": {
+        "type": "object",
+        "required": [
+          "id",
+          "operation_id",
+          "version",
+          "spec",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ServiceSpec"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ServiceList": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Service"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ServiceSpec": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project",
+          "environment",
+          "name",
+          "resources",
+          "distinct_nodes",
+          "domains",
+          "secrets",
+          "workload"
+        ],
+        "properties": {
+          "distinct_nodes": {
+            "type": "boolean"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "environment": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/Resources"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "secrets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/GitSource"
+          },
+          "volume": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VolumeAttachment"
+              }
+            ]
+          },
+          "workload": {
+            "$ref": "#/components/schemas/Workload"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ValidationIssue": {
+        "type": "object",
+        "required": [
+          "field",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "VolumeAttachment": {
+        "type": "object",
+        "required": [
+          "id",
+          "mount_path",
+          "read_only"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mount_path": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Workload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "storage_gib",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rustfs-service"
+                ]
+              },
+              "storage_gib": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "storage_gib",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "redis-service"
+                ]
+              },
+              "storage_gib": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database",
+              "storage_gib",
+              "kind"
+            ],
+            "properties": {
+              "database": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "postgres-service"
+                ]
+              },
+              "storage_gib": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "dockerfile",
+              "context",
+              "replicas",
+              "kind"
+            ],
+            "properties": {
+              "build_args": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "build_command": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "build_mode": {
+                "$ref": "#/components/schemas/BuildMode"
+              },
+              "build_target": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "context": {
+                "type": "string"
+              },
+              "dockerfile": {
+                "type": "string"
+              },
+              "execution": {
+                "$ref": "#/components/schemas/Execution"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oci-service"
+                ]
+              },
+              "port": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "pre_deploy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PreDeploy"
+                  }
+                ]
+              },
+              "private_connections": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PrivateConnection"
+                }
+              },
+              "readiness": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Readiness"
+                  }
+                ]
+              },
+              "replicas": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "start_command": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "wrangler",
+              "members",
+              "bucket_ref",
+              "kind"
+            ],
+            "properties": {
+              "bucket_ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "celld-service"
+                ]
+              },
+              "members": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "wrangler": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

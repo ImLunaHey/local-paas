@@ -21,7 +21,7 @@ printf '%s' "$BAO_DEV_ROOT_TOKEN_ID" > "$OPENBAO_TOKEN_FILE"
 bao server -dev -dev-tls -dev-no-store-token -dev-listen-address=127.0.0.1:18300 -dev-tls-cert-dir="$root" > "$root/bao.log" 2>&1 &
 bao_pid=$!
 for i in $(seq 1 100); do
-  if curl -sf --cacert "$OPENBAO_CA_FILE" "$OPENBAO_ADDR/v1/sys/health" > /dev/null; then break; fi
+  if [ -f "$OPENBAO_CA_FILE" ] && curl -sf --cacert "$OPENBAO_CA_FILE" "$OPENBAO_ADDR/v1/sys/health" > /dev/null; then break; fi
   sleep 0.1
 done
 curl -sf --cacert "$OPENBAO_CA_FILE" "$OPENBAO_ADDR/v1/sys/health" > /dev/null
@@ -29,6 +29,7 @@ BAO_ADDR="$OPENBAO_ADDR" BAO_CACERT="$OPENBAO_CA_FILE" BAO_TOKEN="$BAO_DEV_ROOT_
 export PORT=${PORT:-18080} WEB_PORT=${WEB_PORT:-15188}
 export API_TARGET="http://127.0.0.1:$PORT" E2E_BASE_URL="http://127.0.0.1:$WEB_PORT"
 export BROWSER_ORIGIN="$E2E_BASE_URL" PUBLIC_ORIGIN="$E2E_BASE_URL"
+./target/debug/platform-migrate
 ./target/debug/control-plane > "$root/api.log" 2>&1 &
 api_pid=$!
 for i in $(seq 1 100); do
@@ -36,4 +37,4 @@ for i in $(seq 1 100); do
   sleep 0.1
 done
 curl -sf "$API_TARGET/api/health" > /dev/null
-npm run test:e2e --prefix web
+pnpm --dir web test:e2e
