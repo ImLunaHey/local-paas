@@ -60,13 +60,18 @@ function Login() {
 
   return (
     <main className="grid min-h-screen place-items-center p-6">
-      <form className="panel w-full max-w-md p-7" onSubmit={submit}>
+      <form
+        className="w-full max-w-md rounded-lg border border-line bg-[light-dark(#f4f4f5,#131315)] p-7 shadow-[inset_0_1px_0_#ffffff04,0_8px_24px_#0000000d]"
+        onSubmit={submit}
+      >
         <div className="mb-7 flex items-center gap-3">
-          <span className="brand-mark">
+          <span className="grid size-[34px] place-items-center rounded-[9px] border border-zinc-300 bg-[linear-gradient(145deg,light-dark(#d4d4d8,#2b2b2f),light-dark(#f4f4f5,#18181b))] text-zinc-700">
             <Layers3 size={21} />
           </span>
           <div>
-            <div className="eyebrow">CONTROL PLANE</div>
+            <div className="mb-[13px] text-[9px] font-semibold tracking-[1.7px] text-zinc-500 uppercase">
+              CONTROL PLANE
+            </div>
             <h1 className="mt-1 text-xl">Sign in to local-paas</h1>
           </div>
         </div>
@@ -103,7 +108,9 @@ function Login() {
 function CenteredMessage({ children }: { children: ReactNode }) {
   return (
     <main className="grid min-h-screen place-items-center p-6">
-      <section className="panel max-w-lg p-7 text-sm text-muted">{children}</section>
+      <section className="max-w-lg rounded-lg border border-line bg-[light-dark(#f4f4f5,#131315)] p-7 text-sm text-muted shadow-[inset_0_1px_0_#ffffff04,0_8px_24px_#0000000d]">
+        {children}
+      </section>
     </main>
   )
 }
@@ -115,11 +122,13 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
     <div
       className={cn({
         'hidden items-center gap-1.5 max-[720px]:flex': compact,
-        'sidebar-bottom': !compact,
+        'border-t border-line px-3 pt-[22px]': !compact,
       })}
     >
       {!compact && (
-        <span className="tiny-label">{activeOrganization.data?.name || 'ORGANIZATION'}</span>
+        <span className="text-[9px] font-semibold tracking-[1.1px] text-muted">
+          {activeOrganization.data?.name || 'ORGANIZATION'}
+        </span>
       )}
       <span
         className={cn('flex items-center justify-between gap-2 text-xs', {

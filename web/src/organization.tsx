@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { cn } from 'cn'
 import { authClient, platformPermissions } from './auth-client'
 import { Button } from './components/button'
 import { Field } from './components/field'
@@ -44,18 +45,24 @@ export function OrganizationSettings() {
 
   if (!organization.data) return null
   const roleNames = [...builtInRoles, ...roles.map((role) => role.role)]
+  const panelClassName =
+    'rounded-lg border border-line bg-[light-dark(#f4f4f5,#131315)] shadow-[inset_0_1px_0_#ffffff04,0_8px_24px_#0000000d]'
   return (
     <div>
-      <div className="page-heading">
+      <div className="mb-[30px] flex items-center justify-between gap-6">
         <div>
-          <div className="eyebrow">ORGANIZATION</div>
+          <div className="mb-[13px] text-[9px] font-semibold tracking-[1.7px] text-zinc-500 uppercase">
+            ORGANIZATION
+          </div>
           <h1>{organization.data.name}</h1>
-          <p>Manage members, teams, and organization-specific access roles.</p>
+          <p className="mt-3 text-xs text-muted">
+            Manage members, teams, and organization-specific access roles.
+          </p>
         </div>
       </div>
       {error && <p className="mb-4 text-sm text-red-300">{error}</p>}
       <div className="grid gap-5 xl:grid-cols-2">
-        <section className="panel p-6">
+        <section className={cn(panelClassName, 'p-6')}>
           <h2>Members</h2>
           <div className="mt-4 grid gap-2">
             {organization.data.members.map((member) => (
@@ -88,7 +95,7 @@ export function OrganizationSettings() {
           </div>
           <InviteMember roles={roleNames} onError={setError} />
         </section>
-        <section className="panel p-6">
+        <section className={cn(panelClassName, 'p-6')}>
           <h2>Teams</h2>
           <div className="mt-4 grid gap-2">
             {teams.map((team) => (
@@ -100,7 +107,7 @@ export function OrganizationSettings() {
           <CreateTeam onCreated={refreshTeams} onError={setError} />
         </section>
       </div>
-      <section className="panel mt-5 p-6">
+      <section className={cn(panelClassName, 'mt-5 p-6')}>
         <h2>Custom roles</h2>
         <p className="mt-2 text-sm text-muted">
           Roles are scoped to this organization and can combine any platform permissions.
