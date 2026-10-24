@@ -64,7 +64,10 @@ in {
     cniVersion = "1.0.0"; name = "workloads";
     plugins = [
       { type = "bridge"; bridge = "lpbr0"; isGateway = true; ipMasq = true;
-        ipam = { type = "host-local"; ranges = [[ { inherit subnet; } ]]; routes = [ { dst = "0.0.0.0/0"; } ]; }; }
+        # Kernel network namespaces disappear on VM boot. Keep reservations
+        # through agent/containerd restarts, but never across a VM reboot.
+        ipam = { type = "host-local"; dataDir = "/run/local-paas-cni";
+          ranges = [[ { inherit subnet; } ]]; routes = [ { dst = "0.0.0.0/0"; } ]; }; }
       { type = "portmap"; capabilities.portMappings = true; }
       { type = "firewall"; backend = "iptables"; }
     ];

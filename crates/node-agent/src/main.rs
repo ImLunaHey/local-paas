@@ -343,17 +343,23 @@ async fn instance_loop(
                         }
                     };
                     match gate {
-                        Ok(recovery::Gate::Start) => {
-                            if runtime.start(&op).await.is_ok() {
+                        Ok(recovery::Gate::Start) => match runtime.start(&op).await {
+                            Ok(()) => {
                                 started = Some(Instant::now());
                                 stable = None;
                                 previous = None;
-                            } else if !a.recovery_allowed {
-                                failed = Some("start_failed".into());
-                            } else {
+                            }
+                            Err(error) if !a.recovery_allowed => {
+                                failed = Some(match error {
+                                    platform_runtime::RuntimeError::Diagnostic(code) => code,
+                                    platform_runtime::RuntimeError::Rejected(code) => code.into(),
+                                    _ => "start_failed".into(),
+                                });
+                            }
+                            Err(_) => {
                                 report.diagnostic = Some("restart_backoff".into());
                             }
-                        }
+                        },
                         Ok(recovery::Gate::Wait) => {
                             report.diagnostic = Some("restart_backoff".into())
                         }

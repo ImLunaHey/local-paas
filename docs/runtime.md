@@ -115,6 +115,12 @@ Run the API separately. Stopping/restarting a worker unit affects that VM only;
 `start.sh` refuses to replace a running VM. Its disk and node identity persist.
 No platform component is installed into or scheduled by its own runtime.
 
+CNI address reservations live in `/run/local-paas-cni` inside each worker.
+They survive an agent/containerd restart, but reset with the VM's kernel network
+namespaces on reboot. This prevents dead allocations from an interrupted shutdown
+blocking the next container that uses the same scheduling slot. This uses the
+[host-local plugin's documented `dataDir` option](https://www.cni.dev/plugins/current/ipam/host-local/).
+
 Host UIDs 61000–61003 are reserved by the scripts for the builder and three
 workers. They refuse an unexpected identity. This avoids default system-UID
 reuse if a host NixOS activation removes manually created users. These transient
