@@ -1,14 +1,26 @@
 import { defineConfig } from '@playwright/test'
 
 const baseURL = process.env.E2E_BASE_URL || 'http://localhost:5188'
+const authState = process.env.E2E_AUTH_STATE
+const browserNames = process.env.CI
+  ? (['chromium', 'firefox', 'webkit'] as const)
+  : (['chromium'] as const)
 
 export default defineConfig({
   testDir: './tests',
-  projects: process.env.CI
-    ? ['chromium', 'firefox', 'webkit'].map((browserName) => ({
-        name: browserName,
-        use: { browserName: browserName as 'chromium' | 'firefox' | 'webkit' },
-      }))
+  projects: authState
+    ? [
+        {
+          name: 'setup',
+          testMatch: /auth\.setup\.ts/,
+        },
+        ...browserNames.map((browserName) => ({
+          name: browserName,
+          dependencies: ['setup'],
+          testIgnore: /auth\.setup\.ts/,
+          use: { browserName, storageState: authState },
+        })),
+      ]
     : undefined,
   workers: 1,
   use: {
