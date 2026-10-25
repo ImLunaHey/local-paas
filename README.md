@@ -72,7 +72,8 @@ host are three scheduling nodes, not three physical failure domains.
 - Dockerfile builds, versioned generated recipes for seven language ecosystems,
   build/start overrides and persisted detection evidence.
 - Signed, replay-safe GitHub webhooks that pin repository events to commits.
-- Opt-in same-repository PR previews with isolated HTTP services, quotas and durable cleanup.
+- Opt-in same-repository PR previews with isolated multi-service templates, audited
+  secret grants, GitHub Checks, quotas and durable cleanup.
 - Health-gated deployments, retained revisions, failed-candidate rollback,
   independent ingress, cordon/drain and opt-in stateless relocation.
 - Durable bounded crash/liveness recovery, replica health history and opt-in

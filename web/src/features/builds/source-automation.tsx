@@ -289,7 +289,7 @@ function ConnectionForm({ service }: { service: Service }) {
           checked={privateRepository}
           onChange={(event) => setPrivateRepository(event.target.checked)}
         />
-        Authenticate a private repository with a GitHub App
+        Authenticate builds and preview checks with a GitHub App
       </label>
       {privateRepository && (
         <div className="grid gap-5 rounded-lg border border-zinc-800 p-4 sm:grid-cols-2">
@@ -298,7 +298,7 @@ function ConnectionForm({ service }: { service: Service }) {
           </Field>
           <Field
             label="Installation ID"
-            hint="The installation that has read access to this repository."
+            hint="The installation needs Contents read access; enable Checks write access for PR preview status."
           >
             <Input name="githubInstallationId" type="number" min="1" step="1" required />
           </Field>
