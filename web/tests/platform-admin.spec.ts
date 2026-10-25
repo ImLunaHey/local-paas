@@ -27,7 +27,7 @@ test('root receives the installation-wide dashboard', async ({ page }) => {
   await page.getByRole('link', { name: 'Users', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
   await expect(page.getByText('Global role: admin', { exact: true })).toBeVisible()
-  await page.getByRole('link', { name: /admin/ }).click()
+  await page.getByRole('link', { name: /^admin\b/ }).click()
   await expect(page.getByRole('heading', { name: 'admin', exact: true })).toBeVisible()
   await page.getByLabel('Display name').fill('Luna Admin')
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
