@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { newApp } from './fixtures'
 
-test('overview, host telemetry, command menu and project rename work together', async ({
-  page,
-}) => {
+test('overview, command menu and project rename work together', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Latest deployments' })).toBeVisible()
@@ -11,15 +9,12 @@ test('overview, host telemetry, command menu and project rename work together', 
   await page.screenshot({ path: '../.local/overview-desktop.png', fullPage: true })
   await page.keyboard.press('Control+k')
   await expect(page.getByRole('dialog')).toBeVisible()
-  await page.getByRole('combobox', { name: 'Search commands' }).fill('hosts')
+  await page.getByRole('combobox', { name: 'Search commands' }).fill('projects')
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/hosts$/)
-  await expect(page.getByRole('heading', { name: 'Worker capacity' })).toBeVisible()
+  await expect(page).toHaveURL(/\/projects$/)
+  await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByLabel('Host CPU history')).toBeVisible({ timeout: 20000 })
-  await page.screenshot({ path: '../.local/hosts-desktop.png', fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.screenshot({ path: '../.local/hosts-mobile.png', fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
   await page.goto('/')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()

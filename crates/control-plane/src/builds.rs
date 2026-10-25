@@ -1,7 +1,7 @@
 //! Durable build requests. HTTP handlers only persist intent; a separate worker executes it.
 use crate::{ApiError, Service};
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
@@ -244,9 +244,17 @@ pub(crate) async fn revisions(
         .bind(service_id).fetch_all(&pool).await?))
 }
 
-pub(crate) async fn system(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
+pub(crate) async fn system(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
+) -> Result<Json<Value>, ApiError> {
     let online: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM build_workers WHERE last_seen > now() - interval '15 seconds')").fetch_one(&pool).await?;
-    let database_runtime_ready:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes WHERE last_seen>now()-interval '30 seconds' AND NOT cordoned AND capabilities @> ARRAY['databases-v1'])").fetch_one(&pool).await?;
+    let organization = if context.is_superuser {
+        None
+    } else {
+        context.organization_id.as_deref()
+    };
+    let database_runtime_ready:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes WHERE ($1::text IS NULL OR organization_id IS NULL OR organization_id=$1) AND last_seen>now()-interval '30 seconds' AND NOT cordoned AND capabilities @> ARRAY['databases-v1'])").bind(organization).fetch_one(&pool).await?;
     Ok(Json(
         json!({"workerOnline":online,"databaseRuntimeReady":database_runtime_ready,"logLimitBytes":LOG_LIMIT}),
     ))

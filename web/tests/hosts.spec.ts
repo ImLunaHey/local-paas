@@ -1,9 +1,19 @@
 import { expect, test } from '@playwright/test'
+import fs from 'node:fs'
 
 test('host history uses persisted samples and supports ranges on desktop and mobile', async ({
   page,
 }) => {
-  await page.goto('/hosts')
+  const passwordFile = process.env.E2E_AUTH_PASSWORD_FILE
+  if (!passwordFile) throw new Error('Browser authentication is not configured')
+  const password = fs.readFileSync(passwordFile, 'utf8').trim()
+  await page.context().clearCookies()
+  await page.goto('/')
+  await page.getByLabel('Username').fill('root')
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Platform overview', exact: true })).toBeVisible()
+  await page.goto('/platform/host')
   await expect(page.getByLabel('Host history range')).toHaveValue('15m')
   await expect(page.getByText('History is saved in PostgreSQL', { exact: false })).toBeVisible()
   await expect

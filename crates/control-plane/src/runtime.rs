@@ -258,7 +258,16 @@ pub(crate) async fn place_excluding(
         | Workload::RustfsService { storage_gib } => Some(storage_gib),
         _ => None,
     };
-    let nodes = sqlx::query("SELECT * FROM nodes WHERE NOT cordoned AND last_seen>now()-interval '30 seconds' ORDER BY name FOR UPDATE").fetch_all(&mut **tx).await?;
+    let organization_id: String = sqlx::query_scalar(
+        "SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1",
+    )
+    .bind(service_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let nodes = sqlx::query("SELECT * FROM nodes WHERE (organization_id IS NULL OR organization_id=$1) AND NOT cordoned AND last_seen>now()-interval '30 seconds' ORDER BY organization_id NULLS LAST,name FOR UPDATE")
+        .bind(&organization_id)
+        .fetch_all(&mut **tx)
+        .await?;
     let mut placements = Vec::new();
     for node in nodes {
         let id: Uuid = node.get("id");
@@ -727,8 +736,9 @@ pub(crate) async fn status(
     let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'status',d.status,'errorCode',d.error_code,'createdAt',d.created_at,'preDeploy',(SELECT jsonb_build_object('id',j.id,'status',j.status,'result',j.job_result,'instanceId',(SELECT id FROM instances WHERE deployment_id=j.id LIMIT 1)) FROM deployments j WHERE j.parent_deployment_id=d.id)) FROM deployments d WHERE d.service_id=$1 AND d.job_options IS NULL ORDER BY d.created_at DESC LIMIT 20").bind(id).fetch_all(&pool).await?;
     let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deploymentId',i.deployment_id,'nodeId',n.id,'nodeName',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desiredState',i.desired_state,'diagnostic',i.diagnostic,'observedAt',i.observed_at,'cpuMillis',i.cpu_millis,'memoryBytes',i.memory_bytes,'pids',i.pids,'ioReadBytesPerSecond',i.io_read_bytes_per_second,'ioWriteBytesPerSecond',i.io_write_bytes_per_second,'networkRxBytesPerSecond',i.network_rx_bytes_per_second,'networkTxBytesPerSecond',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
     let nodes: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM nodes WHERE last_seen>now()-interval '30 seconds' AND NOT cordoned",
+        "SELECT count(*) FROM nodes n WHERE (n.organization_id IS NULL OR n.organization_id=(SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1)) AND n.last_seen>now()-interval '30 seconds' AND NOT n.cordoned",
     )
+    .bind(id)
     .fetch_one(&pool)
     .await?;
     let authority: Option<String> =
