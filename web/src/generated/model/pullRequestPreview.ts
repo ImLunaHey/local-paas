@@ -19,7 +19,11 @@ export interface PullRequestPreview {
   number: number
   /** @nullable */
   previewUrl?: string | null
+  /** @nullable */
+  providerError?: string | null
+  providerStatus: string
   reason: string
+  serviceCount: number
   /** @nullable */
   serviceId?: string | null
   sourceConnectionId: string

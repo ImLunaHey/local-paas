@@ -215,13 +215,18 @@ async fn identity(pool: &PgPool, id: Uuid) -> Result<(Uuid, String), ApiError> {
     Ok((env, format!("workloads/{env}/{id}")))
 }
 async fn sources(pool: &PgPool, id: Uuid) -> Result<Vec<(Uuid, String, Vec<String>)>, ApiError> {
-    let rows=sqlx::query("WITH RECURSIVE chain AS (SELECT e.id,e.parent_id,0 AS depth,s.name FROM services s JOIN environments e ON e.id=s.environment_id WHERE s.id=$1 UNION ALL SELECT e.id,e.parent_id,c.depth+1,c.name FROM environments e JOIN chain c ON e.id=c.parent_id WHERE c.depth<8) SELECT s.id,s.environment_id,s.spec FROM chain c JOIN services s ON s.environment_id=c.id AND s.name=c.name ORDER BY c.depth DESC").bind(id).fetch_all(pool).await?;
+    let rows=sqlx::query("WITH RECURSIVE chain AS (SELECT e.id,e.parent_id,0 AS depth,s.name FROM services s JOIN environments e ON e.id=s.environment_id WHERE s.id=$1 UNION ALL SELECT e.id,e.parent_id,c.depth+1,c.name FROM environments e JOIN chain c ON e.id=c.parent_id WHERE c.depth<8), inherited AS (SELECT s.id,s.environment_id,s.spec,c.depth FROM chain c JOIN services s ON s.environment_id=c.id AND s.name=c.name), granted AS (SELECT source.id,source.environment_id,source.spec,9 AS depth,g.names FROM preview_secret_grants g JOIN services source ON source.id=g.source_service_id WHERE g.target_service_id=$1) SELECT id,environment_id,spec,NULL::text[] AS granted_names,depth FROM inherited UNION ALL SELECT id,environment_id,spec,names,depth FROM granted ORDER BY depth DESC").bind(id).fetch_all(pool).await?;
     rows.into_iter()
         .map(|r| {
             let id: Uuid = r.get("id");
             let env: Uuid = r.get("environment_id");
             let spec: DbJson<platform_domain::ServiceSpec> = r.get("spec");
-            Ok((id, format!("workloads/{env}/{id}"), spec.secrets.clone()))
+            let granted: Option<Vec<String>> = r.get("granted_names");
+            Ok((
+                id,
+                format!("workloads/{env}/{id}"),
+                granted.unwrap_or_else(|| spec.secrets.clone()),
+            ))
         })
         .collect()
 }

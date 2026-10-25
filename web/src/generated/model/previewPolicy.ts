@@ -5,6 +5,7 @@
  * Private operator API with camelCase fields. Controller, dashboard and protocol v2 agents must be upgraded together.
  * OpenAPI spec version: 0.2.0
  */
+import type { PreviewServicePolicy } from './previewServicePolicy.ts'
 import type { Resources } from './resources.ts'
 
 export interface PreviewPolicy {
@@ -12,5 +13,10 @@ export interface PreviewPolicy {
   maxActive: number
   maxBuilds: number
   resources: Resources
+  /**
+   * Services copied into each preview. Empty preserves the legacy behavior:
+   * only the source connection's service is included with no secret grants.
+   */
+  services?: PreviewServicePolicy[]
   ttlHours: number
 }
