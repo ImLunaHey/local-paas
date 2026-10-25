@@ -114,8 +114,10 @@ terminal. The API binds `127.0.0.1:8080`; Vite binds `127.0.0.1:5188` and proxie
 API. Basic API/UI development works without OpenBao, ClickHouse or VMs; unavailable
 infrastructure does not become fake successful builds or deployments.
 
-The interactive bootstrap creates the first platform administrator and organization
-administrator without echoing or storing plaintext passwords. Authentication, organization,
+The bootstrap reads passwords from ignored `.local/dev-auth.env` when present and
+otherwise prompts without echoing them. For repeatable local credentials, install
+`dev-auth.example.env` at that path with mode `0600` and edit its values; they may
+be local-only passwords or 1Password CLI secret references. Authentication, organization,
 team, custom-role, recovery, and threat-model details are in
 [operator authentication](docs/authentication.md).
 

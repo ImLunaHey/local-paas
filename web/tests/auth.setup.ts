@@ -23,7 +23,7 @@ export default async function authenticateBrowserTests() {
   try {
     const page = await browser.newPage({ baseURL })
     await page.goto('/')
-    await page.getByLabel('Username').fill('imlunahey')
+    await page.getByLabel('Username').fill('admin')
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()

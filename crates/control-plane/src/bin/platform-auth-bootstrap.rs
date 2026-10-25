@@ -7,15 +7,18 @@ use std::{fs, io, net::IpAddr, path::PathBuf};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = std::env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
     require_local_database(&database_url)?;
+    let root_username = std::env::var("LOCAL_PAAS_ROOT_USERNAME").unwrap_or_else(|_| "root".into());
+    let admin_username =
+        std::env::var("LOCAL_PAAS_ADMIN_USERNAME").unwrap_or_else(|_| "admin".into());
     let mut passwords = String::new();
     io::Read::read_to_string(&mut io::stdin().lock(), &mut passwords)?;
     let mut passwords = passwords.lines();
     let root_password = passwords
         .next()
         .ok_or("root password is required on stdin")?;
-    let member_password = passwords
+    let admin_password = passwords
         .next()
-        .ok_or("organization user password is required on stdin")?;
+        .ok_or("admin password is required on stdin")?;
     if passwords.next().is_some() {
         return Err("expected exactly two password lines on stdin".into());
     }
@@ -41,8 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     runtime
         .service
         .provision_password_user(NewPasswordUser {
-            username: "root".into(),
-            name: "root".into(),
+            username: root_username.clone(),
+            name: root_username.clone(),
             email: None,
             password: root_password.into(),
             role: "admin".into(),
@@ -51,23 +54,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let member = runtime
         .service
         .provision_password_user(NewPasswordUser {
-            username: "imlunahey".into(),
-            name: "imlunahey".into(),
+            username: admin_username.clone(),
+            name: admin_username.clone(),
             email: None,
-            password: member_password.into(),
+            password: admin_password.into(),
             role: "user".into(),
         })
         .await?;
     let root = runtime
         .service
-        .sign_in_username("root", root_password.into(), None, None)
+        .sign_in_username(&root_username, root_password.into(), None, None)
         .await?;
     let organization = match runtime
         .service
         .list_organizations(&root.session)
         .await?
         .into_iter()
-        .find(|organization| organization.slug == "imlunahey")
+        .find(|organization| organization.slug == "admin")
     {
         Some(organization) => organization,
         None => {
@@ -76,8 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .create_organization(
                     &root.session,
                     NewOrganization {
-                        name: "imlunahey".into(),
-                        slug: "imlunahey".into(),
+                        name: "admin".into(),
+                        slug: "admin".into(),
                         logo: None,
                         metadata: None,
                         keep_current_active_organization: false,
@@ -121,7 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
         let member_session = runtime
             .service
-            .sign_in_username("imlunahey", member_password.into(), None, None)
+            .sign_in_username(&admin_username, admin_password.into(), None, None)
             .await?;
         runtime
             .service
@@ -137,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .bind(&organization.id)
         .execute(&pool)
         .await?;
-    println!("Local authentication bootstrap complete for organization imlunahey.");
+    println!("Local authentication bootstrap complete for organization admin.");
     Ok(())
 }
 

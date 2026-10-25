@@ -1,0 +1,4 @@
+interface:
+  display_name: "Local Development"
+  short_description: "Run and access the local development platform"
+  default_prompt: "Use $dev to start the local platform and sign in."
