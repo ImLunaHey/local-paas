@@ -112,6 +112,72 @@ readiness stabilization. The first ready replica may take minutes, and exhausted
 capacity or failed startup can prevent recovery entirely. Wake-up bypasses the
 CPU stabilization/cooldown, but never capacity, cleanup or readiness checks.
 
+### Custom waking pages
+
+Each eligible service can edit its waking page in **Configuration → Autoscaling
+→ Waking page**. The CodeMirror editor follows the dashboard's light/dark theme,
+with HTML/CSS highlighting, line numbers, search and undo. Start from the
+dashboard-themed template or import a UTF-8 HTML file (maximum **128 KiB**).
+The live preview expands template variables as you type and offers a mobile
+width. Edits and imports remain local until **Save waking page**; **Discard
+edits** returns to the saved version. **Download HTML** exports the current draft,
+and **Restore default page** removes the saved custom template. Updates
+are version checked, idempotent and audited in the same PostgreSQL transaction.
+Audit records contain size and a content hash, never the uploaded document.
+Ingress picks up changes on its next successful refresh, normally within two
+seconds. Both preview and custom domain routes use the service's page.
+
+Templates are public application content. Do not include secrets. They are
+returned as JSON to the dashboard. The editor's preview uses an isolated, inert
+iframe with no script, form, navigation or same-origin permissions and a
+restrictive CSP; readiness polling is omitted. It cannot access dashboard
+cookies or execute uploaded code. The live page is served from application
+ingress. Use inline CSS, SVG, and data URLs for
+images/fonts; the sleeping application's assets and external assets are not
+available to the template. Scripts require the per-response nonce below.
+
+| Variable | Replacement |
+| --- | --- |
+| `{{service_name}}` | HTML-escaped service name; use in text or quoted HTML attributes, never JavaScript/CSS |
+| `{{retry_after_seconds}}` | Readiness polling interval, currently `5` |
+| `{{readiness_script}}` | Platform-owned polling, reload and no-JavaScript refresh code |
+| `{{csp_nonce}}` | Fresh CSP nonce; use `nonce="{{csp_nonce}}"` on custom inline scripts |
+
+Include `{{readiness_script}}` **exactly once**, on its own immediately before
+`</body>`, outside comments, attributes and other tags. Unknown or unclosed
+template variables are rejected. Values are substituted in one pass, so a
+service name cannot introduce more template variables. Give an optional text
+element the `data-waking-status` attribute to receive the longer-startup message.
+The readiness script works even if that element is omitted. It checks the
+original URL without calling the application and only reloads after the ingress
+reports a healthy route. Custom scripts must not interfere with this behavior.
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{service_name}} is waking up</title>
+    <style>body { font-family: system-ui; padding: 3rem; }</style>
+  </head>
+  <body>
+    <h1>Welcome to {{service_name}}</h1>
+    <p data-waking-status>Starting up. Checking every {{retry_after_seconds}} seconds…</p>
+    {{readiness_script}}
+  </body>
+</html>
+```
+
+The management API is `GET/PUT /api/services/{id}/waking-page`, with the same
+organization scoping and service read/update permissions as other service
+configuration. PUT accepts `operationId`, `expectedVersion`, and `html` (string,
+or `null` to reset). GET returns `version`, `html`, and `starterTemplate`. HTML
+is limited independently of the bounded JSON request body. Migration
+`0032_waking_pages.sql` stores templates and idempotency metadata.
+
+### Private dependencies
+
 Private TCP service discovery has no HTTP activator. Policies with a zero minimum
 are rejected for targets of configured or active private connections, and new
 private connections to such services are rejected. Use a minimum of at least one

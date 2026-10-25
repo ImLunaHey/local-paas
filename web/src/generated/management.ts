@@ -23,6 +23,7 @@ import type {
 
 import type {
   Configure,
+  ConfigureWakingPage,
   CreateService,
   ErrorResponse,
   Event,
@@ -38,6 +39,7 @@ import type {
   ServiceSpec,
   UpdateService,
   ValidateServiceSpec200,
+  WakingPageState,
 } from './model'
 
 import { apiFetch } from '../api-client.ts'
@@ -1330,6 +1332,238 @@ export const useConfigureServiceScaling = <TError = unknown, TContext = unknown>
   TContext
 > => {
   return useMutation(getConfigureServiceScalingMutationOptions(options), queryClient)
+}
+
+export const getGetServiceWakingPageUrl = (id: string) => {
+  return `/api/services/${id}/waking-page`
+}
+
+export const getServiceWakingPage = async (
+  id: string,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<WakingPageState> => {
+  return apiFetch<WakingPageState>(getGetServiceWakingPageUrl(id), {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export const getGetServiceWakingPageQueryKey = (id: string) => {
+  return [`/api/services/${id}/waking-page`] as const
+}
+
+export const getGetServiceWakingPageQueryOptions = <
+  TData = Awaited<ReturnType<typeof getServiceWakingPage>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getServiceWakingPage>>, TError, TData>
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {}
+
+  const queryKey = queryOptions?.queryKey ?? getGetServiceWakingPageQueryKey(id)
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getServiceWakingPage>>> = ({ signal }) =>
+    getServiceWakingPage(id, { signal, ...requestOptions })
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getServiceWakingPage>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+}
+
+export type GetServiceWakingPageQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getServiceWakingPage>>
+>
+export type GetServiceWakingPageQueryError = unknown
+
+export function useGetServiceWakingPage<
+  TData = Awaited<ReturnType<typeof getServiceWakingPage>>,
+  TError = unknown,
+>(
+  id: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getServiceWakingPage>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getServiceWakingPage>>,
+          TError,
+          Awaited<ReturnType<typeof getServiceWakingPage>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetServiceWakingPage<
+  TData = Awaited<ReturnType<typeof getServiceWakingPage>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getServiceWakingPage>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getServiceWakingPage>>,
+          TError,
+          Awaited<ReturnType<typeof getServiceWakingPage>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetServiceWakingPage<
+  TData = Awaited<ReturnType<typeof getServiceWakingPage>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getServiceWakingPage>>, TError, TData>
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetServiceWakingPage<
+  TData = Awaited<ReturnType<typeof getServiceWakingPage>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getServiceWakingPage>>, TError, TData>
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetServiceWakingPageQueryOptions(id, options)
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+
+  return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getConfigureServiceWakingPageUrl = (id: string) => {
+  return `/api/services/${id}/waking-page`
+}
+
+export const configureServiceWakingPage = async (
+  id: string,
+  configureWakingPage: ConfigureWakingPage,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<WakingPageState> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {}
+    if (h instanceof Headers) return Object.fromEntries(h.entries())
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      )
+    }
+    const headers: Record<string, string | readonly string[]> = {}
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value
+    }
+    return headers
+  }
+  return apiFetch<WakingPageState>(getConfigureServiceWakingPageUrl(id), {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(configureWakingPage),
+  })
+}
+
+export const getConfigureServiceWakingPageMutationKey = () =>
+  ['configureServiceWakingPage'] as const
+
+export const getConfigureServiceWakingPageMutationOptions = <
+  TError = unknown,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof configureServiceWakingPage>>,
+    TError,
+    ConfigureServiceWakingPageMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof configureServiceWakingPage>>,
+  TError,
+  ConfigureServiceWakingPageMutationVariables,
+  TContext
+> => {
+  const mutationKey = getConfigureServiceWakingPageMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof configureServiceWakingPage>>,
+    ConfigureServiceWakingPageMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {}
+
+    return configureServiceWakingPage(id, data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type ConfigureServiceWakingPageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof configureServiceWakingPage>>
+>
+export type ConfigureServiceWakingPageMutationBody = ConfigureWakingPage
+export type ConfigureServiceWakingPageMutationError = unknown
+export type ConfigureServiceWakingPageMutationVariables = { id: string; data: ConfigureWakingPage }
+
+export const useConfigureServiceWakingPage = <TError = unknown, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof configureServiceWakingPage>>,
+      TError,
+      ConfigureServiceWakingPageMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof configureServiceWakingPage>>,
+  TError,
+  ConfigureServiceWakingPageMutationVariables,
+  TContext
+> => {
+  return useMutation(getConfigureServiceWakingPageMutationOptions(options), queryClient)
 }
 
 export const getValidateServiceSpecUrl = () => {

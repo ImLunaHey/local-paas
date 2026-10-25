@@ -454,6 +454,76 @@
         }
       }
     },
+    "/api/services/{id}/waking-page": {
+      "get": {
+        "tags": [
+          "crate::waking"
+        ],
+        "operationId": "getServiceWakingPage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WakingPageState"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::waking"
+        ],
+        "operationId": "configureServiceWakingPage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureWakingPage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WakingPageState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/specs/validate": {
       "post": {
         "tags": [
@@ -523,6 +593,31 @@
           },
           "policy": {
             "$ref": "#/components/schemas/ScalingPolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConfigureWakingPage": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "expectedVersion"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "html": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A complete UTF-8 HTML template, or null to restore the platform default."
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "additionalProperties": false
@@ -1112,6 +1207,28 @@
           }
         },
         "additionalProperties": false
+      },
+      "WakingPageState": {
+        "type": "object",
+        "required": [
+          "version",
+          "starterTemplate"
+        ],
+        "properties": {
+          "html": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "starterTemplate": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "Workload": {
         "oneOf": [

@@ -8,6 +8,7 @@
 
 export * from './buildMode.ts'
 export * from './configure.ts'
+export * from './configureWakingPage.ts'
 export * from './createService.ts'
 export * from './environmentSummary.ts'
 export * from './errorResponse.ts'
@@ -34,4 +35,5 @@ export * from './updateService.ts'
 export * from './validateServiceSpec200.ts'
 export * from './validationIssue.ts'
 export * from './volumeAttachment.ts'
+export * from './wakingPageState.ts'
 export * from './workload.ts'

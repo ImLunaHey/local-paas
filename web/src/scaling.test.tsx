@@ -4,8 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ScalingPanel } from './scaling'
 import type { Service } from './generated/model/service'
+vi.mock('./waking-page', () => ({ WakingPageSettings: () => null }))
 
-const service = { id: 'test-service' } as Service
+const service = { id: 'test-service', spec: { name: 'test-service' } } as Service
 const status = {
   eligible: true,
   currentReplicas: 0,

@@ -3,9 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Waking up service</title>
-    <noscript><meta http-equiv="refresh" content="5"></noscript>
-    <style nonce="{{NONCE}}">
+    <title>{{service_name}} · Waking up service</title>
+    <style nonce="{{csp_nonce}}">
       /* Mirror the dashboard palette in web/src/styles.css without requiring
          application assets while the service is asleep. */
       :root {
@@ -63,36 +62,12 @@
         </div>
         <div class="status-row">
           <span class="indicator" aria-hidden="true"></span>
-          <p class="status" role="status" id="status">Waiting for the app to be ready…</p>
+          <p class="status" role="status" data-waking-status>Waiting for the app to be ready…</p>
         </div>
-        <noscript><p>This page refreshes every five seconds while you wait.</p></noscript>
+        <noscript><p>This page refreshes every {{retry_after_seconds}} seconds while you wait.</p></noscript>
       </section>
       <footer>Built for a smaller cloud.</footer>
     </main>
-    <script nonce="{{NONCE}}">
-      const started = Date.now();
-      async function checkReadiness() {
-        try {
-          const response = await fetch(location.href, {
-            method: "HEAD",
-            headers: { "X-Local-Paas-Wake-Check": "1" },
-            cache: "no-store",
-            redirect: "error",
-            signal: AbortSignal.timeout(10000),
-          });
-          if (response.status === 204 && response.headers.get("X-Local-Paas-Wake-Status") === "ready") {
-            location.reload();
-            return;
-          }
-        } catch {
-          // Keep waiting through transient network failures.
-        }
-        if (Date.now() - started >= 60000) {
-          document.getElementById("status").textContent = "This is taking longer than usual. We’ll keep checking automatically.";
-        }
-        setTimeout(checkReadiness, 5000);
-      }
-      setTimeout(checkReadiness, 5000);
-    </script>
+    {{readiness_script}}
   </body>
 </html>

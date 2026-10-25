@@ -65,6 +65,8 @@ pub struct ProjectDetail {
     paths(
         crate::scaling::get,
         crate::scaling::configure,
+        crate::waking::get,
+        crate::waking::configure,
         crate::health,
         crate::validate_spec,
         crate::list_services,

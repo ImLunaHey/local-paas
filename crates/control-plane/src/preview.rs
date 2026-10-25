@@ -21,7 +21,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct Proxy {
     pool: PgPool,
-    sleepers: Arc<RwLock<HashMap<String, (Uuid, bool)>>>,
+    sleepers: Arc<RwLock<HashMap<String, Arc<crate::waking::Page>>>>,
     activity: Activity,
     recent_demand: Arc<std::sync::Mutex<HashMap<Uuid, std::time::Instant>>>,
     routes: Arc<RwLock<HashMap<String, Vec<Backend>>>>,
@@ -212,8 +212,9 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         .unwrap_or("")
         .to_lowercase();
     let mut permit = RequestPermit::from(permit);
-    let sleeper = p.sleepers.read().await.get(&authority).copied();
-    if let Some((id, enabled)) = sleeper {
+    let sleeper = p.sleepers.read().await.get(&authority).cloned();
+    if let Some(page) = &sleeper {
+        let id = page.service_id;
         *p.activity
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -226,7 +227,7 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
             .unwrap_or_else(|e| e.into_inner())
             .get(&id)
             .is_some_and(|time| time.elapsed() < Duration::from_secs(5));
-        if enabled && !recently_recorded {
+        if page.enabled && !recently_recorded {
             if !matches!(
                 tokio::time::timeout(
                     Duration::from_secs(2),
@@ -287,7 +288,7 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
             .into_response();
     }
     let Some(backend) = backend else {
-        return unavailable(&request, sleeper.is_some_and(|(_, enabled)| enabled));
+        return unavailable(&request, sleeper.as_deref());
     };
     forward(
         &p.client,
@@ -300,7 +301,7 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
     .await
 }
 
-fn unavailable(request: &Request, can_wake: bool) -> Response {
+fn unavailable(request: &Request, page: Option<&crate::waking::Page>) -> Response {
     let navigation = request.method() == Method::GET
         && !websocket(request.headers())
         && request
@@ -325,16 +326,16 @@ fn unavailable(request: &Request, can_wake: bool) -> Response {
                         })
                 })
             });
-    if can_wake && navigation {
+    if let Some(page) = page.filter(|page| page.enabled && navigation) {
         let nonce = Uuid::new_v4().simple().to_string();
-        let html = include_str!("waking.html").replace("{{NONCE}}", &nonce);
+        let html = crate::waking::render(page.html.as_deref(), &page.service_name, &nonce);
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             [("content-type", "text/html; charset=utf-8".to_owned()),
              ("cache-control", "no-store".to_owned()),
              ("retry-after", "5".to_owned()),
              ("x-content-type-options", "nosniff".to_owned()),
-             ("content-security-policy", format!("default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"))],
+             ("content-security-policy", format!("default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"))],
             html,
         ).into_response();
     }
@@ -543,7 +544,13 @@ mod tests {
             if let Some(mode) = mode {
                 builder = builder.header("sec-fetch-mode", mode);
             }
-            let response = unavailable(&builder.body(Body::empty()).unwrap(), enabled);
+            let page = crate::waking::Page {
+                service_id: Uuid::new_v4(),
+                enabled,
+                service_name: "test".into(),
+                html: None,
+            };
+            let response = unavailable(&builder.body(Body::empty()).unwrap(), Some(&page));
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(response.headers()["retry-after"], "5");
             assert_eq!(response.headers()["cache-control"], "no-store");
@@ -574,7 +581,12 @@ mod tests {
                 .unwrap(),
             sleepers: Arc::new(RwLock::new(HashMap::from([(
                 "sleep.test".into(),
-                (id, true),
+                Arc::new(crate::waking::Page {
+                    service_id: id,
+                    enabled: true,
+                    service_name: "test".into(),
+                    html: None,
+                }),
             )]))),
             activity: Arc::default(),
             recent_demand: Arc::new(std::sync::Mutex::new(HashMap::from([(

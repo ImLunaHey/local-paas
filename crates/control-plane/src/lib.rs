@@ -48,6 +48,7 @@ mod source_uploads;
 mod storage_files;
 mod volume_files;
 mod volumes;
+pub mod waking;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     platform_router(pool, browser_origins, None)
@@ -166,6 +167,12 @@ fn platform_router(
         .route(
             "/api/services/{id}/scaling",
             get(scaling::get).put(scaling::configure),
+        )
+        .route(
+            "/api/services/{id}/waking-page",
+            get(waking::get)
+                .put(waking::configure)
+                .layer(DefaultBodyLimit::max(1024 * 1024)),
         )
         .route("/api/services/{id}/jobs", get(jobs::list).post(jobs::run))
         .route(

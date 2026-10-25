@@ -6,6 +6,7 @@ import { Button } from './components/button'
 import { Field } from './components/field'
 import { Input } from './components/input'
 import { Select } from './components/select'
+import { WakingPageSettings } from './waking-page'
 
 interface ScalingStatus {
   eligible: boolean
@@ -191,11 +192,14 @@ export function ScalingPanel({ service }: { service: Service }) {
             reserved worker capacity and do not imply physical elasticity.
           </p>
           {data.eligible ? (
-            <ScalingForm
-              key={`${service.id}:${data.state.version}`}
-              serviceId={service.id}
-              state={data.state}
-            />
+            <>
+              <ScalingForm
+                key={`${service.id}:${data.state.version}`}
+                serviceId={service.id}
+                state={data.state}
+              />
+              <WakingPageSettings serviceId={service.id} serviceName={service.spec.name} />
+            </>
           ) : (
             <p className="text-sm text-zinc-400">
               Only stateless HTTP OCI services without volumes or pre-deploy commands can autoscale.

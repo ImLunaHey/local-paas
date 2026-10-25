@@ -413,19 +413,29 @@ async fn evaluate(
 pub(crate) async fn ingress_heartbeat(
     pool: &PgPool,
     busy: &[Uuid],
-) -> Result<std::collections::HashMap<String, (Uuid, bool)>, sqlx::Error> {
+) -> Result<std::collections::HashMap<String, std::sync::Arc<crate::waking::Page>>, sqlx::Error> {
     let mut tx = lock(pool).await?;
-    let rows: Vec<(String,Uuid,bool)> = sqlx::query_as("SELECT r.authority,r.service_id,coalesce((p.policy->>'enabled')::boolean AND (p.policy->>'minReplicas')::integer=0,false) FROM (SELECT authority,service_id FROM preview_routes UNION SELECT hostname,service_id FROM domains WHERE service_id IS NOT NULL) r LEFT JOIN scaling_policies p ON p.service_id=r.service_id").fetch_all(&mut *tx).await?;
+    let rows = sqlx::query("SELECT r.authority,r.service_id,s.spec->>'name' AS service_name,coalesce((p.policy->>'enabled')::boolean AND (p.policy->>'minReplicas')::integer=0,false) AS enabled,CASE WHEN (p.policy->>'enabled')::boolean AND (p.policy->>'minReplicas')::integer=0 THEN w.html END AS html FROM (SELECT authority,service_id FROM preview_routes UNION SELECT hostname,service_id FROM domains WHERE service_id IS NOT NULL) r JOIN services s ON s.id=r.service_id LEFT JOIN scaling_policies p ON p.service_id=r.service_id LEFT JOIN service_waking_pages w ON w.service_id=r.service_id").fetch_all(&mut *tx).await?;
     let registered: Vec<Uuid> = rows
         .iter()
-        .filter(|(_, _, enabled)| *enabled)
-        .map(|(_, id, _)| *id)
+        .filter(|r| r.get::<bool, _>("enabled"))
+        .map(|r| r.get("service_id"))
         .collect();
     sqlx::query("UPDATE scaling_policies SET ingress_seen_at=now(),last_request_at=CASE WHEN service_id=ANY($1) THEN now() ELSE last_request_at END WHERE service_id=ANY($2)").bind(busy).bind(registered).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(rows
         .into_iter()
-        .map(|(authority, id, enabled)| (authority, (id, enabled)))
+        .map(|r| {
+            (
+                r.get("authority"),
+                std::sync::Arc::new(crate::waking::Page {
+                    service_id: r.get("service_id"),
+                    enabled: r.get("enabled"),
+                    service_name: r.get("service_name"),
+                    html: r.get("html"),
+                }),
+            )
+        })
         .collect())
 }
 pub(crate) async fn request_wake(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
