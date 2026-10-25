@@ -136,7 +136,7 @@ pub(crate) async fn create(
         input.github_private_key.as_deref(),
     )?;
     let managed: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM pull_request_previews WHERE service_id=$1)",
+        "SELECT EXISTS(SELECT 1 FROM pull_request_preview_services WHERE service_id=$1)",
     )
     .bind(input.service_id)
     .fetch_one(&pool)
@@ -311,34 +311,50 @@ pub async fn github_build_token(
     else {
         return Ok(None);
     };
-    let result = mint_installation_token(&connection, app_id, installation_id).await;
+    let result = mint_installation_token(
+        &connection,
+        app_id,
+        installation_id,
+        serde_json::json!({"contents":"read"}),
+    )
+    .await;
     match result {
-        Ok(token) => {
+        Ok(response)
+            if matches!(
+                response.permissions.get("contents").map(String::as_str),
+                Some("read" | "write")
+            ) =>
+        {
             sqlx::query("UPDATE source_connections SET authentication_status='active',authentication_error=NULL,last_authenticated_at=now() WHERE id=$1")
                 .bind(connection_id)
                 .execute(pool)
                 .await
                 .map_err(|_| platform_build_runner::Error::Client)?;
-            Ok(Some(token))
+            Ok(Some(
+                platform_build_runner::GitAuthToken::new(response.token)
+                    .map_err(|_| platform_build_runner::Error::Client)?,
+            ))
         }
-        Err(error) => {
-            let (message, runner_error) = match error {
-                MintError::Credential => (
-                    "GitHub denied credential exchange; verify the key, installation, repository access, and provider rate limits",
-                    platform_build_runner::Error::SourceAuthentication,
-                ),
-                MintError::Dependency => (
-                    "GitHub credential exchange is unavailable; check OpenBao and GitHub connectivity",
-                    platform_build_runner::Error::SourceAuthenticationUnavailable,
-                ),
-            };
+        Ok(_) | Err(MintError::Credential) => {
+            let message = "GitHub denied credential exchange; verify the key, installation, repository access, and provider rate limits";
             sqlx::query("UPDATE source_connections SET authentication_status='error',authentication_error=$2 WHERE id=$1")
                 .bind(connection_id)
                 .bind(message)
                 .execute(pool)
                 .await
                 .map_err(|_| platform_build_runner::Error::Client)?;
-            Err(runner_error)
+            Err(platform_build_runner::Error::SourceAuthentication)
+        }
+        Err(MintError::Dependency) => {
+            let message =
+                "GitHub credential exchange is unavailable; check OpenBao and GitHub connectivity";
+            sqlx::query("UPDATE source_connections SET authentication_status='error',authentication_error=$2 WHERE id=$1")
+                .bind(connection_id)
+                .bind(message)
+                .execute(pool)
+                .await
+                .map_err(|_| platform_build_runner::Error::Client)?;
+            Err(platform_build_runner::Error::SourceAuthenticationUnavailable)
         }
     }
 }
@@ -347,7 +363,8 @@ async fn mint_installation_token(
     connection: &SourceConnection,
     app_id: i64,
     installation_id: i64,
-) -> Result<platform_build_runner::GitAuthToken, MintError> {
+    permissions: serde_json::Value,
+) -> Result<InstallationTokenResponse, MintError> {
     let private_key = Zeroizing::new(
         Bao::new()
             .map_err(|_| MintError::Dependency)?
@@ -389,7 +406,7 @@ async fn mint_installation_token(
         .body(
             serde_json::json!({
                 "repositories":[repository],
-                "permissions":{"contents":"read"}
+                "permissions":permissions
             })
             .to_string(),
         )
@@ -423,15 +440,46 @@ async fn mint_installation_token(
     }
     let response: InstallationTokenResponse =
         serde_json::from_slice(&body).map_err(|_| MintError::Dependency)?;
-    if response.expires_at < Utc::now() + chrono::Duration::minutes(5)
-        || !matches!(
-            response.permissions.get("contents").map(String::as_str),
-            Some("read" | "write")
-        )
-    {
+    if response.expires_at < Utc::now() + chrono::Duration::minutes(5) {
         return Err(MintError::Credential);
     }
-    platform_build_runner::GitAuthToken::new(response.token).map_err(|_| MintError::Dependency)
+    Ok(response)
+}
+
+/// Mint a short-lived token for provider feedback. The token and private key are
+/// zeroized and never enter PostgreSQL or logs.
+pub(crate) async fn github_checks_token(
+    connection: &SourceConnection,
+) -> Result<Zeroizing<String>, ApiError> {
+    let (Some(app_id), Some(installation_id)) =
+        (connection.github_app_id, connection.github_installation_id)
+    else {
+        return Err(ApiError::Conflict(
+            "GitHub Checks require a configured GitHub App",
+        ));
+    };
+    let response = mint_installation_token(
+        connection,
+        app_id,
+        installation_id,
+        serde_json::json!({"checks":"write","contents":"read"}),
+    )
+    .await
+    .map_err(|error| match error {
+        MintError::Credential => ApiError::Conflict(
+            "GitHub App needs repository Contents read and Checks write permissions",
+        ),
+        MintError::Dependency => ApiError::Unavailable("GitHub status publishing is unavailable"),
+    })?;
+    if !matches!(
+        response.permissions.get("checks").map(String::as_str),
+        Some("write")
+    ) {
+        return Err(ApiError::Conflict(
+            "GitHub App needs repository Checks write permission",
+        ));
+    }
+    Ok(Zeroizing::new(response.token))
 }
 
 #[utoipa::path(

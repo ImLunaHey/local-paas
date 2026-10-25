@@ -183,7 +183,7 @@ pub async fn update(
     }
     if let Some(id) = input.service_id {
         let managed: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM pull_request_previews WHERE service_id=$1)",
+            "SELECT EXISTS(SELECT 1 FROM pull_request_preview_services WHERE service_id=$1)",
         )
         .bind(id)
         .fetch_one(&mut *tx)

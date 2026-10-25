@@ -1,9 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
-import type { FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Button } from '../../components/button'
 import { Field } from '../../components/field'
 import { Input } from '../../components/input'
+import { Textarea } from '../../components/textarea'
 import { Status } from '../../components/status'
 import type { ApiRequestError } from '../../api-client'
 import type { PreviewPolicy } from '../../generated/model/previewPolicy'
@@ -41,8 +42,9 @@ export function PrPreviews({ connectionId }: { connectionId: string }) {
         <h3 className="text-sm font-medium">Pull request previews</h3>
         <p className="mt-2 max-w-2xl text-xs text-muted">
           Automatically build and deploy same-repository pull requests to private URLs. Each preview
-          runs one HTTP replica with its own environment. Production secrets, variables, volumes,
-          dependencies, build arguments and pre-deploy commands are excluded. Forks are denied.
+          runs in its own environment. Templates may include up to five same-repository HTTP
+          services, explicitly allowed internal dependencies, and audited secret references.
+          Unlisted production configuration is excluded and forks are denied.
         </p>
       </div>
       {policy.isPending ? (
@@ -99,7 +101,12 @@ export function PrPreviews({ connectionId }: { connectionId: string }) {
                 </div>
                 <p className="max-w-xl text-xs text-muted">{preview.reason}</p>
                 <p className="text-xs text-muted">
+                  {preview.serviceCount} {preview.serviceCount === 1 ? 'service' : 'services'} ·
                   Expires {new Date(preview.expiresAt).toLocaleString()}
+                </p>
+                <p className="text-xs text-muted">
+                  GitHub check: {preview.providerStatus}
+                  {preview.providerError ? ` — ${preview.providerError}` : ''}
                 </p>
                 {preview.previewUrl && (
                   <a
@@ -148,9 +155,20 @@ function PreviewPolicyForm({
   pending: boolean
   onSave: (policy: PreviewPolicy) => void
 }) {
+  const [templateError, setTemplateError] = useState<string>()
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
+    let services: PreviewPolicy['services']
+    try {
+      const raw = String(data.get('services') ?? '').trim()
+      services = raw ? JSON.parse(raw) : []
+      if (!Array.isArray(services)) throw new Error('not an array')
+      setTemplateError(undefined)
+    } catch {
+      setTemplateError('Service templates must be a valid JSON array.')
+      return
+    }
     onSave({
       enabled: data.get('enabled') === 'on',
       maxActive: Number(data.get('maxActive')),
@@ -160,6 +178,7 @@ function PreviewPolicyForm({
         cpuMillis: Number(data.get('cpuMillis')),
         memoryMib: Number(data.get('memoryMib')),
       },
+      services,
     })
   }
   return (
@@ -220,6 +239,22 @@ function PreviewPolicyForm({
           />
         </Field>
       </div>
+      <Field
+        label="Service templates"
+        hint="Optional JSON array. Empty uses only this source service with no secrets or dependencies. Each entry accepts sourceServiceId, resources, secretReferences, and allowedDependencies."
+      >
+        <Textarea
+          name="services"
+          rows={8}
+          defaultValue={policy?.services?.length ? JSON.stringify(policy.services, null, 2) : ''}
+          placeholder='[{"sourceServiceId":"…","resources":{"cpuMillis":250,"memoryMib":256},"secretReferences":["PREVIEW_API_KEY"],"allowedDependencies":["…"]}]'
+        />
+      </Field>
+      {templateError && (
+        <p role="alert" className="error-notice">
+          {templateError}
+        </p>
+      )}
       <p className="text-xs text-muted">
         Disabling previews requests cleanup of existing previews. Resource and build settings apply
         to new previews. Closing, merging or expiry removes routes and waits for confirmed shutdown;

@@ -203,14 +203,16 @@ PostgreSQL, forbid overlap, and skip missed ticks. See [runtime.md](runtime.md#o
 
 ### Pull-request previews
 
-Opt-in source policies snapshot a sanitized stateless HTTP OCI template. PR events
+Opt-in source policies snapshot up to five sanitized stateless HTTP OCI templates. PR events
 record ordered intent transactionally with delivery observations and audit events.
 A reconciler creates a distinct environment without a parent, queues pinned builds,
 and uses the normal scheduler and readiness-gated deployment path. Close, expiry
 and manual cleanup withdraw private routes and wait for build cancellation,
 confirmed instance shutdown and route lease expiry. Preview history is retained.
-Production secrets, bindings and storage are excluded; runtime and celld boundaries
-are unchanged. See [Git automation](git-automation.md#pull-request-preview-environments)
+Production secrets, bindings and storage are excluded unless individual secret
+names and internal dependencies are explicitly granted. Grants are audited and
+secret values remain only in OpenBao. GitHub Checks report durable lifecycle state
+and the private preview link; runtime and celld boundaries are unchanged. See [Git automation](git-automation.md#pull-request-preview-environments)
 for limits, event ordering, permissions, quotas and validation scope.
 
 ### Release gates and private connections

@@ -52,9 +52,10 @@ Create a connection with `POST /api/source-connections`:
 
 Omit all three `github*` fields for a public-only connection. For private
 access, the GitHub App must be installed on this repository and grant repository
-Contents read permission. The worker signs a nine-minute App JWT, asks GitHub
-for a fresh installation token restricted again to this one repository and read
-permission, and discards it after the build. Installation tokens are never
+Contents read permission. Preview status publishing additionally requires Checks
+write permission. The worker signs a nine-minute App JWT and asks GitHub for a
+fresh installation token restricted again to this one repository and the exact
+permission needed by the operation. Installation tokens are never
 cached. A manual build of the connected service uses the same credential path.
 
 Use the same secret in the GitHub webhook configuration and point its payload URL
@@ -135,8 +136,10 @@ A source connection can opt into isolated previews from its service's Builds pag
 The preview policy owns PR events once configured (including when disabled); it
 never falls back to building the production service. Push/tag policies are
 unchanged. Enable GitHub's `pull_request` webhook deliveries, including `closed`.
-The GitHub App still needs only repository Contents read permission; this first
-increment reports status and links in the dashboard, not GitHub Checks/comments.
+With a configured GitHub App, lifecycle transitions publish a `local-paas preview`
+Check against the exact head commit. The check links to the dashboard and includes
+the private preview URL once allocated. Publishing failures are visible in the
+dashboard and never make a build or deployment appear successful.
 
 `PUT /api/source-connections/{id}/preview-policy` accepts:
 
@@ -146,27 +149,51 @@ increment reports status and links in the dashboard, not GitHub Checks/comments.
   "maxActive": 3,
   "maxBuilds": 1,
   "ttlHours": 24,
-  "resources": { "cpuMillis": 250, "memoryMib": 256 }
+  "resources": { "cpuMillis": 250, "memoryMib": 256 },
+  "services": [
+    {
+      "sourceServiceId": "the-public-http-service-uuid",
+      "resources": { "cpuMillis": 250, "memoryMib": 256 },
+      "secretReferences": ["PREVIEW_API_KEY"],
+      "allowedDependencies": ["the-api-service-uuid"]
+    },
+    {
+      "sourceServiceId": "the-api-service-uuid",
+      "resources": { "cpuMillis": 250, "memoryMib": 256 },
+      "secretReferences": [],
+      "allowedDependencies": []
+    }
+  ]
 }
 ```
+
+Omitting `services` preserves the safe single-service default with no secrets or
+dependencies. Templates contain 1–5 services from the source environment. Every
+service must use the connected repository; the PR head commit is pinned across
+all of them. Existing private connections survive only when their target appears
+in both the template and that service's `allowedDependencies` list, then they are
+remapped to the preview service UUID.
 
 Policy management requires source management plus project/service creation,
 build execution, and deployment execution/stop permissions. Manual cleanup also
 requires deployment stop permission. The policy API and preview listing are
 organization-scoped. GET on the policy endpoint returns `null` until configured.
 
-The policy snapshots the service's HTTP OCI build and readiness settings. Each
-preview gets a distinct service UUID and an environment with **no parent**.
-Production secret references, variables, domains, volumes, private connections,
-database/object-storage bindings, build arguments, pre-deploy commands, jobs,
-schedules and scaling policies are not copied. One desired replica uses the
-policy's resource limits. The normal rolling deployment can temporarily reserve
-a second replica. Build/start commands remain part of the reviewed source
+The policy snapshots each service's HTTP OCI build and readiness settings. Each
+preview gets distinct service UUIDs and an environment with **no parent**.
+Production domains, volumes, unlisted private connections, database/object-storage
+bindings, build arguments, pre-deploy commands, jobs, schedules and scaling
+policies are not copied. Secret values never enter PostgreSQL: an explicit list
+of existing secret names creates an audited grant from the source service, and
+the normal deployment snapshot materializes only those names inside OpenBao for
+the preview workload. One desired replica per service uses its template's resource
+limits. A normal rolling deployment can temporarily reserve a second replica.
+Build/start commands remain part of the reviewed source
 configuration: preview code can make external requests, so applications must
 avoid production side effects and require no production credentials. No
 production seed data or persistent preview storage is supplied.
 
-The first version supports one stateless HTTP service per connection/PR identity.
+The workflow supports up to five stateless HTTP services per connection/PR identity.
 Multiple source connections to the same repository have independent policies and
 quotas. Limits are 1–10 admitted previews, 1–3 concurrent queued/running builds,
 1–168 hours after the latest accepted event, 100–2000 CPU millis and 64–2048 MiB
@@ -195,7 +222,8 @@ or public route is created by this workflow.
   a failed candidate preserves the previous healthy preview revision. A fresh
   healthy observation is required for `ready`; stale observations are degraded.
 - `GET /api/source-connections/{id}/previews` returns the latest 100 records with
-  commit, service/environment/build/deployment IDs, expiry, state, reason and URL.
+  commit, primary service/environment/build/deployment IDs, service count, expiry,
+  lifecycle state, provider publishing state, reason and URL.
   A link can exist while a preview is building; it does not imply readiness.
 - `DELETE /api/source-connections/{id}/previews/{previewId}`, disabling the policy,
   or expiry requests cleanup. Routes are withdrawn, queued builds cancelled,
@@ -217,9 +245,28 @@ Ordinary mutation controls cannot edit a managed preview service, attach secrets
 run jobs, start manual builds, add services/volumes to its environment, shadow it,
 or attach public domains; use the parent connection's policy and cleanup controls.
 
-Database tests cover event ordering/replays, isolation, quotas, build coalescing,
-capacity waits, deployment failure preservation, restart reconciliation, expiry
-and shutdown barriers. The disposable browser fixture exercises signed webhook
-acceptance, policy persistence, blocked state, manual cleanup, API failures, and
-desktop/mobile layouts. These tests do not claim a real VM deployment, public
-preview qualification, GitHub status publishing, or multi-service previews.
+Database tests cover event ordering/replays, multi-service dependency remapping,
+audited secret grants, isolation, quotas, build coalescing, capacity waits,
+deployment failure preservation, restart reconciliation, expiry and shutdown
+barriers. The disposable browser fixture exercises signed webhook acceptance,
+policy persistence, blocked and ready progress, preview-link navigation, manual
+cleanup, provider state, API failures, and desktop/mobile layouts. Real worker
+qualification uses the opt-in preview canary below; no public preview is implied.
+
+For a real-host qualification, open or update a same-repository PR whose template
+serves a unique marker, wait for the GitHub Check to succeed, then run the browser
+harness with the source service, PR number and marker:
+
+```sh
+PREVIEW_CANARY_SERVICE_ID=<uuid> \
+PREVIEW_CANARY_PR=<number> \
+PREVIEW_CANARY_EXPECTED_TEXT=<marker> \
+E2E_BASE_URL=<installed-private-dashboard-url> \
+E2E_AUTH_STATE=/tmp/preview-canary-auth.json \
+E2E_AUTH_PASSWORD_FILE=<local-admin-password-file> \
+pnpm --dir web test:e2e pr-preview-canary.spec.ts
+```
+
+Close the PR and confirm the dashboard reaches `closed`, the Check is cancelled,
+and the prior URL no longer routes before declaring the drill complete. The drill
+uses existing private routing and workers; it does not provision infrastructure.

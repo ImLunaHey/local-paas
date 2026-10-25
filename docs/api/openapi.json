@@ -1491,9 +1491,46 @@
           "resources": {
             "$ref": "#/components/schemas/Resources"
           },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreviewServicePolicy"
+            },
+            "description": "Services copied into each preview. Empty preserves the legacy behavior:\nonly the source connection's service is included with no secret grants."
+          },
           "ttlHours": {
             "type": "integer",
             "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreviewServicePolicy": {
+        "type": "object",
+        "required": [
+          "sourceServiceId",
+          "resources"
+        ],
+        "properties": {
+          "allowedDependencies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "resources": {
+            "$ref": "#/components/schemas/Resources"
+          },
+          "secretReferences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sourceServiceId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "additionalProperties": false
@@ -1631,7 +1668,9 @@
           "headCommit",
           "status",
           "reason",
-          "expiresAt"
+          "expiresAt",
+          "providerStatus",
+          "serviceCount"
         ],
         "properties": {
           "buildId": {
@@ -1676,8 +1715,21 @@
               "null"
             ]
           },
+          "providerError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerStatus": {
+            "type": "string"
+          },
           "reason": {
             "type": "string"
+          },
+          "serviceCount": {
+            "type": "integer",
+            "format": "int64"
           },
           "serviceId": {
             "type": [

@@ -128,6 +128,8 @@ fn template_removes_production_resources_and_rejects_workers() {
             cpu_millis: 100,
             memory_mib: 128,
         },
+        &std::collections::BTreeSet::new(),
+        &std::collections::BTreeSet::new(),
     )
     .unwrap();
     assert!(preview.secrets.is_empty() && preview.domains.is_empty() && preview.volume.is_none());
@@ -153,9 +155,29 @@ fn template_removes_production_resources_and_rejects_workers() {
             Resources {
                 cpu_millis: 100,
                 memory_mib: 128
-            }
+            },
+            &std::collections::BTreeSet::new(),
+            &std::collections::BTreeSet::new(),
         )
         .is_err()
+    );
+}
+
+#[test]
+fn provider_checks_use_terminal_conclusions_only_for_terminal_states() {
+    assert_eq!(provider_check_state("pending"), ("queued", None));
+    assert_eq!(provider_check_state("building"), ("in_progress", None));
+    assert_eq!(
+        provider_check_state("ready"),
+        ("completed", Some("success"))
+    );
+    assert_eq!(
+        provider_check_state("closed"),
+        ("completed", Some("cancelled"))
+    );
+    assert_eq!(
+        provider_check_state("failed"),
+        ("completed", Some("failure"))
     );
 }
 
@@ -519,5 +541,107 @@ async fn build_quota_disable_and_organization_scope_fail_closed(pool: PgPool) {
             .await
             .unwrap(),
         0
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn multi_service_templates_remap_dependencies_and_audit_secret_grants(pool: PgPool) {
+    let source = fixture(&pool).await;
+    let (environment, DbJson(mut primary)): (Uuid, DbJson<ServiceSpec>) =
+        sqlx::query_as("SELECT environment_id,spec FROM services WHERE id=$1")
+            .bind(source.service_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let dependency = Uuid::now_v7();
+    let mut dependency_spec = primary.clone();
+    dependency_spec.name = "api".into();
+    dependency_spec.secrets.clear();
+    if let Workload::OciService {
+        private_connections,
+        ..
+    } = &mut dependency_spec.workload
+    {
+        private_connections.clear();
+    }
+    sqlx::query("INSERT INTO services(id,environment_id,name,kind,operation_id,spec,registered_spec) VALUES($1,$2,'api','oci-service',$3,$4,$4)")
+        .bind(dependency).bind(environment).bind(Uuid::now_v7()).bind(DbJson(&dependency_spec)).execute(&pool).await.unwrap();
+    if let Workload::OciService {
+        private_connections,
+        ..
+    } = &mut primary.workload
+    {
+        private_connections.push(platform_domain::PrivateConnection {
+            service_id: dependency,
+            env: "API_URL".into(),
+        });
+    }
+    sqlx::query("UPDATE services SET spec=$2,registered_spec=$2 WHERE id=$1")
+        .bind(source.service_id)
+        .bind(DbJson(&primary))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let policy = json!({
+        "enabled":true,
+        "maxActive":1,
+        "maxBuilds":2,
+        "ttlHours":24,
+        "resources":{"cpuMillis":250,"memoryMib":256},
+        "services":[
+            {"sourceServiceId":source.service_id,"resources":{"cpuMillis":300,"memoryMib":384},"secretReferences":["PRODUCTION_KEY"],"allowedDependencies":[dependency]},
+            {"sourceServiceId":dependency,"resources":{"cpuMillis":200,"memoryMib":256},"secretReferences":[],"allowedDependencies":[]}
+        ]
+    });
+    let (status, response) = api(
+        &pool,
+        "PUT",
+        &format!("/api/source-connections/{}/preview-policy", source.id),
+        policy,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    deliver(&pool, &source, payload(70, "opened", 1, 'a')).await;
+    reconcile(&pool).await.unwrap();
+    let services = sqlx::query("SELECT source_service_id,service_id,primary_route FROM pull_request_preview_services ORDER BY position")
+        .fetch_all(&pool).await.unwrap();
+    assert_eq!(services.len(), 2);
+    let primary_preview: Uuid = services[0].get("service_id");
+    let dependency_preview: Uuid = services[1].get("service_id");
+    assert!(services[0].get::<bool, _>("primary_route"));
+    let DbJson(primary_preview_spec): DbJson<ServiceSpec> =
+        sqlx::query_scalar("SELECT spec FROM services WHERE id=$1")
+            .bind(primary_preview)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(primary_preview_spec.secrets, vec!["PRODUCTION_KEY"]);
+    let Workload::OciService {
+        private_connections,
+        ..
+    } = primary_preview_spec.workload
+    else {
+        panic!("preview service is not OCI")
+    };
+    assert_eq!(private_connections[0].service_id, dependency_preview);
+    assert_eq!(
+        sqlx::query_scalar::<_, Vec<String>>(
+            "SELECT names FROM preview_secret_grants WHERE target_service_id=$1"
+        )
+        .bind(primary_preview)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        vec!["PRODUCTION_KEY"]
+    );
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE target_type='preview_secret_grants'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+            >= 1
     );
 }

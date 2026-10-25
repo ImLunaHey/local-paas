@@ -93,6 +93,36 @@ test('PR preview policy, signed events, failures and cleanup at desktop and mobi
   await expect(section.getByText('No configured private preview URL is available')).toBeVisible({
     timeout: 15_000,
   })
+  const previewsPath = `**/api/source-connections/${fixture.connectionId}/previews`
+  await page.route(previewsPath, async (route) => {
+    const upstream = await route.fetch()
+    const previews = (await upstream.json()) as Array<Record<string, unknown>>
+    await route.fulfill({
+      json: previews.map((preview) => ({
+        ...preview,
+        status: 'ready',
+        reason: 'All preview services are ready',
+        previewUrl: 'https://preview.test/pr-42',
+        providerStatus: 'published',
+      })),
+    })
+  })
+  await page.context().route('https://preview.test/**', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<main><h1>Reachable PR preview</h1><p>isolated preview route</p></main>',
+    }),
+  )
+  await page.reload()
+  await expect(section.getByText('ready', { exact: true })).toBeVisible()
+  await expect(section.getByText('GitHub check: published')).toBeVisible()
+  const popupPromise = page.waitForEvent('popup')
+  await section.getByRole('link', { name: 'Open private preview' }).click()
+  const previewPage = await popupPromise
+  await expect(previewPage.getByRole('heading', { name: 'Reachable PR preview' })).toBeVisible()
+  await previewPage.close()
+  await page.unroute(previewsPath)
+  await page.reload()
   await section.screenshot({ path: '../.local/pr-previews-desktop.png' })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -100,7 +130,6 @@ test('PR preview policy, signed events, failures and cleanup at desktop and mobi
   await section.getByRole('button', { name: 'Clean up PR 42' }).click()
   await expect(section.getByText('closed', { exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(section.getByRole('button', { name: 'Clean up PR 42' })).toHaveCount(0)
-  const previewsPath = `**/api/source-connections/${fixture.connectionId}/previews`
   await page.route(previewsPath, (route) =>
     route.fulfill({ status: 503, json: { error: 'Unavailable' } }),
   )
