@@ -7,9 +7,11 @@
  */
 import type { BuildMode } from './buildMode.ts'
 import type { Execution } from './execution.ts'
+import type { Liveness } from './liveness.ts'
 import type { PreDeploy } from './preDeploy.ts'
 import type { PrivateConnection } from './privateConnection.ts'
 import type { Readiness } from './readiness.ts'
+import type { RecoveryPolicy } from './recoveryPolicy.ts'
 
 export type Workload =
   | {
@@ -39,6 +41,7 @@ export type Workload =
       dockerfile: string
       execution?: Execution
       kind: 'oci-service'
+      liveness?: null | Liveness
       /**
        * @minimum 0
        * @nullable
@@ -47,6 +50,7 @@ export type Workload =
       preDeploy?: null | PreDeploy
       privateConnections?: PrivateConnection[]
       readiness?: null | Readiness
+      recovery?: RecoveryPolicy
       /** @minimum 0 */
       replicas: number
       /** @nullable */

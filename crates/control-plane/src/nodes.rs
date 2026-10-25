@@ -211,7 +211,35 @@ pub async fn policy(
 }
 
 pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {
-    let moves=sqlx::query("SELECT r.*,o.desired_state AS old_desired,o.state AS old_state,d.status AS deployment_status,s.relocation_enabled,c.state AS candidate_state,c.desired_state AS candidate_desired,coalesce(c.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds',false) AS fresh,r.deadline<now() AS expired,coalesce(r.drain_after<=now(),false) AS drained FROM relocations r JOIN instances o ON o.id=r.old_instance JOIN deployments d ON d.id=o.deployment_id JOIN services s ON s.id=d.service_id JOIN instances c ON c.id=r.new_instance JOIN nodes n ON n.id=c.node_id WHERE r.state IN ('preparing','draining') ORDER BY r.created_at FOR UPDATE OF r").fetch_all(&mut **tx).await?;
+    let failed_health=sqlx::query("SELECT r.id,r.old_instance,r.new_instance,o.deployment_id,d.service_id,d.spec,c.state AS candidate_state,r.retry_after,(SELECT count(*) FROM relocations attempts JOIN instances source ON source.id=attempts.old_instance WHERE source.deployment_id=o.deployment_id AND attempts.reason='health') AS attempts FROM relocations r JOIN instances o ON o.id=r.old_instance JOIN deployments d ON d.id=o.deployment_id JOIN instances c ON c.id=r.new_instance WHERE r.reason='health' AND r.state='failed' FOR UPDATE OF r").fetch_all(&mut **tx).await?;
+    for r in failed_health {
+        if r.get::<String, _>("candidate_state") != "stopped"
+            || r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("retry_after")
+                .is_some_and(|at| at > chrono::Utc::now())
+        {
+            continue;
+        }
+        let spec: ServiceSpec = r.get::<DbJson<ServiceSpec>, _>("spec").0;
+        let replacement_attempts = match spec.workload {
+            Workload::OciService { recovery, .. } => recovery.replacement_attempts,
+            _ => 0,
+        };
+        if r.get::<i64, _>("attempts") < i64::from(replacement_attempts) {
+            sqlx::query("UPDATE relocations SET state='cancelled' WHERE id=$1")
+                .bind(r.get::<Uuid, _>("id"))
+                .execute(&mut **tx)
+                .await?;
+        } else {
+            let changed = sqlx::query("UPDATE deployments SET runtime_health='degraded',runtime_health_reason='replacement_budget_exhausted' WHERE id=$1 AND (runtime_health<>'degraded' OR runtime_health_reason<>'replacement_budget_exhausted')")
+                .bind(r.get::<Uuid, _>("deployment_id"))
+                .execute(&mut **tx)
+                .await?;
+            if changed.rows_affected() > 0 {
+                audit(tx,r.get("id"),"recovery.replacement_exhausted",json!({"oldInstance":r.get::<Uuid,_>("old_instance"),"attempts":r.get::<i64,_>("attempts")})).await?;
+            }
+        }
+    }
+    let moves=sqlx::query("SELECT r.*,o.desired_state AS old_desired,o.state AS old_state,d.status AS deployment_status,d.spec,s.relocation_enabled,c.state AS candidate_state,c.desired_state AS candidate_desired,coalesce(c.observed_at>now()-interval '15 seconds' AND n.last_seen>now()-interval '30 seconds',false) AS fresh,r.deadline<now() AS expired,coalesce(r.drain_after<=now(),false) AS drained FROM relocations r JOIN instances o ON o.id=r.old_instance JOIN deployments d ON d.id=o.deployment_id JOIN services s ON s.id=d.service_id JOIN instances c ON c.id=r.new_instance JOIN nodes n ON n.id=c.node_id WHERE r.state IN ('preparing','draining') ORDER BY r.created_at FOR UPDATE OF r").fetch_all(&mut **tx).await?;
     for r in moves {
         let id: Uuid = r.get("id");
         let old: Uuid = r.get("old_instance");
@@ -224,13 +252,19 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
             || (state == "preparing" && r.get::<bool, _>("expired"))
             || (state == "draining" && r.get::<bool, _>("drained") && !ready);
         if cancelled || failed {
-            sqlx::query("UPDATE relocations SET state='failed',diagnostic=$2 WHERE id=$1")
+            let spec: ServiceSpec = r.get::<DbJson<ServiceSpec>, _>("spec").0;
+            let replacement_backoff = match spec.workload {
+                Workload::OciService { recovery, .. } => recovery.replacement_backoff_seconds,
+                _ => 30,
+            };
+            sqlx::query("UPDATE relocations SET state='failed',diagnostic=$2,retry_after=CASE WHEN reason='health' THEN now()+make_interval(secs=>$3) END WHERE id=$1")
                 .bind(id)
                 .bind(if cancelled {
                     "relocation_cancelled"
                 } else {
                     "replacement_readiness_failed"
                 })
+                .bind(i32::from(replacement_backoff))
                 .execute(&mut **tx)
                 .await?;
             sqlx::query("UPDATE instances SET routing_enabled=false,desired_state='stopped',generation=generation+1 WHERE id=$1 AND desired_state='running'").bind(new).execute(&mut **tx).await?;
@@ -269,14 +303,34 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
                 .bind(id)
                 .execute(&mut **tx)
                 .await?;
+            if r.get::<String, _>("reason") == "health" {
+                sqlx::query("UPDATE deployments SET runtime_health='healthy',runtime_health_reason=NULL WHERE id=(SELECT deployment_id FROM instances WHERE id=$1)")
+                    .bind(new)
+                    .execute(&mut **tx)
+                    .await?;
+            }
             audit(tx,id,"relocation.completed",json!({"oldInstance":old,"newInstance":new,"cleanupPending":r.get::<String,_>("old_state")!="stopped"})).await?;
         }
     }
-    let candidates=sqlx::query("SELECT i.id,i.node_id,i.deployment_id,d.service_id,d.spec,d.database_ports,n.draining,s.relocation_enabled FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id WHERE i.desired_state='running' AND i.routing_enabled AND i.scaling_deadline IS NULL AND i.scale_down_after IS NULL AND NOT EXISTS(SELECT 1 FROM instances pending_scale WHERE pending_scale.deployment_id=d.id AND pending_scale.state<>'stopped' AND (pending_scale.scaling_deadline IS NOT NULL OR pending_scale.scale_down_after IS NOT NULL OR pending_scale.desired_state='stopped')) AND d.status='active' AND d.job_options IS NULL AND (n.draining OR n.last_seen<now()-interval '45 seconds') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.old_instance=i.id AND r.state<>'cancelled') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state IN ('preparing','draining')) AND NOT EXISTS(SELECT 1 FROM deployments pending WHERE pending.service_id=d.service_id AND pending.status IN ('preparing','waiting','releasing')) ORDER BY i.id").fetch_all(&mut **tx).await?;
+    let candidates=sqlx::query("SELECT i.id,i.node_id,i.deployment_id,d.service_id,d.spec,d.database_ports,n.draining,s.relocation_enabled,(i.state='failed' AND i.diagnostic IN ('crash_loop','liveness_failed')) AS health_failure FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id WHERE i.desired_state='running' AND i.routing_enabled AND i.scaling_deadline IS NULL AND i.scale_down_after IS NULL AND NOT EXISTS(SELECT 1 FROM instances pending_scale WHERE pending_scale.deployment_id=d.id AND pending_scale.state<>'stopped' AND (pending_scale.scaling_deadline IS NOT NULL OR pending_scale.scale_down_after IS NOT NULL OR pending_scale.desired_state='stopped')) AND d.status='active' AND d.job_options IS NULL AND (n.draining OR n.last_seen<now()-interval '45 seconds' OR (i.state='failed' AND i.diagnostic IN ('crash_loop','liveness_failed'))) AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.old_instance=i.id AND r.state<>'cancelled') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state IN ('preparing','draining')) AND NOT EXISTS(SELECT 1 FROM deployments pending WHERE pending.service_id=d.service_id AND pending.status IN ('preparing','waiting','releasing')) ORDER BY i.id").fetch_all(&mut **tx).await?;
     for r in candidates {
         let mut spec: ServiceSpec = r.get::<DbJson<ServiceSpec>, _>("spec").0;
         if blocked(&spec, r.get("relocation_enabled"), false).is_some() {
             continue;
+        }
+        let health_failure = r.get::<bool, _>("health_failure");
+        if health_failure {
+            let allowed = match &spec.workload {
+                Workload::OciService { recovery, .. } => recovery.replacement_attempts,
+                _ => 0,
+            };
+            let attempts: i64 = sqlx::query_scalar("SELECT count(*) FROM relocations attempt JOIN instances source ON source.id=attempt.old_instance WHERE source.deployment_id=$1 AND attempt.reason='health'")
+                .bind(r.get::<Uuid, _>("deployment_id"))
+                .fetch_one(&mut **tx)
+                .await?;
+            if attempts >= i64::from(allowed) {
+                continue;
+            }
         }
         let deployment: Uuid = r.get("deployment_id");
         let old: Uuid = r.get("id");
@@ -320,12 +374,20 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
         let new = Uuid::now_v7();
         let id = Uuid::now_v7();
         sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state,routing_enabled) VALUES($1,$2,$3,$4,'running',false)").bind(new).bind(deployment).bind(node).bind(slot).execute(&mut **tx).await?;
-        let reason = if r.get::<bool, _>("draining") {
+        let reason = if health_failure {
+            "health"
+        } else if r.get::<bool, _>("draining") {
             "drain"
         } else {
             "node_lost"
         };
         sqlx::query("INSERT INTO relocations(id,old_instance,new_instance,reason,state) VALUES($1,$2,$3,$4,'preparing')").bind(id).bind(old).bind(new).bind(reason).execute(&mut **tx).await?;
+        if reason == "health" {
+            sqlx::query("UPDATE deployments SET runtime_health='recovering',runtime_health_reason='replacement_started' WHERE id=$1")
+                .bind(deployment)
+                .execute(&mut **tx)
+                .await?;
+        }
         audit(
             tx,
             id,

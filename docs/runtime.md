@@ -25,22 +25,50 @@ rollback retains candidates until the old route (or removal) is acknowledged, th
 drains them before stopping. Public route references and leases fence direct stop
 requests; unassign domains or request rollback first. See [ingress.md](ingress.md).
 Private-only explicit stop removes routing immediately and increments assignment generations.
-Active deployments on agents advertising `recovery-v1` recover locally from an
+Active deployments on agents advertising `recovery-v2` recover locally from an
 exited process, including a clean exit from a continuously running service. The
-agent waits 5, 10, 20, 40, then 60 seconds before its five restart attempts. Polling
-adds up to one reconciliation interval. Reservations are fsynced before starting;
-agent/VM restarts do not refund attempts. Ten minutes of continuously successful
-readiness observations resets the budget. Exhaustion reports `crash_loop` and
-requires a new deployment to retry. Unreadable restart state fails closed.
+default policy waits 5, 10, 20, 40, then 60 seconds before five restart attempts.
+Operators can configure the attempt count, initial/maximum backoff and stable reset
+window per service. Polling adds up to one reconciliation interval. Reservations
+are fsynced before starting; agent/VM and controller restarts do not refund attempts.
+Ten minutes of continuously successful readiness observations resets the default
+budget. Exhaustion reports `crash_loop`; unreadable restart state fails closed.
 
 Recovery is authorized only after promotion, and only for capable agents. A
 candidate that exits still fails its deployment, preserving the previous revision.
 Stop takes precedence over pending recovery. Restarted processes must stabilize
 readiness again before receiving traffic. An active process losing readiness is
 removed from routing and may recover without being killed; readiness is not a
-liveness probe. The candidate startup deadline remains 120 seconds. Configurable
-restart policies and separate startup/liveness probe definitions are still pending.
-Process starts are retained in audit history and as restart markers in runtime logs.
+liveness probe. An optional HTTP liveness path has its own interval and consecutive
+failure threshold; reaching the threshold stops the process and enters the same
+durable restart budget. Startup, process, readiness, liveness and recovery phase are
+reported separately. The candidate startup deadline remains 120 seconds. Process
+starts and changed health observations are retained; unchanged five-second reports
+are deduplicated and only the newest 100 health transitions per instance remain.
+
+When local restarts are exhausted, an HTTP service that has explicitly enabled
+overlap-safe relocation can replace that stateless instance on another node. The
+per-service replacement attempt count and backoff are durable across controller
+restarts. Replacement reuses the route-leased relocation state machine: another
+healthy replica remains routed, the candidate receives no traffic before readiness,
+and the old slot remains reserved until authenticated cleanup. Capacity shortage
+leaves the service degraded and retries placement without inventing success.
+Persistent volumes, managed data services and singleton workers are ineligible.
+Workers continue to require authenticated shutdown confirmation before any
+deployment replacement; an ambiguous or unreachable worker is never treated as
+stopped.
+
+The runtime API and dashboard expose current agent reachability, deployment health,
+replica diagnostics and recent health transitions. Restart exhaustion and
+replacement actions are auditable. A service becomes terminally degraded when its
+configured replacement budget is exhausted. A new deployment starts with a fresh
+instance identity and budget.
+
+Applications remain responsible for idempotent startup and graceful SIGTERM
+handling. Services that opt into overlapping replacement must fence or tolerate
+concurrent external effects. The platform cannot infer that an unreachable process
+stopped, cannot make non-idempotent work exactly once, and never retries a one-off
+job whose outcome is unknown.
 
 Slots remain reserved until cleanup is acknowledged. Opted-in stateless HTTP
 services can relocate from draining or lost nodes; pinned and singleton workloads

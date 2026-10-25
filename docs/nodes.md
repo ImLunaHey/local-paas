@@ -29,7 +29,10 @@ are excluded from public/private routing and local restart recovery until ready.
 After readiness, routes switch transactionally, then a 20-second route-drain window
 precedes shutdown. A failing replacement or lost readiness during this window
 restores the original route if the original is still desired. This cannot make an
-unreachable original healthy.
+unreachable original healthy. The same handoff is used after a stateless instance
+exhausts its local restart/liveness budget. Health replacements use the service's
+durable bounded attempt and backoff policy; exhaustion leaves an explicit degraded
+service rather than an automatic replacement loop.
 
 Old slots stay occupied until authenticated cleanup is confirmed, even after an
 unreachable instance has been replaced. A returning agent receives the new stop

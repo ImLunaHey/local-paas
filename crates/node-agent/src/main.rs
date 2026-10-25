@@ -8,9 +8,10 @@ mod secrets;
 mod volume_files;
 mod volumes;
 use containerd::Containerd;
-use platform_domain::Workload;
+use platform_domain::{RecoveryPolicy, Workload};
 use platform_protocol::{
-    Assignment, InstanceReport, LogEntry, Metrics, SyncRequest, SyncResponse, VERSION,
+    Assignment, InstanceReport, LogEntry, Metrics, ProbeObservation, ProcessObservation,
+    RecoveryObservation, RecoveryPhase, RuntimeHealth, SyncRequest, SyncResponse, VERSION,
 };
 use platform_runtime::{Identity, Limits, NetworkPolicy, Operation, PrepareSpec, Runtime};
 use serde::Deserialize;
@@ -34,6 +35,39 @@ struct Config {
     controller_url: String,
 }
 type Reports = Arc<RwLock<HashMap<Uuid, InstanceReport>>>;
+
+struct LivenessState {
+    failures: u8,
+    observation: ProbeObservation,
+}
+
+impl Default for LivenessState {
+    fn default() -> Self {
+        Self {
+            failures: 0,
+            observation: ProbeObservation::Pending,
+        }
+    }
+}
+
+impl LivenessState {
+    fn observe(&mut self, passing: bool, threshold: u8) -> bool {
+        if passing {
+            self.reset();
+            self.observation = ProbeObservation::Passing;
+            false
+        } else {
+            self.failures = self.failures.saturating_add(1);
+            self.observation = ProbeObservation::Failing;
+            self.failures >= threshold
+        }
+    }
+
+    fn reset(&mut self) {
+        self.failures = 0;
+        self.observation = ProbeObservation::Pending;
+    }
+}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     platform_telemetry::init()?;
@@ -88,6 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "rustfs-v1".into(),
                 "volume-files-v1".into(),
                 "recovery-v1".into(),
+                "recovery-v2".into(),
                 "workers-v1".into(),
                 "jobs-v1".into(),
                 "private-network-v1".into(),
@@ -137,6 +172,7 @@ fn prepare(a: &Assignment, node: Uuid) -> Option<(Operation, PrepareSpec)> {
     if let Some(job) = &a.job
         && (!a.spec.workload.is_worker()
             || a.recovery_allowed
+            || a.recovery_policy.is_some()
             || job.command.len() > 64
             || job
                 .command
@@ -278,6 +314,8 @@ async fn instance_loop(
     let mut started = None;
     let mut stable = None;
     let mut previous = None;
+    let mut liveness_state = LivenessState::default();
+    let mut last_liveness = None;
     let (mut recovery, mut failed) = match recovery::Recovery::load(&runtime.root, id).await {
         Ok(state) => (state, None),
         Err(_) => (
@@ -317,6 +355,7 @@ async fn instance_loop(
             job_result: None,
             state: "starting".into(),
             diagnostic: None,
+            health: None,
             metrics: None,
             logs: vec![],
         };
@@ -392,8 +431,21 @@ async fn instance_loop(
                 }
             }
         } else if a.desired_state == "running" {
+            let recovery_policy = a.recovery_policy.unwrap_or_else(RecoveryPolicy::default);
+            let recovery_enabled = a.recovery_allowed || a.recovery_policy.is_some();
+            let mut readiness_observation = if a.spec.workload.is_worker() {
+                ProbeObservation::NotConfigured
+            } else {
+                ProbeObservation::Pending
+            };
+            let mut liveness_observation = match &a.spec.workload {
+                Workload::OciService {
+                    liveness: Some(_), ..
+                } => liveness_state.observation,
+                _ => ProbeObservation::NotConfigured,
+            };
             // Promotion can arrive one heartbeat after a process exit observation.
-            if a.recovery_allowed
+            if recovery_enabled
                 && matches!(
                     failed.as_deref(),
                     Some("process_exited" | "readiness_failed" | "database_network_policy_failed")
@@ -426,8 +478,10 @@ async fn instance_loop(
                 }
                 if failed.is_none() {
                     let gate = match runtime.info(id).await {
-                        Ok(info) if a.recovery_allowed && info["State"]["Running"] != true => {
-                            recovery.before_start(&runtime.root, id, now_millis()).await
+                        Ok(info) if recovery_enabled && info["State"]["Running"] != true => {
+                            recovery
+                                .before_start(&runtime.root, id, now_millis(), &recovery_policy)
+                                .await
                         }
                         Ok(_) => Ok(recovery::Gate::Start),
                         Err(_) => {
@@ -442,7 +496,7 @@ async fn instance_loop(
                                 stable = None;
                                 previous = None;
                             }
-                            Err(error) if !a.recovery_allowed => {
+                            Err(error) if !recovery_enabled => {
                                 failed = Some(match error {
                                     platform_runtime::RuntimeError::Diagnostic(code) => code,
                                     platform_runtime::RuntimeError::Rejected(code) => code.into(),
@@ -472,7 +526,9 @@ async fn instance_loop(
                     started = None;
                     stable = None;
                     previous = None;
-                    if !a.recovery_allowed {
+                    liveness_state.reset();
+                    last_liveness = None;
+                    if !recovery_enabled {
                         failed = Some("process_exited".into());
                         report.state = "failed".into();
                     }
@@ -494,7 +550,46 @@ async fn instance_loop(
                         } => readiness,
                         _ => &default_readiness,
                     };
-                    let ready = if a.spec.workload.is_worker() {
+                    if let Workload::OciService {
+                        liveness: Some(liveness),
+                        ..
+                    } = &a.spec.workload
+                        && recovery_enabled
+                        && last_liveness.is_none_or(|last: Instant| {
+                            last.elapsed()
+                                >= Duration::from_secs(u64::from(liveness.interval_seconds))
+                        })
+                    {
+                        last_liveness = Some(Instant::now());
+                        let live = health
+                            .get(format!(
+                                "http://127.0.0.1:{}{}",
+                                a.published_port, liveness.path
+                            ))
+                            .send()
+                            .await
+                            .is_ok_and(|r| r.status().is_success());
+                        let failed = liveness_state.observe(live, liveness.failure_threshold);
+                        liveness_observation = liveness_state.observation;
+                        if !live {
+                            report.diagnostic = Some("liveness_pending".into());
+                            if failed {
+                                if runtime.stop(&op, Duration::from_secs(20)).await.is_ok() {
+                                    started = None;
+                                    stable = None;
+                                    previous = None;
+                                    liveness_state.reset();
+                                    report.diagnostic = Some("liveness_failed".into());
+                                } else {
+                                    report.state = "unknown".into();
+                                    report.diagnostic = Some("liveness_stop_failed".into());
+                                }
+                            }
+                        }
+                    }
+                    let ready = if started.is_none() {
+                        false
+                    } else if a.spec.workload.is_worker() {
                         true // Process observation only; no claim of application readiness.
                     } else if matches!(a.spec.workload, Workload::RedisService { .. }) {
                         runtime.command(&["exec".into(),id.to_string(),"/.platform-secret-exec".into(),"sh".into(),"-c".into(),"REDISCLI_AUTH=\"$REDIS_PASSWORD\" exec redis-cli -h 127.0.0.1 ping".into()]).await.is_ok_and(|out|out==b"PONG\n")
@@ -526,11 +621,16 @@ async fn instance_loop(
                             .is_ok_and(|r| r.status().is_success())
                     };
                     if ready {
+                        readiness_observation = if a.spec.workload.is_worker() {
+                            ProbeObservation::NotConfigured
+                        } else {
+                            ProbeObservation::Passing
+                        };
                         let since = stable.get_or_insert_with(Instant::now);
                         if since.elapsed().as_secs() >= readiness.stabilization_seconds as u64 {
                             report.state = "ready".into();
                             if recovery
-                                .healthy(&runtime.root, id, since.elapsed())
+                                .healthy(&runtime.root, id, since.elapsed(), &recovery_policy)
                                 .await
                                 .is_err()
                             {
@@ -540,9 +640,14 @@ async fn instance_loop(
                             }
                         }
                     } else {
+                        if started.is_some() {
+                            readiness_observation = ProbeObservation::Failing;
+                        }
                         stable = None;
-                        report.diagnostic = Some("readiness_pending".into());
-                        if !a.recovery_allowed
+                        if report.diagnostic.is_none() {
+                            report.diagnostic = Some("readiness_pending".into());
+                        }
+                        if !recovery_enabled
                             && started.is_some_and(|t| t.elapsed() > Duration::from_secs(120))
                         {
                             failed = Some("readiness_failed".into());
@@ -558,6 +663,38 @@ async fn instance_loop(
                 report.state = "unknown".into();
                 report.diagnostic = Some("inspect_failed".into());
             }
+            let recovery_phase = match report.diagnostic.as_deref() {
+                Some("restart_backoff") => RecoveryPhase::Backoff,
+                Some("crash_loop") => RecoveryPhase::Exhausted,
+                _ if !recovery_enabled => RecoveryPhase::Disabled,
+                _ if started.is_none() => RecoveryPhase::Restarting,
+                _ => RecoveryPhase::Stable,
+            };
+            let process = if report.state == "unknown" {
+                ProcessObservation::Unknown
+            } else if started.is_some() {
+                ProcessObservation::Running
+            } else {
+                ProcessObservation::Exited
+            };
+            let startup = if report.state == "ready" {
+                ProbeObservation::Passing
+            } else if report.state == "failed" && !recovery_enabled {
+                ProbeObservation::Failing
+            } else {
+                ProbeObservation::Pending
+            };
+            report.health = Some(RuntimeHealth {
+                process,
+                startup,
+                readiness: readiness_observation,
+                liveness: liveness_observation,
+                recovery: RecoveryObservation {
+                    phase: recovery_phase,
+                    attempts: recovery.attempts(),
+                    retry_at_unix_ms: recovery.retry_at_ms(),
+                },
+            });
         } else {
             report.state = "unknown".into();
             report.diagnostic = Some("unsupported_desired_state".into());
@@ -609,6 +746,19 @@ mod observation_tests {
             super::process_started_at(&info).as_deref(),
             Some("2020-01-01T00:00:00Z")
         );
+    }
+
+    #[test]
+    fn liveness_requires_consecutive_failures_and_flapping_resets_the_threshold() {
+        let mut state = super::LivenessState::default();
+        assert!(!state.observe(false, 3));
+        assert!(!state.observe(false, 3));
+        assert!(!state.observe(true, 3));
+        assert_eq!(state.observation, super::ProbeObservation::Passing);
+        assert!(!state.observe(false, 3));
+        assert!(!state.observe(false, 3));
+        assert!(state.observe(false, 3));
+        assert_eq!(state.observation, super::ProbeObservation::Failing);
     }
 }
 struct Counters {
