@@ -11,6 +11,7 @@ export DATABASE_URL="${DATABASE_URL:-postgresql:///local_paas?host=$PWD/.local/s
 export BETTER_AUTH_SECRET_FILE="${BETTER_AUTH_SECRET_FILE:-$PWD/.local/auth.secret}"
 export PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-}"
 export PREVIEW_HOST="${PREVIEW_HOST:-}"
+export GITHUB_WEBHOOK_HOST="${GITHUB_WEBHOOK_HOST:-}"
 export PREVIEW_PORTS="${PREVIEW_PORTS:-}"
 # Basic API/UI development works without optional infrastructure.
 if [ -f .local/platform-services/controller.token ]; then

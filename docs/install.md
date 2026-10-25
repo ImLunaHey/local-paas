@@ -63,7 +63,8 @@ trusted host matcher when changing the dashboard hostname, then restart API and
 frontend. The JSON is an installation input, not a live settings source. Treat the
 environment file as trusted operator configuration; do not put application dotenv
 content or secret values there. Development callers may alternatively set exported
-`PUBLIC_ORIGIN`, `PREVIEW_HOST`, `PREVIEW_PORTS`, `DATABASE_URL` and secret-file paths.
+`PUBLIC_ORIGIN`, `PREVIEW_HOST`, `PREVIEW_PORTS`, `GITHUB_WEBHOOK_HOST`,
+`DATABASE_URL` and secret-file paths.
 A saved platform.env takes precedence over exported variables.
 
 ## Provision
@@ -116,6 +117,11 @@ the API, but the service is still intended for private access. Never publicly
 expose 5188 or 8080. All management listeners stay on loopback. See
 [operator authentication](authentication.md) for recovery, secret rotation, trusted
 proxy guidance, and the threat model.
+
+Git automation may expose only the signed `/api/webhooks/github/` path through a
+dedicated verified HTTPS reverse-proxy rule. Never expose the listener or other API
+paths. See [Git provider automation](git-automation.md) for its separate host and
+credential boundary.
 
 Alternatively, after configuring `public_origin`, use private Tailscale Serve:
 

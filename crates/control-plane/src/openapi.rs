@@ -81,7 +81,10 @@ pub struct ProjectDetail {
         crate::domains::list,
         crate::domains::create,
         crate::domains::update,
-        crate::edge::rollout::rollback
+        crate::edge::rollout::rollback,
+        crate::source_connections::list,
+        crate::source_connections::create,
+        crate::source_connections::deliveries
     ),
     components(schemas(
         ErrorResponse,
@@ -90,7 +93,10 @@ pub struct ProjectDetail {
         ProjectSummary,
         ProjectList,
         EnvironmentSummary,
-        ProjectDetail
+        ProjectDetail,
+        crate::source_connections::SourceConnection,
+        crate::source_connections::WebhookDelivery,
+        crate::source_connections::CreateSourceConnection
     ))
 )]
 pub struct ApiDoc;

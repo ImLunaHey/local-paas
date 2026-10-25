@@ -26,6 +26,7 @@ import type {
   Configure,
   ConfigureWakingPage,
   CreateService,
+  CreateSourceConnection,
   DomainList,
   ErrorResponse,
   Event,
@@ -40,9 +41,11 @@ import type {
   Service,
   ServiceList,
   ServiceSpec,
+  SourceConnection,
   UpdateService,
   ValidateServiceSpec200,
   WakingPageState,
+  WebhookDelivery,
 } from './model'
 
 import { apiFetch } from '../api-client.ts'
@@ -1938,6 +1941,302 @@ export const useConfigureServiceWakingPage = <TError = unknown, TContext = unkno
   TContext
 > => {
   return useMutation(getConfigureServiceWakingPageMutationOptions(options), queryClient)
+}
+
+export const getListUrl = () => {
+  return `/api/source-connections`
+}
+
+export const list = async (
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<SourceConnection[]> => {
+  return apiFetch<SourceConnection[]>(getListUrl(), {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export const getListQueryKey = () => {
+  return [`/api/source-connections`] as const
+}
+
+export const getListQueryOptions = <
+  TData = Awaited<ReturnType<typeof list>>,
+  TError = unknown,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof list>>, TError, TData>>
+  request?: SecondParameter<typeof apiFetch>
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {}
+
+  const queryKey = queryOptions?.queryKey ?? getListQueryKey()
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof list>>> = ({ signal }) =>
+    list({ signal, ...requestOptions })
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof list>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListQueryResult = NonNullable<Awaited<ReturnType<typeof list>>>
+export type ListQueryError = unknown
+
+export function useList<TData = Awaited<ReturnType<typeof list>>, TError = unknown>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof list>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof list>>,
+          TError,
+          Awaited<ReturnType<typeof list>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useList<TData = Awaited<ReturnType<typeof list>>, TError = unknown>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof list>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof list>>,
+          TError,
+          Awaited<ReturnType<typeof list>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useList<TData = Awaited<ReturnType<typeof list>>, TError = unknown>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof list>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useList<TData = Awaited<ReturnType<typeof list>>, TError = unknown>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof list>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+
+  return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getCreateUrl = () => {
+  return `/api/source-connections`
+}
+
+export const create = async (
+  createSourceConnection: CreateSourceConnection,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<SourceConnection> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {}
+    if (h instanceof Headers) return Object.fromEntries(h.entries())
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      )
+    }
+    const headers: Record<string, string | readonly string[]> = {}
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value
+    }
+    return headers
+  }
+  return apiFetch<SourceConnection>(getCreateUrl(), {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createSourceConnection),
+  })
+}
+
+export const getCreateMutationKey = () => ['create'] as const
+
+export const getCreateMutationOptions = <TError = ErrorResponse, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof create>>,
+    TError,
+    CreateMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof create>>,
+  TError,
+  CreateMutationVariables,
+  TContext
+> => {
+  const mutationKey = getCreateMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof create>>,
+    CreateMutationVariables
+  > = (props) => {
+    const { data } = props ?? {}
+
+    return create(data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type CreateMutationResult = NonNullable<Awaited<ReturnType<typeof create>>>
+export type CreateMutationBody = CreateSourceConnection
+export type CreateMutationError = ErrorResponse
+export type CreateMutationVariables = { data: CreateSourceConnection }
+
+export const useCreate = <TError = ErrorResponse, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof create>>,
+      TError,
+      CreateMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof create>>,
+  TError,
+  CreateMutationVariables,
+  TContext
+> => {
+  return useMutation(getCreateMutationOptions(options), queryClient)
+}
+
+export const getDeliveriesUrl = (id: string) => {
+  return `/api/source-connections/${id}/deliveries`
+}
+
+export const deliveries = async (
+  id: string,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<WebhookDelivery[]> => {
+  return apiFetch<WebhookDelivery[]>(getDeliveriesUrl(id), {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export const getDeliveriesQueryKey = (id: string) => {
+  return [`/api/source-connections/${id}/deliveries`] as const
+}
+
+export const getDeliveriesQueryOptions = <
+  TData = Awaited<ReturnType<typeof deliveries>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof deliveries>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {}
+
+  const queryKey = queryOptions?.queryKey ?? getDeliveriesQueryKey(id)
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof deliveries>>> = ({ signal }) =>
+    deliveries(id, { signal, ...requestOptions })
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof deliveries>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+}
+
+export type DeliveriesQueryResult = NonNullable<Awaited<ReturnType<typeof deliveries>>>
+export type DeliveriesQueryError = unknown
+
+export function useDeliveries<TData = Awaited<ReturnType<typeof deliveries>>, TError = unknown>(
+  id: string,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof deliveries>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof deliveries>>,
+          TError,
+          Awaited<ReturnType<typeof deliveries>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useDeliveries<TData = Awaited<ReturnType<typeof deliveries>>, TError = unknown>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof deliveries>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof deliveries>>,
+          TError,
+          Awaited<ReturnType<typeof deliveries>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useDeliveries<TData = Awaited<ReturnType<typeof deliveries>>, TError = unknown>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof deliveries>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useDeliveries<TData = Awaited<ReturnType<typeof deliveries>>, TError = unknown>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof deliveries>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getDeliveriesQueryOptions(id, options)
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+
+  return withQueryKey(query, queryOptions.queryKey)
 }
 
 export const getValidateServiceSpecUrl = () => {

@@ -146,6 +146,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     let policy = r#"
 path "platform/data/workloads/*" { capabilities = ["create","update","read"] }
+path "platform/data/source-connections/*" { capabilities = ["create","update","read"] }
+path "platform/metadata/source-connections/*" { capabilities = ["delete"] }
 path "sys/policies/acl/platform-workload-*" { capabilities = ["create","update"] }
 path "auth/token/create/platform-workload" { capabilities = ["update"] }
 path "auth/token/renew-self" { capabilities = ["update"] }
