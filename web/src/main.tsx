@@ -487,10 +487,110 @@ const deploymentDocsRoute = createRoute({
   path: '/docs/deployments',
   component: () => <DocsSite page="deployments" />,
 })
-const architectureDocsRoute = createRoute({
+const nodeDocsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/docs/architecture',
-  component: () => <DocsSite page="architecture" />,
+  path: '/docs/nodejs',
+  component: () => <DocsSite page="nodejs" />,
+})
+const pythonDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/python',
+  component: () => <DocsSite page="python" />,
+})
+const goDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/go',
+  component: () => <DocsSite page="go" />,
+})
+const rustDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/rust',
+  component: () => <DocsSite page="rust" />,
+})
+const otherRuntimesDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/other-runtimes',
+  component: () => <DocsSite page="other-runtimes" />,
+})
+const dockerfileDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/dockerfile',
+  component: () => <DocsSite page="dockerfile" />,
+})
+const buildsDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/builds',
+  component: () => <DocsSite page="builds" />,
+})
+const healthDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/health-checks',
+  component: () => <DocsSite page="health" />,
+})
+const sourceUploadsDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/source-uploads',
+  component: () => <DocsSite page="source-uploads" />,
+})
+const variablesDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/variables',
+  component: () => <DocsSite page="variables" />,
+})
+const networkingDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/networking',
+  component: () => <DocsSite page="networking" />,
+})
+const storageDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/storage',
+  component: () => <DocsSite page="storage" />,
+})
+const environmentsDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/environments',
+  component: () => <DocsSite page="environments" />,
+})
+const observabilityDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/observability',
+  component: () => <DocsSite page="observability" />,
+})
+const githubDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/github',
+  component: () => <DocsSite page="github" />,
+})
+const scalingDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/scaling',
+  component: () => <DocsSite page="scaling" />,
+})
+const jobsDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/jobs',
+  component: () => <DocsSite page="jobs" />,
+})
+const nodesDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/nodes',
+  component: () => <DocsSite page="nodes" />,
+})
+const backupsDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/backups',
+  component: () => <DocsSite page="backups" />,
+})
+const apiDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/api',
+  component: () => <DocsSite page="api" />,
+})
+const upgradesDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/upgrades',
+  component: () => <DocsSite page="upgrades" />,
 })
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -720,7 +820,27 @@ const router = createRouter({
     docsRoute,
     installationDocsRoute,
     deploymentDocsRoute,
-    architectureDocsRoute,
+    nodeDocsRoute,
+    pythonDocsRoute,
+    goDocsRoute,
+    rustDocsRoute,
+    otherRuntimesDocsRoute,
+    dockerfileDocsRoute,
+    buildsDocsRoute,
+    healthDocsRoute,
+    sourceUploadsDocsRoute,
+    variablesDocsRoute,
+    networkingDocsRoute,
+    storageDocsRoute,
+    environmentsDocsRoute,
+    observabilityDocsRoute,
+    githubDocsRoute,
+    scalingDocsRoute,
+    jobsDocsRoute,
+    nodesDocsRoute,
+    backupsDocsRoute,
+    apiDocsRoute,
+    upgradesDocsRoute,
     appRoute,
     platformOrganizationsRoute,
     platformUsersRoute,
