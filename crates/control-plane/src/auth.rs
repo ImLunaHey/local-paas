@@ -26,6 +26,7 @@ pub const PERMISSION_RESOURCES: &[(&str, &[&str])] = &[
     ("audit", &["read"]),
     ("domain", &["read", "manage"]),
     ("storage", &["read", "manage"]),
+    ("source", &["read", "manage"]),
 ];
 
 #[derive(Clone)]
@@ -330,6 +331,18 @@ async fn resource_belongs_to_organization(
         .fetch_one(pool)
         .await;
     }
+    if route.starts_with("/api/source-connections/{id}") {
+        let Ok(id) = identifier.parse::<uuid::Uuid>() else {
+            return Ok(false);
+        };
+        return sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM source_connections WHERE id=$1 AND organization_id=$2)",
+        )
+        .bind(id)
+        .bind(organization_id)
+        .fetch_one(pool)
+        .await;
+    }
     Ok(true)
 }
 
@@ -337,6 +350,7 @@ fn public_path(path: &str) -> bool {
     matches!(path, "/api/health" | "/api/openapi.json")
         || path.starts_with("/api/auth/")
         || path.starts_with("/api/agent/")
+        || path.starts_with("/api/webhooks/github/")
 }
 
 fn required_permission(request: &Request) -> Option<(&'static str, &'static str)> {
@@ -386,6 +400,8 @@ fn permission_for(route: &str, method: &Method) -> (&'static str, &'static str) 
         ("domain", if write { "manage" } else { "read" })
     } else if route.contains("storage") || route.contains("volume") || route.contains("bucket") {
         ("storage", if write { "manage" } else { "read" })
+    } else if route.starts_with("/api/source-connections") {
+        ("source", if write { "manage" } else { "read" })
     } else if route == "/api/services" {
         ("service", if write { "create" } else { "read" })
     } else {
@@ -424,6 +440,7 @@ fn platform_roles() -> BTreeMap<String, OrganizationPermissions> {
         ("audit", &["read"]),
         ("domain", &["read", "manage"]),
         ("storage", &["read", "manage"]),
+        ("source", &["read", "manage"]),
         ("ac", &["read"]),
     ]);
     let viewer = permissions(&[
@@ -438,6 +455,7 @@ fn platform_roles() -> BTreeMap<String, OrganizationPermissions> {
         ("audit", &["read"]),
         ("domain", &["read"]),
         ("storage", &["read"]),
+        ("source", &["read"]),
         ("ac", &["read"]),
     ]);
     BTreeMap::from([
@@ -510,6 +528,11 @@ mod tests {
             ("/api/audit", Method::GET, ("audit", "read")),
             ("/api/domains", Method::POST, ("domain", "manage")),
             ("/api/volumes", Method::POST, ("storage", "manage")),
+            (
+                "/api/source-connections",
+                Method::POST,
+                ("source", "manage"),
+            ),
         ];
         for (route, method, expected) in cases {
             assert_eq!(permission_for(route, &method), expected, "{route}");

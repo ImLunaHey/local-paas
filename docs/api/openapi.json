@@ -667,6 +667,101 @@
         }
       }
     },
+    "/api/source-connections": {
+      "get": {
+        "tags": [
+          "crate::source_connections"
+        ],
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SourceConnection"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "crate::source_connections"
+        ],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSourceConnection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnection"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/source-connections/{id}/deliveries": {
+      "get": {
+        "tags": [
+          "crate::source_connections"
+        ],
+        "operationId": "deliveries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookDelivery"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/specs/validate": {
       "post": {
         "tags": [
@@ -801,6 +896,37 @@
           },
           "spec": {
             "$ref": "#/components/schemas/ServiceSpec"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateSourceConnection": {
+        "type": "object",
+        "required": [
+          "serviceId",
+          "repository",
+          "webhookSecret",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Any combination of `push`, `tag`, and `pull_request`."
+          },
+          "repository": {
+            "type": "string",
+            "description": "GitHub `owner/repository` identity or its credential-free HTTPS URL."
+          },
+          "serviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "webhookSecret": {
+            "type": "string",
+            "description": "Shared GitHub webhook secret. It is written to OpenBao and never returned."
           }
         },
         "additionalProperties": false
@@ -1480,6 +1606,58 @@
         },
         "additionalProperties": false
       },
+      "SourceConnection": {
+        "type": "object",
+        "required": [
+          "id",
+          "serviceId",
+          "organizationId",
+          "provider",
+          "repository",
+          "events",
+          "enabled",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lastDeliveryAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "serviceId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "UpdateService": {
         "type": "object",
         "required": [
@@ -1557,6 +1735,69 @@
           "version": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "WebhookDelivery": {
+        "type": "object",
+        "required": [
+          "id",
+          "sourceConnectionId",
+          "deliveryId",
+          "event",
+          "status",
+          "reason",
+          "receivedAt"
+        ],
+        "properties": {
+          "action": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "buildId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "deliveryId": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedCommit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceConnectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
           }
         }
       },

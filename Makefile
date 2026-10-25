@@ -2,7 +2,7 @@
 -include .local/development.mk
 
 DATABASE_URL ?= postgresql:///local_paas?host=$(CURDIR)/.local/socket&port=55432
-export DATABASE_URL PUBLIC_ORIGIN PREVIEW_HOST PREVIEW_PORTS
+export DATABASE_URL PUBLIC_ORIGIN PREVIEW_HOST PREVIEW_PORTS GITHUB_WEBHOOK_HOST
 
 .PHONY: db db-stop api api-foreground build-worker web web-foreground up check test-db
 db:

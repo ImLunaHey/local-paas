@@ -18,7 +18,7 @@ systemctl --user stop local-paas-api || true
 systemd-run --user --unit=local-paas-api --collect --property="WorkingDirectory=$PWD" \
  --property=Restart=on-failure --property=LimitCORE=0 --property=MemorySwapMax=0 \
  --setenv="PATH=$PATH" --setenv="DATABASE_URL=$DATABASE_URL" --setenv="BETTER_AUTH_SECRET_FILE=$BETTER_AUTH_SECRET_FILE" --setenv="PUBLIC_ORIGIN=$PUBLIC_ORIGIN" \
- --setenv="PREVIEW_HOST=$PREVIEW_HOST" --setenv="PREVIEW_PORTS=$PREVIEW_PORTS" \
+ --setenv="PREVIEW_HOST=$PREVIEW_HOST" --setenv="PREVIEW_PORTS=$PREVIEW_PORTS" --setenv="GITHUB_WEBHOOK_HOST=$GITHUB_WEBHOOK_HOST" \
  "${optional_env[@]}" \
  "$PWD/target/debug/control-plane"
 

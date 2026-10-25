@@ -133,6 +133,10 @@ spreading does not guarantee distinct hardware.
 - Git: verify webhook signature/replay handling; allowlisted fetch destinations,
   bounded checkout, safe symlink/path handling at checkout. Manifest path
   validation alone does not prevent symlink escapes or SSRF.
+  GitHub webhooks now use OpenBao-held HMAC credentials, transactional delivery-ID
+  idempotency, immutable commit pinning, and fail-closed fork policy. GitHub App
+  installation credentials and private repository checkout remain release gates;
+  see [Git provider automation](git-automation.md).
 - Build: untrusted Dockerfile execution in isolated builders with no NAS mount,
   runtime socket, OpenBao token, database access or broad NetBird reach. Use
   short-lived scoped registry credentials, bounded logs and disk, cache bypass.
