@@ -28,8 +28,11 @@ async fn call(pool: &PgPool, path: &str, value: Value, token: Option<&str>) -> (
     )
 }
 async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
-    let spec: Value =
+    let mut spec: Value =
         serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap();
+    // Only the ephemeral listener below is a test backend; never probe a real
+    // developer worker that happens to occupy the other fixture node ports.
+    spec["workload"]["replicas"] = json!(1);
     let (_, s) = call(
         pool,
         "/api/services",
@@ -92,14 +95,18 @@ async fn ingress_uses_local_health_honors_membership_and_expires_routes_without_
             app_listener,
             Router::new().route(
                 "/{*path}",
-                get(move || {
+                get(move |headers: axum::http::HeaderMap| {
                     let health = health.clone();
                     async move {
-                        if health.load(Ordering::Relaxed) {
+                        let status = if health.load(Ordering::Relaxed) {
                             StatusCode::OK
                         } else {
                             StatusCode::SERVICE_UNAVAILABLE
-                        }
+                        };
+                        (
+                            status,
+                            headers.get("host").unwrap().to_str().unwrap().to_owned(),
+                        )
                     }
                 }),
             ),
@@ -126,7 +133,7 @@ async fn ingress_uses_local_health_honors_membership_and_expires_routes_without_
         .await
         .unwrap();
     control_plane::runtime::reconcile(&pool).await.unwrap();
-    sqlx::query("INSERT INTO domains(hostname,service_id) VALUES('canary.test',$1)")
+    sqlx::query("INSERT INTO preview_routes(authority,service_id) VALUES('canary.test',$1)")
         .bind(service)
         .execute(&pool)
         .await
@@ -160,6 +167,72 @@ async fn ingress_uses_local_health_honors_membership_and_expires_routes_without_
         }
         panic!("ingress did not converge to {status}");
     }
+    wait(&client, port, StatusCode::OK).await;
+    sqlx::query("INSERT INTO domains(hostname,service_id) VALUES('public.example.test',$1)")
+        .bind(service)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let direct = client
+        .get(format!("http://127.0.0.1:{port}/hello"))
+        .header("host", "public.example.test")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        direct.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "registration alone cannot enable public routing"
+    );
+    let authority = format!("{}-7.edge.invalid", Uuid::new_v4().simple());
+    sqlx::query("INSERT INTO edge_targets(authority,hostname,generation,deployment_id,expires_at) VALUES($1,'public.example.test',7,$2,now()+interval '90 seconds')")
+        .bind(&authority).bind(deployed["id"].as_str().unwrap().parse::<Uuid>().unwrap()).execute(&pool).await.unwrap();
+    let mut acknowledged = false;
+    for _ in 0..40 {
+        let response = client
+            .get(format!(
+                "http://127.0.0.1:{port}/.well-known/local-paas/route"
+            ))
+            .header("host", &authority)
+            .send()
+            .await
+            .unwrap();
+        if response.status() == StatusCode::NO_CONTENT {
+            assert_eq!(response.headers()["x-local-paas-generation"], "7");
+            assert_eq!(response.headers()["x-local-paas-route"], authority);
+            acknowledged = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(acknowledged);
+    let proxied = client
+        .get(format!("http://127.0.0.1:{port}/hello"))
+        .header("host", &authority)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        proxied.text().await.unwrap(),
+        "public.example.test",
+        "application receives its public hostname, never the internal target identity"
+    );
+    sqlx::query("UPDATE edge_targets SET expires_at=now() WHERE authority=$1")
+        .bind(&authority)
+        .execute(&pool)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        client
+            .get(format!("http://127.0.0.1:{port}/hello"))
+            .header("host", &authority)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
     wait(&client, port, StatusCode::OK).await;
     // Controller/agent observations expire, but desired topology and local health still work.
     sqlx::query("UPDATE nodes SET last_seen=now()-interval '5 minutes'")

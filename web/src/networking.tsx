@@ -173,9 +173,9 @@ function NetworkForm({ service, network }: { service: Service; network: Network 
         the configured port.
       </p>
       <p className="text-xs text-muted">
-        This link is private, not publicly accessible. Custom domains are not available yet. The
-        number at the end of the assigned URL is managed by the platform; you do not need to change
-        your app to match it.
+        This link is private, not publicly accessible. Manage public domains on the Domains page.
+        The number at the end of the assigned URL is managed by the platform; you do not need to
+        change your app to match it.
       </p>
     </section>
   )

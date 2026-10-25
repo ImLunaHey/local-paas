@@ -38,6 +38,20 @@ export function useDeploymentPanel({ service }: { service: Service }) {
     },
   })
 
-  return { runtime, revisions, setChosen, revision, deploy, stop }
+  const rollback = useMutation({
+    mutationFn: (id: string) => api(`/deployments/${id}/rollback`, { method: 'POST' }),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ['runtime', service.id] })
+      await client.invalidateQueries({ queryKey: ['domains'] })
+    },
+  })
+
+  const error = deploy.error || stop.error || rollback.error || runtime.error || revisions.error
+  const preparing = runtime.data?.deployments.some(
+    (d) =>
+      ['releasing', 'waiting', 'preparing'].includes(d.status) ||
+      (!!d.edgePhase && !['complete', 'failed'].includes(d.edgePhase)),
+  )
+  return { runtime, revisions, setChosen, revision, deploy, stop, rollback, error, preparing }
 }
 export type DeploymentPanelState = ReturnType<typeof useDeploymentPanel>

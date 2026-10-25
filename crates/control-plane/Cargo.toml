@@ -17,6 +17,8 @@ platform-domain = { version = "0.1.0", path = "../domain" }
 platform-protocol = { version = "0.1.0", path = "../protocol" }
 sha2 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+hickory-resolver = "0.26.3"
+x509-parser = "0.18.1"
 platform-build-runner = { version = "0.1.0", path = "../build-runner" }
 axum = "0.8"
 hyper = { version = "1", features = ["http1", "server"] }

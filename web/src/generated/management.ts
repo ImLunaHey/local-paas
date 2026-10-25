@@ -22,7 +22,9 @@ import type {
 } from '@tanstack/react-query'
 
 import type {
+  AssignDomain,
   CreateService,
+  DomainList,
   ErrorResponse,
   Event,
   GetHealth200,
@@ -32,6 +34,7 @@ import type {
   ProjectIdentity,
   ProjectList,
   ProjectUpdate,
+  RegisterDomain,
   Service,
   ServiceList,
   ServiceSpec,
@@ -55,6 +58,377 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
     })
   }
   return result
+}
+
+export const getRollbackPublicDeploymentUrl = (id: string) => {
+  return `/api/deployments/${id}/rollback`
+}
+
+export const rollbackPublicDeployment = async (
+  id: string,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<unknown> => {
+  return apiFetch<unknown>(getRollbackPublicDeploymentUrl(id), {
+    ...options,
+    method: 'POST',
+  })
+}
+
+export const getRollbackPublicDeploymentMutationKey = () => ['rollbackPublicDeployment'] as const
+
+export const getRollbackPublicDeploymentMutationOptions = <
+  TError = ErrorResponse,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rollbackPublicDeployment>>,
+    TError,
+    RollbackPublicDeploymentMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rollbackPublicDeployment>>,
+  TError,
+  RollbackPublicDeploymentMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRollbackPublicDeploymentMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rollbackPublicDeployment>>,
+    RollbackPublicDeploymentMutationVariables
+  > = (props) => {
+    const { id } = props ?? {}
+
+    return rollbackPublicDeployment(id, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type RollbackPublicDeploymentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rollbackPublicDeployment>>
+>
+
+export type RollbackPublicDeploymentMutationError = ErrorResponse
+export type RollbackPublicDeploymentMutationVariables = { id: string }
+
+export const useRollbackPublicDeployment = <TError = ErrorResponse, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof rollbackPublicDeployment>>,
+      TError,
+      RollbackPublicDeploymentMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof rollbackPublicDeployment>>,
+  TError,
+  RollbackPublicDeploymentMutationVariables,
+  TContext
+> => {
+  return useMutation(getRollbackPublicDeploymentMutationOptions(options), queryClient)
+}
+
+export const getListDomainsUrl = () => {
+  return `/api/domains`
+}
+
+export const listDomains = async (
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<DomainList> => {
+  return apiFetch<DomainList>(getListDomainsUrl(), {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export const getListDomainsQueryKey = () => {
+  return [`/api/domains`] as const
+}
+
+export const getListDomainsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDomains>>,
+  TError = unknown,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listDomains>>, TError, TData>>
+  request?: SecondParameter<typeof apiFetch>
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {}
+
+  const queryKey = queryOptions?.queryKey ?? getListDomainsQueryKey()
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listDomains>>> = ({ signal }) =>
+    listDomains({ signal, ...requestOptions })
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDomains>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListDomainsQueryResult = NonNullable<Awaited<ReturnType<typeof listDomains>>>
+export type ListDomainsQueryError = unknown
+
+export function useListDomains<TData = Awaited<ReturnType<typeof listDomains>>, TError = unknown>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listDomains>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listDomains>>,
+          TError,
+          Awaited<ReturnType<typeof listDomains>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListDomains<TData = Awaited<ReturnType<typeof listDomains>>, TError = unknown>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listDomains>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listDomains>>,
+          TError,
+          Awaited<ReturnType<typeof listDomains>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListDomains<TData = Awaited<ReturnType<typeof listDomains>>, TError = unknown>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listDomains>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListDomains<TData = Awaited<ReturnType<typeof listDomains>>, TError = unknown>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listDomains>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListDomainsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+
+  return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getRegisterDomainUrl = () => {
+  return `/api/domains`
+}
+
+export const registerDomain = async (
+  registerDomainBody: RegisterDomain,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<unknown> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {}
+    if (h instanceof Headers) return Object.fromEntries(h.entries())
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      )
+    }
+    const headers: Record<string, string | readonly string[]> = {}
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value
+    }
+    return headers
+  }
+  return apiFetch<unknown>(getRegisterDomainUrl(), {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(registerDomainBody),
+  })
+}
+
+export const getRegisterDomainMutationKey = () => ['registerDomain'] as const
+
+export const getRegisterDomainMutationOptions = <
+  TError = ErrorResponse,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof registerDomain>>,
+    TError,
+    RegisterDomainMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof registerDomain>>,
+  TError,
+  RegisterDomainMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRegisterDomainMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof registerDomain>>,
+    RegisterDomainMutationVariables
+  > = (props) => {
+    const { data } = props ?? {}
+
+    return registerDomain(data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type RegisterDomainMutationResult = NonNullable<Awaited<ReturnType<typeof registerDomain>>>
+export type RegisterDomainMutationBody = RegisterDomain
+export type RegisterDomainMutationError = ErrorResponse
+export type RegisterDomainMutationVariables = { data: RegisterDomain }
+
+export const useRegisterDomain = <TError = ErrorResponse, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof registerDomain>>,
+      TError,
+      RegisterDomainMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof registerDomain>>,
+  TError,
+  RegisterDomainMutationVariables,
+  TContext
+> => {
+  return useMutation(getRegisterDomainMutationOptions(options), queryClient)
+}
+
+export const getAssignDomainUrl = (hostname: string) => {
+  return `/api/domains/${hostname}`
+}
+
+export const assignDomain = async (
+  hostname: string,
+  assignDomainBody: AssignDomain,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<unknown> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {}
+    if (h instanceof Headers) return Object.fromEntries(h.entries())
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      )
+    }
+    const headers: Record<string, string | readonly string[]> = {}
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value
+    }
+    return headers
+  }
+  return apiFetch<unknown>(getAssignDomainUrl(hostname), {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(assignDomainBody),
+  })
+}
+
+export const getAssignDomainMutationKey = () => ['assignDomain'] as const
+
+export const getAssignDomainMutationOptions = <
+  TError = ErrorResponse,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignDomain>>,
+    TError,
+    AssignDomainMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof assignDomain>>,
+  TError,
+  AssignDomainMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAssignDomainMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof assignDomain>>,
+    AssignDomainMutationVariables
+  > = (props) => {
+    const { hostname, data } = props ?? {}
+
+    return assignDomain(hostname, data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type AssignDomainMutationResult = NonNullable<Awaited<ReturnType<typeof assignDomain>>>
+export type AssignDomainMutationBody = AssignDomain
+export type AssignDomainMutationError = ErrorResponse
+export type AssignDomainMutationVariables = { hostname: string; data: AssignDomain }
+
+export const useAssignDomain = <TError = ErrorResponse, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof assignDomain>>,
+      TError,
+      AssignDomainMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof assignDomain>>,
+  TError,
+  AssignDomainMutationVariables,
+  TContext
+> => {
+  return useMutation(getAssignDomainMutationOptions(options), queryClient)
 }
 
 export const getGetHealthUrl = () => {

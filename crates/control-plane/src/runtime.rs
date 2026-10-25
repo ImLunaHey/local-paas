@@ -137,7 +137,7 @@ pub(crate) async fn deploy(
     .bind(service_id)
     .fetch_one(&mut *tx)
     .await?;
-    if preparing {
+    if preparing || crate::edge::busy(&mut tx, service_id).await? {
         return Err(ApiError::Conflict("a deployment is already preparing"));
     }
     let database_ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 UNION SELECT n.endpoint_base+v.slot FROM storage_bindings c JOIN storage_buckets b ON b.id=c.bucket_id JOIN volumes v ON v.id=b.service_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 AND c.status='ready'").bind(service_id).fetch_all(&mut *tx).await?;
@@ -430,6 +430,11 @@ pub(crate) async fn stop(
     sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
         .execute(&mut *tx)
         .await?;
+    if !crate::edge::stop_allowed(&mut tx, id).await? {
+        return Err(ApiError::Conflict(
+            "public routing still references this deployment; roll back the rollout or unassign its domains and wait for removal acknowledgement",
+        ));
+    }
     let row =
         sqlx::query("SELECT service_id,job_options,status FROM deployments WHERE id=$1 FOR UPDATE")
             .bind(id)
@@ -460,7 +465,8 @@ pub async fn reconcile(pool: &PgPool) -> Result<(), sqlx::Error> {
     crate::jobs::reconcile(&mut tx).await?;
     crate::releases::reconcile(&mut tx).await?;
     reconcile_workers(&mut tx).await?;
-    let pending = sqlx::query("SELECT id,service_id,deadline<now() AS expired FROM deployments WHERE status='preparing' FOR UPDATE").fetch_all(&mut *tx).await?;
+    crate::edge::advance(&mut tx).await?;
+    let pending = sqlx::query("SELECT id,service_id,deadline<now() AS expired FROM deployments WHERE status='preparing' AND NOT EXISTS(SELECT 1 FROM edge_rollouts r WHERE r.deployment_id=deployments.id) FOR NO KEY UPDATE").fetch_all(&mut *tx).await?;
     for d in pending {
         let id: Uuid = d.get("id");
         let service: Uuid = d.get("service_id");
@@ -476,11 +482,31 @@ pub async fn reconcile(pool: &PgPool) -> Result<(), sqlx::Error> {
             });
         if failed || ready {
             if ready && !failed {
+                if crate::edge::begin(&mut tx, id, service).await? {
+                    continue;
+                }
+                // Removing/reassigning the last domain must not turn a pending
+                // public cutover into a private-only path that stops old targets.
+                let previous: Vec<Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM deployments WHERE service_id=$1 AND status='active'",
+                )
+                .bind(service)
+                .fetch_all(&mut *tx)
+                .await?;
+                let mut retained = false;
+                for old in previous {
+                    retained |= !crate::edge::stop_allowed(&mut tx, old).await?;
+                }
+                if retained {
+                    sqlx::query("UPDATE deployments SET error_code='pending_edge_removal' WHERE id=$1 AND error_code IS DISTINCT FROM 'pending_edge_removal'")
+                        .bind(id).execute(&mut *tx).await?;
+                    continue;
+                }
                 let old: Vec<Uuid>=sqlx::query_scalar("UPDATE deployments SET status='superseded' WHERE service_id=$1 AND status='active' RETURNING id").bind(service).fetch_all(&mut *tx).await?;
                 for old in old {
                     sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id=$1 AND desired_state='running'").bind(old).execute(&mut *tx).await?;
                 }
-                sqlx::query("UPDATE deployments SET status='active' WHERE id=$1")
+                sqlx::query("UPDATE deployments SET status='active',error_code=NULL WHERE id=$1")
                     .bind(id)
                     .execute(&mut *tx)
                     .await?;
@@ -733,7 +759,7 @@ pub(crate) async fn status(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     service_exists(&pool, id).await?;
-    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'status',d.status,'errorCode',d.error_code,'createdAt',d.created_at,'preDeploy',(SELECT jsonb_build_object('id',j.id,'status',j.status,'result',j.job_result,'instanceId',(SELECT id FROM instances WHERE deployment_id=j.id LIMIT 1)) FROM deployments j WHERE j.parent_deployment_id=d.id)) FROM deployments d WHERE d.service_id=$1 AND d.job_options IS NULL ORDER BY d.created_at DESC LIMIT 20").bind(id).fetch_all(&pool).await?;
+    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'status',d.status,'edgePhase',(SELECT phase FROM edge_rollouts WHERE deployment_id=d.id),'errorCode',d.error_code,'createdAt',d.created_at,'preDeploy',(SELECT jsonb_build_object('id',j.id,'status',j.status,'result',j.job_result,'instanceId',(SELECT id FROM instances WHERE deployment_id=j.id LIMIT 1)) FROM deployments j WHERE j.parent_deployment_id=d.id)) FROM deployments d WHERE d.service_id=$1 AND d.job_options IS NULL ORDER BY d.created_at DESC LIMIT 20").bind(id).fetch_all(&pool).await?;
     let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deploymentId',i.deployment_id,'nodeId',n.id,'nodeName',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desiredState',i.desired_state,'diagnostic',i.diagnostic,'observedAt',i.observed_at,'cpuMillis',i.cpu_millis,'memoryBytes',i.memory_bytes,'pids',i.pids,'ioReadBytesPerSecond',i.io_read_bytes_per_second,'ioWriteBytesPerSecond',i.io_write_bytes_per_second,'networkRxBytesPerSecond',i.network_rx_bytes_per_second,'networkTxBytesPerSecond',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
     let nodes: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM nodes n WHERE (n.organization_id IS NULL OR n.organization_id=(SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1)) AND n.last_seen>now()-interval '30 seconds' AND NOT n.cordoned",

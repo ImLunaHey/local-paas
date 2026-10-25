@@ -1,6 +1,8 @@
 import { DomainAssignmentForm } from './domain-assignment-form'
-import type { Domain } from './domain-types'
+import type { DomainObservation as Domain } from '../../generated/model/domainObservation'
 import { useDomainAssignment } from './use-domain-assignment'
+import { EdgeStatus } from './edge-status'
+import { edgeLabel } from './edge-label'
 
 import { Link } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
@@ -29,8 +31,9 @@ export function DomainAssignment({ domain }: { domain: Domain }) {
               : 'Unassigned'}
           </p>
         </div>
-        <span className="chip">Pending edge setup</span>
+        <span className="chip">{edgeLabel(domain.status)}</span>
       </div>
+      <EdgeStatus domain={domain} />
       <DomainAssignmentForm
         domain={domain}
         project={project}

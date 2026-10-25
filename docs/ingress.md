@@ -1,94 +1,180 @@
-# Independent ingress and external edge integration
+# Independent ingress and acknowledged public edge
 
 ## Private ingress
 
-`local-paas-ingress` runs `platform-ingress`, a Rust process separate from the API,
-build worker and scheduler. `make api` builds both binaries and starts ingress if
-absent; subsequent controller restarts leave ingress running. Explicitly restart
-ingress with `bash infra/services/ingress.sh --restart` after rebuilding it.
-It binds only `127.0.0.1:8090`. Existing Tailscale Serve preview URLs stay unchanged.
+`platform-ingress` is supervised independently from the API, builder and scheduler.
+It binds only `127.0.0.1:8090`. Existing Tailscale Serve preview URLs use the
+unchanged private route registry. Restart ingress after upgrading its binary.
 
-Ingress refreshes desired routes from PostgreSQL every two seconds and probes each
-backend's configured readiness path with a two-second timeout. Only agent-ready,
-active, routing-enabled HTTP instances enter its snapshot. Local health checks
-continue when the API and agent observations are offline. The worker containers
-continue running; ingress does not require a running controller to route them.
+Every two seconds ingress reads desired routes and probes each backend's readiness
+path. Snapshots have ten-second leases, and slot reuse retains a further five-second
+grace. Slow uploads recheck their lease before connecting. Healthy private routes
+can survive controller/agent observation outages while PostgreSQL remains available.
+Database outages expire snapshots and return 503.
 
-Route snapshots have ten-second leases. If PostgreSQL or snapshot refresh becomes
-unavailable, expired routes return 503. Slot allocation retains an additional
-five-second grace after every ingress/private route lease, even after cleanup.
-Slow uploads recheck the selected lease before connecting; connection setup is
-bounded below that grace period. This prevents stale route snapshots reaching a
-different application after slot reuse. Existing HTTP/WebSocket connections are
-not transparently migrated and can end when the old process stops.
+HTTP, SSE and WebSockets share the bounded streaming proxy. Unknown hosts, expired
+routes and unhealthy backends receive no application traffic. Request headers cannot
+select an arbitrary upstream or reach the management API. The reserved
+`/.well-known/local-paas/route` path returns a generation only for a leased public
+target with at least one healthy backend; applications cannot forge that observation.
 
-HTTP, SSE and WebSockets use the existing bounded streaming proxy. Unknown hosts,
-unready replacements, expired routes and unhealthy backends receive no traffic.
-Routes include registered private previews and assigned global domains. A global
-domain's UI status remains `pending-edge`: local resolution does not prove public
-DNS, TLS issuance or an external route is operational. Domain reassignment is read
-from durable state on the next refresh.
+## Public edge lifecycle
 
-This is controller-outage tolerance, not database/host high availability. Ingress,
-PostgreSQL and all three workers still depend on one host. The current ingress database
-connection uses the development administrator role on the private Unix socket;
-a restricted ingress role is required before moving database access outside this
-host. The external gateway design below never exposes PostgreSQL.
+`platform-edge` runs on the management host, separately from the controller.
+It uses the internal `Edge` interface; Caddy-specific JSON stays inside its adapter.
+No infrastructure is provisioned by starting this worker.
 
-## Prepared external configuration — not deployed
+1. Register a domain and assign an OCI web service. The UI supplies a public TXT
+   challenge at `_local-paas.<hostname>`. This token proves DNS control; it is not
+   an authentication secret. Keep the TXT record for subsequent verification.
+2. Point DNS at the configured edge. The first adapter supports one explicit
+   public IP address; all resolved A/AAAA answers must match it. DNS reads use the
+   management host's configured resolver and respect TTLs. DNS writes remain with
+   the operator/provider; there are no stored DNS-provider credentials.
+3. Once the candidate passes readiness, the controller persists an edge generation
+   and target deployment. It continues to report the deployment as preparing.
+4. The worker verifies TXT and address records, grants a short-lived private
+   upstream authority, checks its readiness, then updates Caddy's platform routes
+   using its JSON API. Stable route IDs and ETag/If-Match protect concurrent edits.
+   The adapter preserves unrelated routes and never calls `/load`, `/stop`, or a
+   process reload. Unchanged routes cause no configuration write.
+5. Caddy manages certificates for the verified hostname. The worker validates an
+   HTTPS response through the configured edge address, including hostname trust,
+   certificate expiry and the exact upstream generation. Public probes are pinned
+   to the operator-configured address, not an untrusted DNS destination.
+6. Only then does a transactional acknowledgement allow promotion. The old
+   deployment remains running for a two-minute drain/rollback window. A new
+   deployment or domain reassignment waits until that window completes.
 
-`infra/edge/Caddyfile.public` and `Caddyfile.gateway` are parsed deployment inputs.
-No VPS was selected or modified, no public DNS was changed, and no NetBird client
-was enrolled by this increment. Caddy adaptation was checked with explicit dummy
-addresses and file paths; it is not a live certificate/connectivity test.
+This acknowledgement is an authenticated management readback plus a TLS-validated
+data-path observation, not an operator checkbox or a successful PATCH alone.
+Configuration, private key and certificate material remains in files on the relevant
+hosts; PostgreSQL stores generations, deployment IDs, timestamps and fixed error codes.
 
-NetBird management is an external prerequisite. Do not make its own public
-management endpoint depend on an already-working NetBird tunnel. This repository
-does not depend on any separate personal infrastructure checkout.
+The worker refreshes observations every twenty seconds. Public target grants and
+acknowledgements last ninety seconds. A worker/database outage eventually closes
+public forwarding even if Caddy retains its configuration. A successful read of
+desired state alone cannot extend an acknowledgement. Certificate expiry is reported
+in the Domains UI; certificates within seven days of expiry carry a renewal warning.
+The worker observes certificates renewed by Caddy without rewriting unchanged routes.
 
-Deployment needs the actual VPS/SSH target, its current proxy/service layout,
-NetBird management readiness and enrollment, the two peer addresses, and the
-public CNAME target/domain ownership. Preserve existing routes and Tailscale
-access. The public path will be:
+## Rollback, removal and failures
+
+Before promotion, a failed apply or probe restores and probes the previously
+acknowledged generation when it remains healthy. An uncertain apply retains all
+potentially referenced instances. On readiness failure or deployment timeout, the
+controller requests rollback as a new generation; it does not stop the candidate
+until the previous route (or removal for a first deployment) is acknowledged.
+
+Use **Roll back public route** during promotion or the two-minute rollback window,
+or `POST /api/deployments/{id}/rollback`. It requires deployment execution permission
+in the owning organization. The previous deployment must still be healthy. A
+controller restart resumes the persisted phase. Edge outages leave rollback pending;
+no timeout invents a successful rollback. After acknowledgement, candidates drain
+for two minutes before stopping. Long-lived connections are bounded by this window;
+they are not migrated between revisions. After the window, deploy a retained image
+revision through the normal deployment flow.
+
+Unassigning a domain requests removal through Caddy's API. The UI reports
+`removing` until authenticated readback confirms removal. Existing target leases
+still fence shutdown/slot reuse. Direct stop requests that would bypass a rollout
+or live route lease are rejected. Registration remains available for reassignment.
+celld declarations remain separate and do not enter this OCI edge promotion flow.
+
+If DNS ownership is lost, TLS cannot be validated, the gateway is unhealthy, or
+the admin connection fails, the UI reports the specific pending/degraded condition.
+No public reachability or rollback guarantee exists when neither revision is healthy.
+Diagnose the worker, private management connection, Caddy issuance logs, gateway
+client certificate and upstream readiness; do not bypass the acknowledgement barrier.
+
+## Explicit installation
+
+Use a dedicated Caddy instance or a reviewed `platform` HTTP server in an existing
+instance. `infra/edge/caddy.json` is the initial API-managed configuration. Its
+admin endpoint is a Unix socket in a service-owned directory; restrict that directory
+and socket to the Caddy and management-gateway users. Persist Caddy's storage and
+configuration directories and supervise it with `caddy run --resume` after the
+initial bootstrap. This replaces the old static `Caddyfile.public` template;
+loading an old Caddyfile over this instance would replace its managed routes.
+
+For remote administration, `infra/edge/Caddyfile.admin` binds only the edge's
+private network address on 18445. A dedicated management CA authenticates the worker.
+It forwards only GET/PATCH of the platform route array to the Unix socket and denies
+all other API paths. Do not expose the socket, admin gateway or its port publicly.
+Use firewall and private-network policies scoped to the management peer. The server
+certificate must cover the hostname in `adminUrl`; the worker identity PEM file
+contains its client certificate and key.
+
+The application path remains:
 
 ```text
-verified application domain -> DigitalOcean Caddy (public TLS)
-  -> NetBird -> private mTLS gateway :18444
-  -> independent Rust ingress :8090 -> healthy worker endpoints
+verified application domain → public Caddy :443
+  → private mTLS application gateway :18444 → Rust ingress :8090
+  → healthy revision-specific worker endpoints
 ```
 
-Use a dedicated edge CA, separate from node-agent and OpenBao identities. The
-server certificate must cover `ingress.local-paas`; the VPS holds a client
-certificate scoped to this gateway. All configuration takes private **file paths**,
-not key values. Restrict NetBird policy to the edge peer/group reaching the private
-gateway on TCP 18444, with a corresponding host firewall rule. Never trust the
-entire NetBird interface or grant workloads the management LAN. Review any existing
-NetBird default all-to-all policy before connecting the platform. Workers keep
-their current outbound mTLS protocol; physical workers still require enrollment,
-private endpoint addressing and explicitly scoped network policy.
+`Caddyfile.gateway` is the separate application gateway, with no admin endpoint.
+Its server certificate covers `ingress.local-paas`; only the edge's dedicated
+client identity is trusted. Restrict its bind address, private-network policy and
+host firewall to the edge peer. Neither gateway exposes PostgreSQL, the node-agent
+gateway or the operator API. NetBird management remains an independent prerequisite.
+A single edge and three co-located worker VMs do not provide physical HA.
 
-The public configuration requires `PLATFORM_DOMAINS` (space-separated, verified
-hostnames), `PLATFORM_ACME_EMAIL`, `PLATFORM_GATEWAY_NETBIRD_ADDRESS`, and
-`PLATFORM_EDGE_CA_FILE`, `PLATFORM_EDGE_CERT_FILE`, `PLATFORM_EDGE_KEY_FILE`.
-The gateway configuration requires the same peer address and CA file, plus
-`PLATFORM_GATEWAY_CERT_FILE` and `PLATFORM_GATEWAY_KEY_FILE`.
+Copy `infra/edge/worker.example.json` to an operator-owned private configuration
+file and replace its example addresses and file references. Admin CA/identity files
+are on the management host; gateway certificate paths are on the **Caddy host**.
+Alternatively set `adminSocket` to an absolute local socket path and omit
+`adminUrl` for a co-located edge. Remote plaintext admin URLs are rejected.
+`probeCaFile` is only needed for an explicitly trusted private development CA;
+hostname verification is always enabled. The default local `ingressPort` is 8090.
 
-Caddy maintains ACME state under `/var/lib/local-paas-edge/caddy`, owned by its
-service user. Keep that directory across restarts; monitor issuance/renewal and
-expiry. Public TCP 80/443 must reach the designated edge for the configured ACME
-flow. Do not enable arbitrary on-demand certificate issuance. The gateway has no
-public listener or administrator API. Both configuration files disable Caddy's
-admin endpoint; install them as dedicated supervised services or merge reviewed
-site blocks into the VPS's existing Caddy configuration without replacing other
-applications. No second-edge failover is implemented.
+Supervise `platform-edge` with `DATABASE_URL` and `EDGE_CONFIG_FILE`. It requires
+the current migrated database, an independently running ingress process and read
+access to its own credential files. Set `EDGE_CNAME_TARGET` on the operator API to
+display the public DNS target. Installation is explicit; local development does
+not authorize a VPS, DNS mutation, production cutover or Railway changes.
 
-Before any application cutover, verify DNS/CNAME ownership, TLS renewal, allowed
-and denied peer access, WebSocket/SSE traffic, controller outage, gateway outage,
-and DNS rollback using a disposable domain. Existing Railway deployments remain
-untouched. Off-site backup automation is not implemented; local backups do not protect
-against losing the platform host.
+## Renewal, backup and recovery
 
-The transport configuration follows Caddy's [reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
-and [mutual TLS](https://caddyserver.com/docs/caddyfile/directives/tls) documentation.
-NetBird's [access policy documentation](https://docs.netbird.io/manage/access-control/manage-network-access)
-describes peer groups, port-scoped access, and its initial full-mesh default policy.
+Keep public 80/443 reachable for Caddy's chosen ACME challenge, maintain accurate
+time and preserve its account/certificate storage. Do not enable arbitrary on-demand
+issuance. Alert on the UI's certificate-expiring state and worker/edge errors.
+Rotate management and gateway certificates through private files, restart the
+worker to load changed client identities, and verify a fresh acknowledgement.
+Caddy owns public leaf renewal; the controller only records observed expiry.
+
+Back up Caddy's persistent storage and autosaved configuration encrypted, together
+with protected gateway/management credential files and the PostgreSQL state. Never
+copy private key values into application records, logs, issue comments or PRs.
+Off-site backup automation remains separate work. Restore into an isolated fixture
+first, start private ingress and the edge worker, and wait for fresh observations
+before sending public traffic. Stale database acknowledgements are not authority
+to reuse stopped worker endpoints.
+
+Before DNS cutover, record the old DNS values and TTL, preserve the existing edge,
+and verify a disposable hostname including HTTP, WebSocket/SSE, renewal, denied
+hosts, controller/worker restart and gateway outage. For DNS rollback, restore the
+recorded target and allow TTL convergence; keep the old deployment available until
+its own health/route is verified. Do not stop either side based solely on a DNS write.
+
+## Validation
+
+Deterministic PostgreSQL tests cover promotion, restart/idempotency, uncertain
+apply recovery, expired acknowledgements, outage during rollback, removal and
+transactional audit records. The Caddy adapter fixture uses a real local Caddy,
+disposable DNS and private TLS/mTLS certificates. It exercises issuance, renewal, scoped
+API updates, ETags, unhealthy targets, denied hosts and removal. Existing ingress
+tests cover bounded HTTP, WebSocket/SSE and stale snapshot fencing.
+
+```sh
+# DATABASE_URL must identify a disposable PostgreSQL database with CREATEDB.
+cargo test -p control-plane --test edge --test ingress --test projects -- --ignored
+nix develop -c cargo test -p control-plane --lib caddy_api_issues -- --ignored
+```
+
+Local fixtures do not qualify a public CA, real DNS-provider propagation, a chosen
+VPS/NetBird topology or production certificate renewal. Those cutover drills still
+require explicitly supplied disposable infrastructure.
+
+The adapter follows Caddy's [API and concurrency contract](https://caddyserver.com/docs/api)
+and [automatic HTTPS lifecycle](https://caddyserver.com/docs/automatic-https).

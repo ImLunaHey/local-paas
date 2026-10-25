@@ -1,4 +1,4 @@
-import type { Domain } from './domain-types'
+import type { DomainObservation as Domain } from '../../generated/model/domainObservation'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 

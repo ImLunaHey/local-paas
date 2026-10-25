@@ -8,7 +8,11 @@ Tailwind and TanStack dashboard. It has no dependency on Anvil.
 The local platform registers specifications, builds immutable image revisions,
 and deploys OCI instances through authenticated Rust agents in three NixOS VMs.
 Readiness gates private preview traffic; live logs and cgroup metrics are visible
-in the UI. Candidate failures retain the active deployment. Public edge routing and celld execution remain unimplemented. Opt-in stateless
+in the UI. Candidate failures retain the active deployment. Public OCI routes now
+use a separately supervised edge worker, DNS ownership checks, Caddy API updates,
+TLS observations and durable promotion/rollback acknowledgements. Public infrastructure
+installation and ACME cutover qualification remain explicit operator work; celld
+execution remains unimplemented. Opt-in stateless
 relocation and node maintenance now persist handoffs and audit events transactionally. Workload secrets
 are versioned in dedicated OpenBao storage and delivered through authenticated agents.
 See [build operations](builds.md) and [runtime operations](runtime.md).
@@ -89,9 +93,11 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
 
 ## Runtime boundaries and target deployment design
 
-The following acknowledged-edge flow describes the production target. Current
-private routing uses transactional database state and independently refreshed,
-leased ingress snapshots; there is no external edge acknowledgement protocol yet.
+Public OCI routing uses versioned desired and observed domain records with
+independently refreshed, leased ingress targets. The edge worker authenticates its
+Caddy management connection and validates TLS plus the target generation through
+the application data path before recording an acknowledgement. Provider-specific
+details stay behind the internal edge interface. Private routing remains separate.
 
 The runtime interface covers prepare/start/stop/kill/inspect/exec/logs/destroy.
 Prepare takes an immutable image digest, limits, explicit mounts, network policy,
@@ -199,8 +205,9 @@ agent TCP proxies across the existing VM forwards. Only active, fresh, ready
 backends are advertised. Short route leases fence slot reuse; connection grants
 are enforced per source workload. Shadow environments remap target references.
 Remote TLS links preserve those forwarded endpoints on other physical hosts.
-Private traffic traverses the controller; VPN provisioning and public edge routing
-remain separate work. See the execution and networking limits in runtime.md.
+Private traffic traverses the controller; VPN provisioning remains separate work.
+Public routing uses the independent ingress and acknowledged edge lifecycle in
+[ingress.md](ingress.md). See the execution and networking limits in runtime.md.
 
 ## Portable installation
 

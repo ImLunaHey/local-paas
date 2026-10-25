@@ -73,7 +73,11 @@ pub struct ProjectDetail {
         crate::projects::list,
         crate::projects::create,
         crate::projects::get,
-        crate::projects::update
+        crate::projects::update,
+        crate::domains::list,
+        crate::domains::create,
+        crate::domains::update,
+        crate::edge::rollout::rollback
     ),
     components(schemas(
         ErrorResponse,

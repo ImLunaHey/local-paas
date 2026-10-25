@@ -1,0 +1,11 @@
+{
+  "adminUrl": "https://edge-admin.local-paas:18445",
+  "adminCaFile": "/etc/local-paas/edge-admin-ca.pem",
+  "adminIdentityFile": "/etc/local-paas/edge-admin-client.pem",
+  "publicAddress": "203.0.113.10:443",
+  "gatewayAddress": "100.64.0.10:18444",
+  "gatewayServerName": "ingress.local-paas",
+  "gatewayCaFile": "/etc/local-paas-edge/gateway-ca.pem",
+  "gatewayCertificateFile": "/etc/local-paas-edge/gateway-client.pem",
+  "gatewayKeyFile": "/etc/local-paas-edge/gateway-client-key.pem"
+}

@@ -26,14 +26,17 @@ Networking offers an automatic private URL allocation. The API serializes
 allocation in PostgreSQL, preserves an existing URL when enabled again, and
 rejects exhaustion without changing service configuration. An app's container
 port is independent of the platform-managed HTTPS port. Custom public domains
-remain a future ingress feature.
+use the separate acknowledged edge lifecycle on the Domains page.
 
 The global `/domains` registry stores normalized hostnames and one optional web
 service assignment per hostname. Project/environment selection determines the
 service; assignments can move between projects without re-registering the domain.
 Updates use optimistic versions and committed audits retain the previous and new
 service IDs. `EDGE_CNAME_TARGET` may supply the shared CNAME destination once the
-edge is provisioned. Every domain remains `pending-edge`: this page does not
-verify ownership, issue certificates, alter DNS, or activate routing. Registry
+edge is provisioned. Each card shows its TXT ownership record, desired and
+acknowledged generations, certificate expiry, lease expiry and actionable pending
+or failure states. The edge worker verifies DNS, updates Caddy through its API,
+and observes TLS and route health; saving an assignment never claims success.
+DNS-provider writes remain explicit operator work. Registry
 assignments are separate from current private Tailscale URLs and legacy manifest
 domain declarations.

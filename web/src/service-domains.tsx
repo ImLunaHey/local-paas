@@ -24,7 +24,7 @@ export function ServiceDomains({
     <div className="space-y-3">
       <Field
         label="Domains"
-        hint="Choose a registered domain. Public routing is pending VPS and NetBird setup."
+        hint="Choose a registered domain. Public routing requires verified DNS, TLS, and an acknowledged edge route."
       >
         <Select
           disabled={!query.data}

@@ -1,6 +1,6 @@
 import { DomainAssignment } from './domain-assignment'
 
-import type { DomainList } from './domain-types'
+import type { DomainList } from '../../generated/model/domainList'
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -17,7 +17,7 @@ export function Domains() {
   const query = useQuery({
     queryKey: ['domains'],
     queryFn: () => api<DomainList>('/domains'),
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   })
   const [hostname, setHostname] = useState('')
   const create = useMutation({
@@ -45,11 +45,10 @@ export function Domains() {
       <section className="panel mb-6 space-y-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2>Public edge</h2>
-          <span className="chip">Pending edge setup</span>
         </div>
         <p className="text-xs leading-relaxed text-muted">
-          Domain assignments are saved here. Public traffic will start routing after the VPS and
-          NetBird are connected, DNS ownership is verified, and TLS is issued.
+          Each domain reports its observed DNS, TLS, and route status. Public deployments wait for
+          the edge to acknowledge a healthy route before the previous revision is retired.
         </p>
         {query.data?.cnameTarget ? (
           <div className="rounded-md border border-zinc-800 bg-zinc-950 p-4">
@@ -57,8 +56,8 @@ export function Domains() {
             <code className="mt-2 block break-all text-sm">{query.data.cnameTarget}</code>
             <p className="mt-2 text-xs text-muted">
               Point subdomains here at your DNS provider. For a root domain, use ALIAS/ANAME or
-              CNAME flattening if your provider supports it. DNS configuration alone does not
-              activate routing yet.
+              CNAME flattening if your provider supports it. DNS configuration alone does not prove
+              that a route is active. Add the ownership TXT record shown on each domain.
             </p>
           </div>
         ) : (
