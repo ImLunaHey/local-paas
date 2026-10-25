@@ -15,6 +15,7 @@ use serde_json::json;
 use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 
+pub mod api_keys;
 mod audit;
 pub mod auth;
 #[cfg(test)]
@@ -71,6 +72,11 @@ fn platform_router(
     auth_service: Option<std::sync::Arc<lucid_auth::AuthService>>,
 ) -> Router {
     let mut app = Router::new()
+        .route("/api/api-keys", get(api_keys::list).post(api_keys::create))
+        .route(
+            "/api/api-keys/{id}",
+            axum::routing::delete(api_keys::revoke),
+        )
         .route("/api/openapi.json", get(openapi::document))
         .route("/api/health", get(health))
         .route(
@@ -273,6 +279,7 @@ fn platform_router(
                         .into_response();
                 }
                 let secrets = request.uri().path().ends_with("/secrets")
+                    || request.uri().path().starts_with("/api/api-keys")
                     || request.uri().path().starts_with("/api/agent/files/")
                     || request.uri().path().ends_with("/database/inspect")
                     || request.uri().path().ends_with("/files");

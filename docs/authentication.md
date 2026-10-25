@@ -37,7 +37,33 @@ Organizations can create custom roles from the Organization screen. Permissions 
 
 Browser sessions are exposed to credential theft, CSRF, hostile origins, session fixation, and compromised operators. The API therefore denies anonymous management requests, validates the local Host header, rejects untrusted browser origins, requires JSON for mutations, and relies on Better Auth's same-site HTTP-only cookie, origin validation, expiry, rotation, logout, and server-side revocation. The frontend is only an affordance: every permission is enforced in the API.
 
-API clients must use a valid operator session and an approved origin when sending an Origin header. A session grants only the active organization's permissions. Resource lookups return not found across organization boundaries to avoid confirming identifiers. Global administrators deliberately cross this boundary and should not be used for routine work.
+API clients must use a valid browser session or scoped personal API key and an approved origin when sending an Origin header. A session grants only the active organization's permissions. Resource lookups return not found across organization boundaries to avoid confirming identifiers. Global administrators deliberately cross this boundary and should not be used for routine work.
+
+## Personal API keys
+
+Migration 0039 adds organization-bound personal keys. Browser sessions can list and
+revoke their own keys through `/api/api-keys`, or create one by providing a name,
+an expiry of 1–90 days, and explicit resource/action permissions. Creation checks
+current organization membership and rejects impersonated sessions. Each owner
+can have at most 20 active keys in an organization.
+
+The server generates a high-entropy `lp_` credential and returns it once with
+`Cache-Control: no-store`. PostgreSQL stores its SHA-256 verifier and a short
+identification prefix, never the credential. Creation/revocation and their audit
+events commit in the same transaction. The documentation UI keeps the returned
+credential out of local storage and TanStack's query/mutation caches.
+
+Use `Authorization: Bearer <key>` over HTTPS. Every request intersects the key's
+permissions with the creator's current organization role; expiry, revocation,
+account bans, and removed memberships take effect on subsequent requests. A key
+never acquires platform-administrator privileges and cannot access authentication
+or key-management endpoints. Audit actors identify the key, not its raw value.
+
+The documentation preview must use an explicitly trusted HTTPS origin when its
+API uses secure session cookies. Do not rewrite arbitrary browser origins or
+disable CSRF checks to make a preview login work. An older API exposes a clear
+feature-unavailable notice; deploy the matching API and reviewed migrations before
+enabling key creation on that installation.
 
 Audit records store user identifiers and organization IDs, never cookies, passwords, tokens, recovery material, or secret values. Database triggers remain the transactional source for desired-state changes; request audit entries add the authenticated actor and outcome. Agent endpoints remain outside the operator middleware and continue to enforce their existing node credentials.
 

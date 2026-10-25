@@ -60,9 +60,12 @@ pub struct ProjectDetail {
     info(
         title = "local-paas management API",
         version = "0.2.0",
-        description = "Private operator API with camelCase fields. Controller, dashboard and protocol v2 agents must be upgraded together."
+        description = "Organization-scoped management API with camelCase fields. Authenticate with a browser session or a scoped personal API key. This schema documents the supported reference operations, not internal agent or authentication endpoints."
     ),
     paths(
+        crate::api_keys::create,
+        crate::api_keys::list,
+        crate::api_keys::revoke,
         crate::scaling::get,
         crate::scaling::configure,
         crate::waking::get,

@@ -62,7 +62,11 @@ impl Context {
     }
 
     pub fn audit_actor(&self) -> String {
-        format!("user:{}", self.actor_id)
+        if self.actor_id.starts_with("api-key:") {
+            self.actor_id.clone()
+        } else {
+            format!("user:{}", self.actor_id)
+        }
     }
 }
 
@@ -140,6 +144,21 @@ pub async fn require_operator(
 ) -> Response {
     let service = state.service.clone();
     let path = request.uri().path();
+    let api_token = request
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|value| value.starts_with("lp_"))
+        .map(str::to_owned);
+    if api_token.is_some() && (path.starts_with("/api/auth/") || path.starts_with("/api/api-keys"))
+    {
+        return auth_error(
+            StatusCode::FORBIDDEN,
+            "browser_session_required",
+            "Use a signed-in browser session to manage credentials",
+        );
+    }
     if public_path(path) {
         return next.run(request).await;
     }
@@ -149,46 +168,62 @@ pub async fn require_operator(
         .map(|path| path.as_str().to_owned())
         .unwrap_or_default();
     let request_path = request.uri().path().to_owned();
-    let Some(token) = lucid_auth::axum::session_token(&service, request.headers()) else {
-        return auth_error(
-            StatusCode::UNAUTHORIZED,
-            "authentication_required",
-            "Sign in required",
-        );
-    };
-    let principal = match service.principal(&token).await {
-        Ok(Some(principal)) => principal,
-        Ok(None) => {
+    let (session, key_identity) = if let Some(token) = api_token {
+        match crate::api_keys::authenticate(&state, &token).await {
+            Some((session, identity)) => (session, Some(identity)),
+            None => {
+                return auth_error(
+                    StatusCode::UNAUTHORIZED,
+                    "invalid_api_key",
+                    "API key is invalid, expired, or revoked",
+                );
+            }
+        }
+    } else {
+        let Some(token) = lucid_auth::axum::session_token(&service, request.headers()) else {
             return auth_error(
                 StatusCode::UNAUTHORIZED,
-                "invalid_session",
-                "Session is invalid or expired",
+                "authentication_required",
+                "Sign in required",
             );
-        }
-        Err(_) => {
-            return auth_error(
-                StatusCode::UNAUTHORIZED,
-                "invalid_session",
-                "Session is invalid or expired",
-            );
-        }
+        };
+        match service.principal(&token).await {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return auth_error(
+                    StatusCode::UNAUTHORIZED,
+                    "invalid_session",
+                    "Session is invalid or expired",
+                );
+            }
+            Err(_) => {
+                return auth_error(
+                    StatusCode::UNAUTHORIZED,
+                    "invalid_session",
+                    "Session is invalid or expired",
+                );
+            }
+        };
+        let session = match service.session(&token).await {
+            Ok(Some(session)) => session,
+            _ => {
+                return auth_error(
+                    StatusCode::UNAUTHORIZED,
+                    "invalid_session",
+                    "Session is invalid or expired",
+                );
+            }
+        };
+        (session, None)
     };
-    let session = match service.session(&token).await {
-        Ok(Some(session)) => session,
-        _ => {
-            return auth_error(
-                StatusCode::UNAUTHORIZED,
-                "invalid_session",
-                "Session is invalid or expired",
-            );
-        }
-    };
-    let is_superuser = session
-        .user
-        .role
-        .split(',')
-        .map(str::trim)
-        .any(|role| role == "admin");
+    let principal = session.principal();
+    let is_superuser = key_identity.is_none()
+        && session
+            .user
+            .role
+            .split(',')
+            .map(str::trim)
+            .any(|role| role == "admin");
     let organization_id = session
         .session
         .additional_fields
@@ -203,7 +238,27 @@ pub async fn require_operator(
                 "Select an organization before accessing the platform",
             );
         };
-        if let Some((resource, action)) = required_permission(&request) {
+        // Credential management still requires current membership, even though
+        // it is not itself a service read/update operation.
+        if request_path.starts_with("/api/api-keys")
+            && !service
+                .has_organization_permission(
+                    &session,
+                    Some(organization_id.clone()),
+                    BTreeMap::new(),
+                )
+                .await
+                .unwrap_or(false)
+        {
+            return auth_error(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                "Current organization membership is required",
+            );
+        }
+        if let Some((resource, action)) =
+            required_permission(&request).filter(|_| !request_path.starts_with("/api/api-keys"))
+        {
             let mut permissions = BTreeMap::from([(resource.into(), vec![action.into()])]);
             // Managing source credentials alone must not grant automated deployment rights.
             if matched_path.ends_with("/preview-policy") && request.method() == Method::PUT {
@@ -215,6 +270,16 @@ pub async fn require_operator(
                 && request.method() == Method::DELETE
             {
                 permissions.insert("deployment".into(), vec!["stop".into()]);
+            }
+            if key_identity
+                .as_ref()
+                .is_some_and(|key| !crate::api_keys::permits(&key.permissions, &permissions))
+            {
+                return auth_error(
+                    StatusCode::FORBIDDEN,
+                    "api_key_scope_denied",
+                    "This API key does not permit this action",
+                );
             }
             match service
                 .has_organization_permission(&session, Some(organization_id.clone()), permissions)
@@ -258,8 +323,16 @@ pub async fn require_operator(
             }
         }
     }
+    if request_path.starts_with("/api/api-keys") {
+        request
+            .extensions_mut()
+            .insert(crate::api_keys::BrowserSession(session.clone()));
+        request.extensions_mut().insert(service.clone());
+    }
     request.extensions_mut().insert(Context {
-        actor_id: principal.actor_id,
+        actor_id: key_identity
+            .map(|key| format!("api-key:{}", key.id))
+            .unwrap_or(principal.actor_id),
         user_id: principal.subject_id,
         username: session
             .user
