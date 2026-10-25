@@ -22,6 +22,7 @@ import type {
 } from '@tanstack/react-query'
 
 import type {
+  Configure,
   CreateService,
   ErrorResponse,
   Event,
@@ -1108,6 +1109,227 @@ export function useListServiceEvents<
   }
 
   return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getGetServiceScalingUrl = (id: string) => {
+  return `/api/services/${id}/scaling`
+}
+
+export const getServiceScaling = async (
+  id: string,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<unknown> => {
+  return apiFetch<unknown>(getGetServiceScalingUrl(id), {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export const getGetServiceScalingQueryKey = (id: string) => {
+  return [`/api/services/${id}/scaling`] as const
+}
+
+export const getGetServiceScalingQueryOptions = <
+  TData = Awaited<ReturnType<typeof getServiceScaling>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getServiceScaling>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {}
+
+  const queryKey = queryOptions?.queryKey ?? getGetServiceScalingQueryKey(id)
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getServiceScaling>>> = ({ signal }) =>
+    getServiceScaling(id, { signal, ...requestOptions })
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getServiceScaling>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+}
+
+export type GetServiceScalingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getServiceScaling>>
+>
+export type GetServiceScalingQueryError = unknown
+
+export function useGetServiceScaling<
+  TData = Awaited<ReturnType<typeof getServiceScaling>>,
+  TError = unknown,
+>(
+  id: string,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getServiceScaling>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getServiceScaling>>,
+          TError,
+          Awaited<ReturnType<typeof getServiceScaling>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetServiceScaling<
+  TData = Awaited<ReturnType<typeof getServiceScaling>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getServiceScaling>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getServiceScaling>>,
+          TError,
+          Awaited<ReturnType<typeof getServiceScaling>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetServiceScaling<
+  TData = Awaited<ReturnType<typeof getServiceScaling>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getServiceScaling>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetServiceScaling<
+  TData = Awaited<ReturnType<typeof getServiceScaling>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getServiceScaling>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetServiceScalingQueryOptions(id, options)
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+
+  return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getConfigureServiceScalingUrl = (id: string) => {
+  return `/api/services/${id}/scaling`
+}
+
+export const configureServiceScaling = async (
+  id: string,
+  configure: Configure,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<unknown> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {}
+    if (h instanceof Headers) return Object.fromEntries(h.entries())
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      )
+    }
+    const headers: Record<string, string | readonly string[]> = {}
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value
+    }
+    return headers
+  }
+  return apiFetch<unknown>(getConfigureServiceScalingUrl(id), {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(configure),
+  })
+}
+
+export const getConfigureServiceScalingMutationKey = () => ['configureServiceScaling'] as const
+
+export const getConfigureServiceScalingMutationOptions = <
+  TError = unknown,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof configureServiceScaling>>,
+    TError,
+    ConfigureServiceScalingMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof configureServiceScaling>>,
+  TError,
+  ConfigureServiceScalingMutationVariables,
+  TContext
+> => {
+  const mutationKey = getConfigureServiceScalingMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof configureServiceScaling>>,
+    ConfigureServiceScalingMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {}
+
+    return configureServiceScaling(id, data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type ConfigureServiceScalingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof configureServiceScaling>>
+>
+export type ConfigureServiceScalingMutationBody = Configure
+export type ConfigureServiceScalingMutationError = unknown
+export type ConfigureServiceScalingMutationVariables = { id: string; data: Configure }
+
+export const useConfigureServiceScaling = <TError = unknown, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof configureServiceScaling>>,
+      TError,
+      ConfigureServiceScalingMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof configureServiceScaling>>,
+  TError,
+  ConfigureServiceScalingMutationVariables,
+  TContext
+> => {
+  return useMutation(getConfigureServiceScalingMutationOptions(options), queryClient)
 }
 
 export const getValidateServiceSpecUrl = () => {

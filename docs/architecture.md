@@ -75,6 +75,10 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
 - Propose Caddy at the DigitalOcean edge, ACME certificate state backed up,
   health-checked upstreams over NetBird. Initial edge is a single point of
   failure. No DNS-based or second-edge failover claim until designed and tested.
+- Opt-in CPU autoscaling shares the scheduler lock and durable reservations.
+  HTTP sleep/wake uses independent ingress activity, 503 retries and readiness
+  gates; jobs, pinned storage and singleton workers remain ineligible. See
+  [autoscaling](autoscaling.md) for budgets and qualification limits.
 - The development API runs one reconciler; transaction-scoped PostgreSQL advisory
   locks serialize placement and promotion. Long-lived scheduler leadership and
   controller epoch allocation remain necessary before running multiple active

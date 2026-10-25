@@ -7,6 +7,7 @@
  */
 
 export * from './buildMode.ts'
+export * from './configure.ts'
 export * from './createService.ts'
 export * from './environmentSummary.ts'
 export * from './errorResponse.ts'
@@ -25,6 +26,7 @@ export * from './projectSummary.ts'
 export * from './projectUpdate.ts'
 export * from './readiness.ts'
 export * from './resources.ts'
+export * from './scalingPolicy.ts'
 export * from './service.ts'
 export * from './serviceList.ts'
 export * from './serviceSpec.ts'

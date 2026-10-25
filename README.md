@@ -72,6 +72,7 @@ host are three scheduling nodes, not three physical failure domains.
 - Health-gated deployments, retained revisions, failed-candidate rollback,
   independent ingress, cordon/drain and opt-in stateless relocation.
 - Singleton workers, one-off jobs, interval schedules and pre-deployment commands.
+- Opt-in CPU autoscaling and HTTP sleep/wake for eligible stateless services.
 - OpenBao-backed workload secrets; dedicated ClickHouse runtime log retention.
 - Structured log columns/search, retained instance logs, metrics and audit events.
 - Managed PostgreSQL, Redis and RustFS; shared node-pinned volumes and file browsing.

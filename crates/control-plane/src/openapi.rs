@@ -63,6 +63,8 @@ pub struct ProjectDetail {
         description = "Private operator API with camelCase fields. Controller, dashboard and protocol v2 agents must be upgraded together."
     ),
     paths(
+        crate::scaling::get,
+        crate::scaling::configure,
         crate::health,
         crate::validate_spec,
         crate::list_services,

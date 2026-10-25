@@ -92,7 +92,7 @@ export function ServiceWorkspace({ service, children }: { service: Service; chil
       ]}
       details={[
         {
-          label: fleet ? 'Requested members' : 'Requested replicas',
+          label: fleet ? 'Requested members' : 'Configured baseline replicas',
           value:
             spec.workload.kind === 'oci-service'
               ? spec.workload.replicas

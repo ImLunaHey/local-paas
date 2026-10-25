@@ -388,6 +388,72 @@
         }
       }
     },
+    "/api/services/{id}/scaling": {
+      "get": {
+        "tags": [
+          "crate::scaling"
+        ],
+        "operationId": "getServiceScaling",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::scaling"
+        ],
+        "operationId": "configureServiceScaling",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Configure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/specs/validate": {
       "post": {
         "tags": [
@@ -438,6 +504,28 @@
           "dockerfile",
           "generated"
         ]
+      },
+      "Configure": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "expectedVersion",
+          "policy"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ScalingPolicy"
+          }
+        },
+        "additionalProperties": false
       },
       "CreateService": {
         "type": "object",
@@ -771,6 +859,82 @@
           "memoryMib": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScalingPolicy": {
+        "type": "object",
+        "properties": {
+          "cooldownSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 60,
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "failureDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "idleSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 600,
+            "minimum": 0
+          },
+          "maxReplicas": {
+            "type": "integer",
+            "format": "int32",
+            "default": 3,
+            "minimum": 0
+          },
+          "maxStep": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1,
+            "minimum": 0
+          },
+          "minReplicas": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1,
+            "minimum": 0
+          },
+          "nodeNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "preferFailureDomainSpread": {
+            "type": "boolean",
+            "default": true
+          },
+          "scaleDownWindowSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 300,
+            "minimum": 0
+          },
+          "scaleUpWindowSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 30,
+            "minimum": 0
+          },
+          "targetCpuPercent": {
+            "type": "integer",
+            "format": "int32",
+            "default": 70,
             "minimum": 0
           }
         },

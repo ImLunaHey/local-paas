@@ -406,3 +406,11 @@ the address. The live recovery canary passed five crash/restart cycles, bounded
 exhaustion, redeployment and stop-during-backoff (579.89 seconds). This closes the
 orphan cleanup/reuse gap; it does not establish that every possible CNI failure has
 been eliminated. Further network fault testing remains a production requirement.
+
+## Autoscaling
+
+Eligible stateless HTTP OCI services can opt into durable CPU scaling and HTTP
+scale-to-zero. Policies, cooldowns and decisions persist in PostgreSQL; capacity,
+rollout and job barriers remain authoritative. Cold requests receive 503 with
+Retry-After until readiness, without queuing or replay. See [autoscaling](autoscaling.md)
+for eligibility, operator budgets, placement, metric lag and verification limits.

@@ -1,3 +1,4 @@
+import { ScalingPanel } from './scaling'
 import { DatabasePanel } from './features/databases/database-connections'
 import { Hosts } from './features/overview/host-dashboard'
 import { RuntimePanel } from './features/deployments/runtime-panel'
@@ -351,7 +352,10 @@ function ServiceConfiguration() {
   const service = useCurrentService()
   return service.spec.workload.kind === 'oci-service' ||
     service.spec.workload.kind === 'celld-service' ? (
-    <ServiceForm key={service.id} service={service} />
+    <>
+      <ServiceForm key={service.id} service={service} />
+      <ScalingPanel service={service} />
+    </>
   ) : (
     <DatabaseForm key={service.id} service={service} />
   )

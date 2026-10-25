@@ -20,6 +20,10 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 #[derive(Clone)]
 struct Proxy {
+    pool: PgPool,
+    sleepers: Arc<RwLock<HashMap<String, (Uuid, bool)>>>,
+    activity: Activity,
+    recent_demand: Arc<std::sync::Mutex<HashMap<Uuid, std::time::Instant>>>,
     routes: Arc<RwLock<HashMap<String, Vec<Backend>>>>,
     client: reqwest::Client,
     next: Arc<AtomicUsize>,
@@ -29,6 +33,32 @@ struct Proxy {
 struct Backend {
     port: i32,
     expires: DateTime<Utc>,
+}
+type Activity = Arc<std::sync::Mutex<HashMap<Uuid, usize>>>;
+struct RequestPermit {
+    _connection: OwnedSemaphorePermit,
+    activity: Option<(Activity, Uuid)>,
+}
+impl From<OwnedSemaphorePermit> for RequestPermit {
+    fn from(connection: OwnedSemaphorePermit) -> Self {
+        Self {
+            _connection: connection,
+            activity: None,
+        }
+    }
+}
+impl Drop for RequestPermit {
+    fn drop(&mut self) {
+        if let Some((activity, id)) = &self.activity {
+            let mut counts = activity.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(count) = counts.get_mut(id) {
+                *count -= 1;
+                if *count == 0 {
+                    counts.remove(id);
+                }
+            }
+        }
+    }
 }
 struct RefreshGuard(tokio::task::JoinHandle<()>);
 impl Drop for RefreshGuard {
@@ -95,12 +125,32 @@ pub async fn serve(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(2))
         .build()?;
+    let sleepers = Arc::new(RwLock::new(HashMap::new()));
+    let activity: Activity = Arc::default();
+    let refresh_sleepers = sleepers.clone();
+    let refresh_activity = activity.clone();
+    let refresh_pool = pool.clone();
     let refresh_routes = routes.clone();
     let updater = RefreshGuard(tokio::spawn(async move {
+        let pool = refresh_pool;
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
+            let busy: Vec<Uuid> = refresh_activity
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .keys()
+                .copied()
+                .collect();
+            if let Ok(Ok(mapping)) = tokio::time::timeout(
+                Duration::from_secs(2),
+                crate::scaling::ingress_heartbeat(&pool, &busy),
+            )
+            .await
+            {
+                *refresh_sleepers.write().await = mapping;
+            }
             match tokio::time::timeout(Duration::from_secs(5), refresh(&pool, &health)).await {
                 Ok(Ok(snapshot)) => *refresh_routes.write().await = snapshot,
                 _ => tracing::warn!(
@@ -112,6 +162,10 @@ pub async fn serve(
     let result = axum::serve(
         listener,
         Router::new().fallback(proxy).with_state(Proxy {
+            pool,
+            sleepers,
+            activity,
+            recent_demand: Arc::default(),
             routes,
             client: client()?,
             next: Arc::new(AtomicUsize::new(0)),
@@ -157,6 +211,37 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_lowercase();
+    let mut permit = RequestPermit::from(permit);
+    let sleeper = p.sleepers.read().await.get(&authority).copied();
+    if let Some((id, enabled)) = sleeper {
+        *p.activity
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(id)
+            .or_default() += 1;
+        permit.activity = Some((p.activity.clone(), id));
+        let recently_recorded = p
+            .recent_demand
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .is_some_and(|time| time.elapsed() < Duration::from_secs(5));
+        if enabled && !recently_recorded {
+            if !matches!(
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    crate::scaling::request_wake(&p.pool, id)
+                )
+                .await,
+                Ok(Ok(()))
+            ) {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            let mut recent = p.recent_demand.lock().unwrap_or_else(|e| e.into_inner());
+            recent.retain(|_, time| time.elapsed() < Duration::from_secs(5));
+            recent.insert(id, std::time::Instant::now());
+        }
+    }
     let backend = {
         let routes = p.routes.read().await;
         let ready: Vec<_> = routes
@@ -168,7 +253,8 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         if ready.is_empty() {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
-                "No healthy application instances are ready.\n",
+                [("retry-after", "5")],
+                "No healthy application instances are ready. Retry after five seconds; requests are not queued.\n",
             )
                 .into_response();
         }
@@ -215,9 +301,10 @@ async fn forward(
     mut request: Request,
     port: i32,
     authority: String,
-    permit: OwnedSemaphorePermit,
+    permit: impl Into<RequestPermit>,
     expires: Option<DateTime<Utc>>,
 ) -> Response {
+    let permit = permit.into();
     let upgrade = websocket(request.headers()) && request.method() == axum::http::Method::GET;
     let downstream = upgrade.then(|| hyper::upgrade::on(&mut request));
     let path = request

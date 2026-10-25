@@ -272,7 +272,7 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
             audit(tx,id,"relocation.completed",json!({"oldInstance":old,"newInstance":new,"cleanupPending":r.get::<String,_>("old_state")!="stopped"})).await?;
         }
     }
-    let candidates=sqlx::query("SELECT i.id,i.node_id,i.deployment_id,d.service_id,d.spec,d.database_ports,n.draining,s.relocation_enabled FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id WHERE i.desired_state='running' AND i.routing_enabled AND d.status='active' AND d.job_options IS NULL AND (n.draining OR n.last_seen<now()-interval '45 seconds') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.old_instance=i.id AND r.state<>'cancelled') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state IN ('preparing','draining')) AND NOT EXISTS(SELECT 1 FROM deployments pending WHERE pending.service_id=d.service_id AND pending.status IN ('preparing','waiting','releasing')) ORDER BY i.id").fetch_all(&mut **tx).await?;
+    let candidates=sqlx::query("SELECT i.id,i.node_id,i.deployment_id,d.service_id,d.spec,d.database_ports,n.draining,s.relocation_enabled FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id WHERE i.desired_state='running' AND i.routing_enabled AND i.scaling_deadline IS NULL AND i.scale_down_after IS NULL AND NOT EXISTS(SELECT 1 FROM instances pending_scale WHERE pending_scale.deployment_id=d.id AND pending_scale.state<>'stopped' AND (pending_scale.scaling_deadline IS NOT NULL OR pending_scale.scale_down_after IS NOT NULL OR pending_scale.desired_state='stopped')) AND d.status='active' AND d.job_options IS NULL AND (n.draining OR n.last_seen<now()-interval '45 seconds') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.old_instance=i.id AND r.state<>'cancelled') AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state IN ('preparing','draining')) AND NOT EXISTS(SELECT 1 FROM deployments pending WHERE pending.service_id=d.service_id AND pending.status IN ('preparing','waiting','releasing')) ORDER BY i.id").fetch_all(&mut **tx).await?;
     for r in candidates {
         let mut spec: ServiceSpec = r.get::<DbJson<ServiceSpec>, _>("spec").0;
         if blocked(&spec, r.get("relocation_enabled"), false).is_some() {
@@ -295,6 +295,13 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
         } = spec.workload
         {
             *replicas = 1;
+        }
+        if crate::scaling::policy(tx, r.get("service_id"))
+            .await?
+            .is_some()
+            && crate::scaling::budget(tx, &spec).await? == 0
+        {
+            continue;
         }
         let placements = crate::runtime::place_excluding(
             tx,
