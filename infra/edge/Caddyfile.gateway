@@ -13,6 +13,8 @@ https://:18444 {
 		}
 	}
 	reverse_proxy 127.0.0.1:8090 {
+		header_up Host {http.request.header.X-Local-Paas-Route}
+		header_up -X-Local-Paas-Route
 		flush_interval -1
 		stream_close_delay 5m
 	}

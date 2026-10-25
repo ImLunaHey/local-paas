@@ -112,6 +112,13 @@ readiness stabilization. The first ready replica may take minutes, and exhausted
 capacity or failed startup can prevent recovery entirely. Wake-up bypasses the
 CPU stabilization/cooldown, but never capacity, cleanup or readiness checks.
 
+Public requests use the edge's leased, generation-specific gateway authority;
+the raw public hostname cannot bypass that lease. The edge can acknowledge an
+active deployment's wake route while it intentionally has no routing replicas.
+Its route probes do not record user activity or wake the service. Candidate
+deployments still require a healthy backend before acknowledgement, and scaling
+waits until an edge rollout or rollback has finished draining.
+
 ### Custom waking pages
 
 Each eligible service can edit its waking page in **Configuration → Autoscaling
@@ -174,7 +181,7 @@ organization scoping and service read/update permissions as other service
 configuration. PUT accepts `operationId`, `expectedVersion`, and `html` (string,
 or `null` to reset). GET returns `version`, `html`, and `starterTemplate`. HTML
 is limited independently of the bounded JSON request body. Migration
-`0032_waking_pages.sql` stores templates and idempotency metadata.
+`0033_waking_pages.sql` stores templates and idempotency metadata.
 
 ### Private dependencies
 

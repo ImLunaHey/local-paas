@@ -33,6 +33,8 @@ struct Proxy {
 struct Backend {
     port: i32,
     expires: DateTime<Utc>,
+    authority: String,
+    generation: Option<i64>,
 }
 type Activity = Arc<std::sync::Mutex<HashMap<Uuid, usize>>>;
 struct RequestPermit {
@@ -78,7 +80,7 @@ async fn refresh(
     // Readiness is initially certified by the agent. Local probes keep checking it
     // while the controller is offline. Desired state, route membership and leases
     // remain authoritative; stale observations alone do not kill healthy traffic.
-    let rows=sqlx::query("SELECT r.authority,i.id,n.endpoint_base+i.slot AS port,coalesce(d.spec->'workload'->'readiness'->>'path','/') AS path,clock_timestamp()+interval '10 seconds' AS expires FROM (SELECT authority,service_id FROM preview_routes UNION SELECT hostname AS authority,service_id FROM domains WHERE service_id IS NOT NULL) r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE i.state='ready' AND i.routing_enabled AND i.desired_state='running' AND d.spec->'workload'->>'kind'='oci-service' AND coalesce(d.spec->'workload'->>'execution','http')='http' ORDER BY i.id").fetch_all(&mut *tx).await?;
+    let rows=sqlx::query("WITH routes AS (SELECT r.authority,r.authority AS hostname,d.id AS deployment_id,NULL::bigint AS generation,clock_timestamp()+interval '10 seconds' AS expires FROM preview_routes r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' UNION ALL SELECT t.authority,t.hostname,t.deployment_id,t.generation,least(t.expires_at,clock_timestamp()+interval '10 seconds') FROM edge_targets t WHERE t.expires_at>clock_timestamp()) SELECT r.authority,r.hostname,r.generation,i.id,n.endpoint_base+i.slot AS port,coalesce(d.spec->'workload'->'readiness'->>'path','/') AS path,r.expires FROM routes r JOIN deployments d ON d.id=r.deployment_id JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE i.state='ready' AND i.routing_enabled AND i.desired_state='running' AND d.spec->'workload'->>'kind'='oci-service' AND coalesce(d.spec->'workload'->>'execution','http')='http' ORDER BY i.id").fetch_all(&mut *tx).await?;
     for r in &rows {
         sqlx::query("INSERT INTO ingress_route_leases(instance_id,expires_at) VALUES($1,$2) ON CONFLICT(instance_id) DO UPDATE SET expires_at=greatest(ingress_route_leases.expires_at,EXCLUDED.expires_at)").bind(r.get::<Uuid,_>("id")).bind(r.get::<DateTime<Utc>,_>("expires")).execute(&mut *tx).await?;
     }
@@ -91,7 +93,7 @@ async fn refresh(
             let path: String = r.get("path");
             let healthy = health
                 .get(format!("http://127.0.0.1:{port}{path}"))
-                .header("host", &authority)
+                .header("host", r.get::<String, _>("hostname"))
                 .send()
                 .await
                 .is_ok_and(|response| response.status().is_success());
@@ -100,6 +102,8 @@ async fn refresh(
                 Backend {
                     port,
                     expires: r.get("expires"),
+                    authority: r.get("hostname"),
+                    generation: r.get("generation"),
                 },
                 healthy,
             )
@@ -212,8 +216,17 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         .unwrap_or("")
         .to_lowercase();
     let mut permit = RequestPermit::from(permit);
-    let sleeper = p.sleepers.read().await.get(&authority).cloned();
-    if let Some(page) = &sleeper {
+    let sleeper = p
+        .sleepers
+        .read()
+        .await
+        .get(&authority)
+        .filter(|page| page.expires.is_none_or(|expires| expires > Utc::now()))
+        .cloned();
+    let edge_probe = request.uri().path() == "/.well-known/local-paas/route";
+    if let Some(page) = &sleeper
+        && !edge_probe
+    {
         let id = page.service_id;
         *p.activity
             .lock()
@@ -287,6 +300,27 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         )
             .into_response();
     }
+    if edge_probe {
+        // An active deployment intentionally at zero still has a live wake route.
+        // Candidate revisions require a healthy backend before edge acknowledgement.
+        // Edge probes are not user demand and must never wake a sleeping service.
+        let generation = backend
+            .as_ref()
+            .and_then(|b| b.generation)
+            .or_else(|| sleeper.as_ref().and_then(|page| page.sleeping_generation));
+        return match generation {
+            Some(generation) => (
+                StatusCode::NO_CONTENT,
+                [
+                    ("x-local-paas-generation", generation.to_string()),
+                    ("x-local-paas-route", authority),
+                ],
+            )
+                .into_response(),
+            None if backend.is_some() => StatusCode::NOT_FOUND.into_response(),
+            None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
+    }
     let Some(backend) = backend else {
         return unavailable(&request, sleeper.as_deref());
     };
@@ -294,7 +328,7 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         &p.client,
         request,
         backend.port,
-        authority,
+        backend.authority,
         permit,
         Some(backend.expires),
     )
@@ -407,12 +441,21 @@ async fn forward(
     strip_hop(&mut headers);
     let remove: Vec<_> = headers
         .keys()
-        .filter(|h| h.as_str().starts_with("x-forwarded-") || h.as_str() == "forwarded")
+        .filter(|h| {
+            h.as_str().starts_with("x-forwarded-")
+                || h.as_str().starts_with("x-local-paas-")
+                || h.as_str() == "forwarded"
+        })
         .cloned()
         .collect();
     for h in remove {
         headers.remove(h);
     }
+    let Ok(host) = authority.parse() else {
+        return StatusCode::BAD_GATEWAY.into_response();
+    };
+    // Replace the opaque gateway Host rather than appending a second Host value.
+    headers.insert("host", host);
     if upgrade {
         headers.insert("connection", "upgrade".parse().unwrap());
         headers.insert("upgrade", "websocket".parse().unwrap());
@@ -422,7 +465,6 @@ async fn forward(
         client
             .request(parts.method, format!("http://127.0.0.1:{port}{path}"))
             .headers(headers)
-            .header("host", &authority)
             .header("x-forwarded-host", authority)
             .header("x-forwarded-proto", "https")
             .body(body)
@@ -549,6 +591,8 @@ mod tests {
                 enabled,
                 service_name: "test".into(),
                 html: None,
+                expires: None,
+                sleeping_generation: None,
             };
             let response = unavailable(&builder.body(Body::empty()).unwrap(), Some(&page));
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -586,6 +630,8 @@ mod tests {
                     enabled: true,
                     service_name: "test".into(),
                     html: None,
+                    expires: None,
+                    sleeping_generation: None,
                 }),
             )]))),
             activity: Arc::default(),
@@ -633,6 +679,8 @@ mod tests {
                 vec![Backend {
                     port,
                     expires: Utc::now() + chrono::Duration::seconds(if fresh { 30 } else { -1 }),
+                    authority: "sleep.test".into(),
+                    generation: None,
                 }],
             );
             let mut probe = request("HEAD");
@@ -664,6 +712,52 @@ mod tests {
         );
         assert_eq!(requests.load(Ordering::Relaxed), 1);
         assert!(state.activity.lock().unwrap().is_empty());
+        state.routes.write().await.clear();
+        // The database is deliberately unavailable: route probes must not attempt
+        // request_wake, and an expired edge lease must not serve a waking page.
+        state.recent_demand.lock().unwrap().clear();
+        for fresh in [true, false] {
+            state.sleepers.write().await.insert(
+                "sleep.test".into(),
+                Arc::new(crate::waking::Page {
+                    service_id: id,
+                    enabled: true,
+                    service_name: "test".into(),
+                    html: None,
+                    expires: Some(
+                        Utc::now() + chrono::Duration::seconds(if fresh { 30 } else { -1 }),
+                    ),
+                    sleeping_generation: Some(7),
+                }),
+            );
+            let probe = Request::builder()
+                .uri("/.well-known/local-paas/route")
+                .header("host", "sleep.test")
+                .body(Body::empty())
+                .unwrap();
+            let response = proxy(State(state.clone()), probe).await;
+            assert_eq!(
+                response.status(),
+                if fresh {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            );
+            if fresh {
+                assert_eq!(response.headers()["x-local-paas-generation"], "7");
+            }
+            assert!(state.recent_demand.lock().unwrap().is_empty());
+            assert!(state.activity.lock().unwrap().is_empty());
+        }
+        let response = proxy(State(state.clone()), request("GET")).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            !response.headers()["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
         server.abort();
     }
 

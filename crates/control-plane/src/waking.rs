@@ -24,6 +24,8 @@ pub(crate) struct Page {
     pub enabled: bool,
     pub service_name: String,
     pub html: Option<String>,
+    pub expires: Option<chrono::DateTime<chrono::Utc>>,
+    pub sleeping_generation: Option<i64>,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]

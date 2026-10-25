@@ -1,14 +1,19 @@
-//! Desired public domain assignments; no public routing is activated yet.
+//! Organization-scoped desired domains and observed public edge state.
 use crate::ApiError;
 use axum::{
     Extension, Json,
     extract::{Path, State},
 };
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Transaction, types::Json as DbJson};
+use utoipa::ToSchema;
 use uuid::Uuid;
 pub async fn lock(tx: &mut Transaction<'_, Postgres>) -> Result<(), ApiError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
+        .execute(&mut **tx)
+        .await?;
     sqlx::query("SELECT pg_advisory_xact_lock(712184563)")
         .execute(&mut **tx)
         .await?;
@@ -37,13 +42,21 @@ pub async fn assign_service(
             ));
         }
         if owner != desired {
+            for service in [owner, desired].into_iter().flatten() {
+                if crate::edge::busy(tx, service).await? {
+                    return Err(ApiError::Conflict(
+                        "wait for the public edge rollout or rollback to finish before reassigning domains",
+                    ));
+                }
+            }
             sqlx::query("UPDATE domains SET service_id=$2,version=version+1,updated_at=now() WHERE hostname=$1")
-                .bind(host).bind(desired).execute(&mut **tx).await?;
+                .bind(&host).bind(desired).execute(&mut **tx).await?;
+            target_assignment(tx, &host, desired).await?;
         }
     }
     Ok(())
 }
-fn normalize(host: &str) -> Option<String> {
+pub(crate) fn normalize(host: &str) -> Option<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
     if host.len() > 253 || !host.contains('.') || host.parse::<std::net::IpAddr>().is_ok() {
         return None;
@@ -59,24 +72,70 @@ fn normalize(host: &str) -> Option<String> {
     }
     Some(host)
 }
+#[derive(Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnershipRecord {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainObservation {
+    pub hostname: String,
+    pub service_id: Option<Uuid>,
+    pub version: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub project: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub environment: Option<String>,
+    pub service: Option<String>,
+    pub generation: i64,
+    pub acknowledged_generation: Option<i64>,
+    pub desired_deployment: Option<Uuid>,
+    pub acknowledged_deployment: Option<Uuid>,
+    pub verified_at: Option<DateTime<Utc>>,
+    pub lease_expires_at: Option<DateTime<Utc>>,
+    pub certificate_expires_at: Option<DateTime<Utc>>,
+    pub error_code: Option<String>,
+    pub ownership_record: OwnershipRecord,
+    /// Derived from current observations and expiry, never an operator-set success flag.
+    pub status: String,
+}
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainList {
+    pub items: Vec<DomainObservation>,
+    pub cname_target: Option<String>,
+}
+
+#[utoipa::path(get, path="/api/domains", operation_id="listDomains", responses((status=200, body=DomainList)))]
 pub async fn list(
     State(pool): State<PgPool>,
     Extension(context): Extension<crate::auth::Context>,
-) -> Result<Json<Value>, ApiError> {
-    let items:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('hostname',d.hostname,'serviceId',d.service_id,'version',d.version,'createdAt',d.created_at,'updatedAt',d.updated_at,'project',p.name,'projectId',p.id,'environment',e.name,'service',s.name,'status','pending-edge') FROM domains d LEFT JOIN services s ON s.id=d.service_id LEFT JOIN environments e ON e.id=s.environment_id LEFT JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR d.organization_id=$1) ORDER BY d.hostname").bind(context.organization_id.as_deref()).fetch_all(&pool).await?;
+) -> Result<Json<DomainList>, ApiError> {
+    let items: Vec<DbJson<DomainObservation>> =
+        sqlx::query_scalar(include_str!("domains/list.sql"))
+            .bind(context.organization_id.as_deref())
+            .fetch_all(&pool)
+            .await?;
     let target = std::env::var("EDGE_CNAME_TARGET")
         .ok()
         .and_then(|s| normalize(&s));
-    Ok(Json(
-        json!({"items":items,"cnameTarget":target,"edgeReady":false}),
-    ))
+    Ok(Json(DomainList {
+        items: items.into_iter().map(|row| row.0).collect(),
+        cname_target: target,
+    }))
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
+#[schema(as = RegisterDomain)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct Create {
     hostname: String,
 }
+#[utoipa::path(post, path="/api/domains", operation_id="registerDomain", request_body=Create, responses((status=200, body=Value),(status=409, body=crate::openapi::ErrorResponse)))]
 pub async fn create(
     State(pool): State<PgPool>,
     Extension(context): Extension<crate::auth::Context>,
@@ -95,13 +154,15 @@ pub async fn create(
     }
     Ok(Json(json!({"hostname":hostname})))
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
+#[schema(as = AssignDomain)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct Update {
     service_id: Option<Uuid>,
     expected_version: i32,
 }
+#[utoipa::path(put, path="/api/domains/{hostname}", operation_id="assignDomain", params(("hostname"=String, Path)), request_body=Update, responses((status=200, body=Value),(status=409, body=crate::openapi::ErrorResponse)))]
 pub async fn update(
     State(pool): State<PgPool>,
     Path(hostname): Path<String>,
@@ -149,6 +210,13 @@ pub async fn update(
             .bind(&hostname)
             .fetch_one(&mut *tx)
             .await?;
+    for service in [previous, input.service_id].into_iter().flatten() {
+        if crate::edge::busy(&mut tx, service).await? {
+            return Err(ApiError::Conflict(
+                "wait for the public edge rollout or rollback to finish before reassigning domains",
+            ));
+        }
+    }
     sqlx::query(
         "UPDATE domains SET service_id=$2,version=version+1,updated_at=now() WHERE hostname=$1",
     )
@@ -156,6 +224,7 @@ pub async fn update(
     .bind(input.service_id)
     .execute(&mut *tx)
     .await?;
+    target_assignment(&mut tx, &hostname, input.service_id).await?;
     // Keep the editable service declaration aligned with the domain registry.
     for id in [previous, input.service_id]
         .into_iter()
@@ -167,6 +236,17 @@ pub async fn update(
     }
     tx.commit().await?;
     Ok(Json(json!({"saved":true,"status":"pending-edge"})))
+}
+
+async fn target_assignment(
+    tx: &mut Transaction<'_, Postgres>,
+    hostname: &str,
+    service: Option<Uuid>,
+) -> Result<(), ApiError> {
+    let deployment: Option<Uuid> = sqlx::query_scalar("SELECT id FROM deployments WHERE service_id=$1 AND status='active' AND spec->'workload'->>'kind'='oci-service' AND coalesce(spec->'workload'->>'execution','http')='http'")
+        .bind(service).fetch_optional(&mut **tx).await?;
+    crate::edge::set_target(tx, hostname, deployment).await?;
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

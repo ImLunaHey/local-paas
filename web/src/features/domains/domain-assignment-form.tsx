@@ -1,4 +1,4 @@
-import type { Domain } from './domain-types'
+import type { DomainObservation as Domain } from '../../generated/model/domainObservation'
 import { Button } from '../../components/button'
 import { Field } from '../../components/field'
 

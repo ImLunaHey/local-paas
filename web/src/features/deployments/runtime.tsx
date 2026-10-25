@@ -8,13 +8,13 @@ import type { Service } from '../../generated/model/service'
 
 import { runtimeLabel } from '../../runtime-query'
 export function DeploymentPanel({ service }: { service: Service }) {
-  const { runtime, revisions, setChosen, revision, deploy, stop } = useDeploymentPanel({ service })
+  const { runtime, revisions, setChosen, revision, deploy, stop, rollback, error, preparing } =
+    useDeploymentPanel({
+      service,
+    })
   if (service.spec.workload.kind === 'celld-service') return null
   const worker =
     service.spec.workload.kind === 'oci-service' && service.spec.workload.execution === 'worker'
-  const preparing = runtime.data?.deployments.some((d) =>
-    ['releasing', 'waiting', 'preparing'].includes(d.status),
-  )
   return (
     <section className="panel p-6 mb-7 space-y-4" aria-label="Deployments">
       <div className="section-heading">
@@ -24,7 +24,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
       <p className="text-xs text-muted">
         {worker
           ? 'Deploying stops the previous worker first. Its replacement waits for confirmed shutdown, including when the old node is unreachable. A failed replacement requires another deployment; the old process is not restarted automatically.'
-          : 'Deploy an image revision. Traffic switches after every candidate passes readiness; the previous healthy deployment stays available until then.'}
+          : 'Deploy an image revision. Public routes require an edge acknowledgement after readiness. The previous healthy revision remains available during the two-minute rollback window.'}
       </p>
       <DeploymentControls
         revisions={revisions}
@@ -34,12 +34,12 @@ export function DeploymentPanel({ service }: { service: Service }) {
         runtime={runtime}
         preparing={preparing}
       />
-      {(deploy.isError || stop.isError || runtime.isError || revisions.isError) && (
+      {error && (
         <p role="alert" className="error-notice">
-          {(deploy.error || stop.error || runtime.error || revisions.error)?.message}
+          {error.message}
         </p>
       )}
-      {<DeploymentHistory runtime={runtime} stop={stop} service={service} />}
+      {<DeploymentHistory runtime={runtime} stop={stop} rollback={rollback} service={service} />}
       {runtime.data?.previewUrl && runtimeLabel(runtime.data) === 'Running' && (
         <a className="back-link" href={runtime.data.previewUrl} target="_blank" rel="noreferrer">
           Open application <ExternalLink size={14} />

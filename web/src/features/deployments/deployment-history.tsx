@@ -8,8 +8,9 @@ import type { DeploymentPanelState } from './use-deployment-panel'
 export function DeploymentHistory({
   runtime,
   stop,
+  rollback,
   service,
-}: Pick<DeploymentPanelState, 'runtime' | 'stop'> & { service: Service }) {
+}: Pick<DeploymentPanelState, 'runtime' | 'stop' | 'rollback'> & { service: Service }) {
   return runtime.data?.deployments.slice(0, 5).map((d) => (
     <div key={d.id} className="revision-row flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -20,13 +21,20 @@ export function DeploymentHistory({
         <p className="text-xs text-muted mt-2">
           {new Date(d.createdAt).toLocaleString()}
           {d.errorCode && ` · ${d.errorCode.replaceAll('_', ' ')}`}
+          {d.edgePhase && ` · edge ${d.edgePhase.replaceAll('_', ' ')}`}
         </p>
         {d.preDeploy && <PreDeployResult job={d.preDeploy} serviceId={service.id} />}
       </div>
-      {['releasing', 'waiting', 'preparing', 'active'].includes(d.status) && (
-        <Button disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
-          {d.status === 'waiting' ? 'Cancel replacement' : 'Stop deployment'}
+      {d.edgePhase && ['promoting', 'draining'].includes(d.edgePhase) ? (
+        <Button disabled={rollback.isPending} onClick={() => rollback.mutate(d.id)}>
+          Roll back public route
         </Button>
+      ) : (
+        ['releasing', 'waiting', 'preparing', 'active'].includes(d.status) && (
+          <Button disabled={stop.isPending} onClick={() => stop.mutate(d.id)}>
+            {d.status === 'waiting' ? 'Cancel replacement' : 'Stop deployment'}
+          </Button>
+        )
       )}
     </div>
   ))

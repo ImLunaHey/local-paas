@@ -218,6 +218,31 @@ async fn sustained_load_cooldown_restart_and_gradual_scale_in(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 #[ignore = "requires disposable PostgreSQL"]
+async fn public_rollout_drain_blocks_scaling_until_edge_completion(pool: PgPool) {
+    let (service, deployment, _) = active(&pool).await;
+    enable(&pool, service, 1).await;
+    sqlx::query("INSERT INTO edge_rollouts(deployment_id,service_id,phase,drain_after) VALUES($1,$2,'draining',now()+interval '120 seconds')")
+        .bind(deployment).bind(service).execute(&pool).await.unwrap();
+    observe(&pool, 500.0).await;
+    for _ in 0..2 {
+        elapsed(&pool).await;
+        reconcile(&pool).await;
+        assert_eq!(desired(&pool).await, 1);
+        assert_eq!(condition(&pool).await, "rollout_job_or_cleanup_pending");
+    }
+    sqlx::query("UPDATE edge_rollouts SET phase='complete'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        elapsed(&pool).await;
+        reconcile(&pool).await;
+    }
+    assert_eq!(desired(&pool).await, 2);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
 async fn stale_missing_and_interrupted_metrics_freeze_scaling(pool: PgPool) {
     let (service, _, _) = active(&pool).await;
     enable(&pool, service, 1).await;
@@ -392,10 +417,30 @@ async fn policy_retries_and_ineligible_workloads_are_rejected(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 #[ignore = "requires disposable PostgreSQL"]
 async fn idle_service_sleeps_and_http_request_wakes_without_routing_candidates(pool: PgPool) {
-    let (service, _, _) = active(&pool).await;
+    sleep_and_wake(pool, false).await;
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn public_edge_keeps_sleeping_route_without_probes_waking_the_app(pool: PgPool) {
+    sleep_and_wake(pool, true).await;
+}
+
+async fn sleep_and_wake(pool: PgPool, public: bool) {
+    let (service, deployment, _) = active(&pool).await;
     enable(&pool, service, 0).await;
     observe(&pool, 0.0).await;
-    sqlx::query("INSERT INTO preview_routes(authority,service_id) VALUES('sleep.test',$1) ON CONFLICT(service_id) DO UPDATE SET authority='sleep.test'").bind(service).execute(&pool).await.unwrap();
+    if public {
+        sqlx::query("INSERT INTO domains(hostname,service_id) VALUES('public.test',$1)")
+            .bind(service)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO edge_targets(authority,hostname,generation,deployment_id,expires_at) VALUES('sleep.test','public.test',7,$1,now()+interval '90 seconds')")
+            .bind(deployment).execute(&pool).await.unwrap();
+    } else {
+        sqlx::query("INSERT INTO preview_routes(authority,service_id) VALUES('sleep.test',$1) ON CONFLICT(service_id) DO UPDATE SET authority='sleep.test'").bind(service).execute(&pool).await.unwrap();
+    }
     sqlx::query(
         "UPDATE scaling_policies SET ingress_seen_at=now(),last_request_at=now()-interval '1 hour'",
     )
@@ -423,6 +468,51 @@ async fn idle_service_sleeps_and_http_request_wakes_without_routing_candidates(p
             .unwrap();
     });
     let client = reqwest::Client::new();
+    if public {
+        let mut acknowledged = false;
+        for _ in 0..40 {
+            let response = client
+                .get(format!("http://{address}/.well-known/local-paas/route"))
+                .header("host", "sleep.test")
+                .send()
+                .await
+                .unwrap();
+            if response.status() == StatusCode::NO_CONTENT {
+                assert_eq!(response.headers()["x-local-paas-generation"], "7");
+                acknowledged = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(acknowledged, "the edge must retain the active wake route");
+        assert!(
+            !sqlx::query_scalar::<_, bool>("SELECT wake_requested FROM scaling_policies")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            "edge health checks must not wake the service"
+        );
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT last_request_at<now()-interval '30 minutes' FROM scaling_policies"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "edge probes must not reset the idle timer"
+        );
+        let response = client
+            .get(format!("http://{address}/"))
+            .header("host", "public.test")
+            .header("accept", "text/html")
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            !response.text().await.unwrap().contains("Waking up service"),
+            "raw public hostnames must not bypass the edge target lease"
+        );
+    }
     let mut requested = false;
     for _ in 0..30 {
         let response = client

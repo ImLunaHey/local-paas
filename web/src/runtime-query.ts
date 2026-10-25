@@ -20,6 +20,7 @@ export interface Instance {
   networkTxBytesPerSecond: number | null
 }
 interface Deployment {
+  edgePhase?: string | null
   preDeploy?: ReleaseJob | null
   id: string
   revisionId: string

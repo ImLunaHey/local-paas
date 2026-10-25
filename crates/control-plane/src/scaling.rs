@@ -277,7 +277,10 @@ async fn evaluate(
         }
         if !ScalingPolicy::eligible(&spec) {
             reason = "ineligible";
-        } else if occupied || crate::jobs::occupied(tx, id).await? {
+        } else if occupied
+            || crate::jobs::occupied(tx, id).await?
+            || crate::edge::busy(tx, id).await?
+        {
             reason = "rollout_job_or_cleanup_pending";
         } else if row.get::<bool, _>("failure_latched") {
             reason = "candidate_failed";
@@ -415,7 +418,9 @@ pub(crate) async fn ingress_heartbeat(
     busy: &[Uuid],
 ) -> Result<std::collections::HashMap<String, std::sync::Arc<crate::waking::Page>>, sqlx::Error> {
     let mut tx = lock(pool).await?;
-    let rows = sqlx::query("SELECT r.authority,r.service_id,s.spec->>'name' AS service_name,coalesce((p.policy->>'enabled')::boolean AND (p.policy->>'minReplicas')::integer=0,false) AS enabled,CASE WHEN (p.policy->>'enabled')::boolean AND (p.policy->>'minReplicas')::integer=0 THEN w.html END AS html FROM (SELECT authority,service_id FROM preview_routes UNION SELECT hostname,service_id FROM domains WHERE service_id IS NOT NULL) r JOIN services s ON s.id=r.service_id LEFT JOIN scaling_policies p ON p.service_id=r.service_id LEFT JOIN service_waking_pages w ON w.service_id=r.service_id").fetch_all(&mut *tx).await?;
+    let rows = sqlx::query(include_str!("scaling/ingress.sql"))
+        .fetch_all(&mut *tx)
+        .await?;
     let registered: Vec<Uuid> = rows
         .iter()
         .filter(|r| r.get::<bool, _>("enabled"))
@@ -433,6 +438,8 @@ pub(crate) async fn ingress_heartbeat(
                     enabled: r.get("enabled"),
                     service_name: r.get("service_name"),
                     html: r.get("html"),
+                    expires: r.get("expires"),
+                    sleeping_generation: r.get("sleeping_generation"),
                 }),
             )
         })

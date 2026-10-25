@@ -17,8 +17,14 @@ Agents retain healthy containers if the controller becomes unavailable.
 Candidates must all report stabilized readiness before promotion. The ingress
 selects only fresh ready instances in the active deployment. Promotion changes
 that set transactionally, then asks agents to stop the old instances gracefully.
-A failed candidate is stopped while the previous active deployment remains.
-Explicit stop removes routing immediately and increments assignment generations.
+A failed private-only candidate is stopped while the previous active deployment remains.
+For public domains, promotion also waits for authenticated edge configuration
+readback and a TLS-validated generation probe. Previous instances remain running
+during a two-minute rollback window. A failed/uncertain edge apply or explicit
+rollback retains candidates until the old route (or removal) is acknowledged, then
+drains them before stopping. Public route references and leases fence direct stop
+requests; unassign domains or request rollback first. See [ingress.md](ingress.md).
+Private-only explicit stop removes routing immediately and increments assignment generations.
 Active deployments on agents advertising `recovery-v1` recover locally from an
 exited process, including a clean exit from a continuously running service. The
 agent waits 5, 10, 20, 40, then 60 seconds before its five restart attempts. Polling
