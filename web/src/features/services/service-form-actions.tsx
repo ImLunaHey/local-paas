@@ -43,7 +43,7 @@ export function ServiceFormActions({
           Reload saved configuration
         </Button>
       ) : (
-        <Link to="/" className="button secondary">
+        <Link to="/app" className="button secondary">
           Cancel
         </Link>
       )}

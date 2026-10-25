@@ -75,6 +75,7 @@ import { AccountMenu, AuthShell } from './auth-shell'
 import { authClient, isPlatformAdministrator } from './auth-client'
 import { OrganizationSettings } from './organization'
 import { PlatformAdmin, PlatformUserDetail } from './platform-admin'
+import { DocsSite, MarketingHome } from './public-site'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
@@ -99,7 +100,7 @@ function Shell() {
   return (
     <div className="min-h-screen">
       <aside className="sidebar max-[720px]:!grid max-[720px]:grid-cols-1 max-[720px]:gap-3">
-        <Link to="/" className="brand">
+        <Link to="/app" className="brand">
           <span className="brand-mark">
             <Layers3 size={21} />
           </span>
@@ -129,7 +130,7 @@ function Shell() {
         >
           {isPlatformAdmin ? (
             <>
-              <Link to="/" className={navClass(path === '/')}>
+              <Link to="/app" className={navClass(path === '/app')}>
                 <Box size={17} />
                 <span>Overview</span>
               </Link>
@@ -155,7 +156,7 @@ function Shell() {
             </>
           ) : (
             <>
-              <Link to="/" className={navClass(path === '/')}>
+              <Link to="/app" className={navClass(path === '/app')}>
                 <Box size={17} />
                 <span>Overview</span>
               </Link>
@@ -444,8 +445,19 @@ function ServiceActivity() {
   )
 }
 
+function RootLayout() {
+  const path = useRouterState({ select: (state) => state.location.pathname })
+  const publicRoute = path === '/' || path === '/docs' || path.startsWith('/docs/')
+  if (publicRoute) return <Outlet />
+  return (
+    <AuthShell>
+      <Shell />
+    </AuthShell>
+  )
+}
+
 const rootRoute = createRootRoute({
-  component: Shell,
+  component: RootLayout,
   notFoundComponent: () => (
     <div>
       <h1>Page not found</h1>
@@ -458,6 +470,31 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  component: MarketingHome,
+})
+const docsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs',
+  component: () => <DocsSite page="introduction" />,
+})
+const installationDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/installation',
+  component: () => <DocsSite page="installation" />,
+})
+const deploymentDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/deployments',
+  component: () => <DocsSite page="deployments" />,
+})
+const architectureDocsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/architecture',
+  component: () => <DocsSite page="architecture" />,
+})
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/app',
   component: function Home() {
     const session = authClient.useSession()
     return isPlatformAdministrator(session.data?.user.role) ? (
@@ -680,6 +717,11 @@ const router = createRouter({
   defaultErrorComponent: RouteError,
   routeTree: rootRoute.addChildren([
     indexRoute,
+    docsRoute,
+    installationDocsRoute,
+    deploymentDocsRoute,
+    architectureDocsRoute,
+    appRoute,
     platformOrganizationsRoute,
     platformUsersRoute,
     platformUserRoute,
@@ -721,9 +763,7 @@ declare module '@tanstack/react-router' {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AuthShell>
-        <RouterProvider router={router} />
-      </AuthShell>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 )
