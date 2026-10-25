@@ -6,8 +6,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Utc};
-use platform_domain::{ServiceSpec, Workload};
-use platform_protocol::{Assignment, SyncRequest, SyncResponse, VERSION};
+use platform_domain::{RecoveryPolicy, ServiceSpec, Workload};
+use platform_protocol::{Assignment, RecoveryPhase, SyncRequest, SyncResponse, VERSION};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -696,6 +696,15 @@ async fn sync_inner(
         }) {
             return Err((StatusCode::BAD_REQUEST, "invalid measurement"));
         }
+        if o.health.as_ref().is_some_and(|health| {
+            health.recovery.attempts > 20
+                || health
+                    .recovery
+                    .retry_at_unix_ms
+                    .is_some_and(|retry| retry < 0)
+        }) {
+            return Err((StatusCode::BAD_REQUEST, "invalid health observation"));
+        }
         let m = o.metrics.as_ref();
         let updated=sqlx::query("UPDATE instances SET state=$4,diagnostic=CASE WHEN $4='stopped' THEN coalesce($5,diagnostic) ELSE $5 END,observed_at=to_timestamp($9::double precision/1000),cpu_millis=$6,memory_bytes=$7,pids=$8 WHERE id=$1 AND node_id=$2 AND generation=$3 AND (observed_at IS NULL OR observed_at<to_timestamp($9::double precision/1000)) RETURNING id")
             .bind(o.instance_id).bind(input.node_id).bind(o.generation).bind(&o.state).bind(&o.diagnostic).bind(m.map(|m|m.cpu_millis)).bind(m.map(|m|m.memory_bytes as i64)).bind(m.map(|m|m.pids as i64)).bind(o.observed_unix_ms as f64).fetch_optional(&mut *tx).await.map_err(db_error)?;
@@ -732,6 +741,70 @@ async fn sync_inner(
                 return Err((StatusCode::BAD_REQUEST, "invalid process start time"));
             }
             sqlx::query("INSERT INTO instance_starts(instance_id,started_at) VALUES($1,$2) ON CONFLICT DO NOTHING").bind(o.instance_id).bind(started).execute(&mut *tx).await.map_err(db_error)?;
+        }
+        if let Some(health) = &o.health {
+            let observed_at = DateTime::from_timestamp_millis(o.observed_unix_ms)
+                .ok_or((StatusCode::BAD_REQUEST, "invalid health observation"))?;
+            let retry_at = match health.recovery.retry_at_unix_ms {
+                Some(retry) => Some(
+                    DateTime::from_timestamp_millis(retry)
+                        .ok_or((StatusCode::BAD_REQUEST, "invalid health observation"))?,
+                ),
+                None => None,
+            };
+            let inserted = sqlx::query("INSERT INTO instance_health_events(instance_id,observed_at,process,startup,readiness,liveness,recovery,restart_attempts,retry_at,diagnostic) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 WHERE NOT EXISTS (SELECT 1 FROM instance_health_events previous WHERE previous.instance_id=$1 AND previous.sequence=(SELECT max(latest.sequence) FROM instance_health_events latest WHERE latest.instance_id=$1) AND previous.process=$3 AND previous.startup=$4 AND previous.readiness=$5 AND previous.liveness=$6 AND previous.recovery=$7 AND previous.restart_attempts=$8 AND previous.retry_at IS NOT DISTINCT FROM $9 AND previous.diagnostic IS NOT DISTINCT FROM $10)")
+                .bind(o.instance_id)
+                .bind(observed_at)
+                .bind(health.process.as_str())
+                .bind(health.startup.as_str())
+                .bind(health.readiness.as_str())
+                .bind(health.liveness.as_str())
+                .bind(health.recovery.phase.as_str())
+                .bind(i32::from(health.recovery.attempts))
+                .bind(retry_at)
+                .bind(&o.diagnostic)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            if inserted.rows_affected() > 0 {
+                sqlx::query("DELETE FROM instance_health_events WHERE instance_id=$1 AND sequence NOT IN (SELECT sequence FROM instance_health_events WHERE instance_id=$1 ORDER BY observed_at DESC LIMIT 100)")
+                    .bind(o.instance_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db_error)?;
+            }
+            if health.recovery.phase == RecoveryPhase::Exhausted {
+                let degraded: Option<(Uuid, Uuid)> = sqlx::query_as("UPDATE deployments d SET runtime_health='degraded',runtime_health_reason='restart_budget_exhausted' FROM instances i WHERE i.id=$1 AND i.deployment_id=d.id AND d.status='active' AND d.runtime_health<>'degraded' RETURNING d.id,d.service_id")
+                    .bind(o.instance_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(db_error)?;
+                if let Some((deployment, service)) = degraded {
+                    sqlx::query("INSERT INTO audit_log(actor,action,outcome,target_type,target_id,organization_id,details) VALUES('platform','recovery.budget_exhausted','failed','deployment',$1,(SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$2),$3)")
+                        .bind(deployment.to_string())
+                        .bind(service)
+                        .bind(DbJson(json!({"instanceId":o.instance_id,"attempts":health.recovery.attempts})))
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(db_error)?;
+                }
+            } else if matches!(
+                health.recovery.phase,
+                RecoveryPhase::Backoff | RecoveryPhase::Restarting
+            ) {
+                sqlx::query("UPDATE deployments d SET runtime_health='recovering',runtime_health_reason=$2 FROM instances i WHERE i.id=$1 AND i.deployment_id=d.id AND d.status='active' AND d.runtime_health<>'degraded'")
+                    .bind(o.instance_id)
+                    .bind(health.recovery.phase.as_str())
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db_error)?;
+            } else if health.recovery.phase == RecoveryPhase::Stable && o.state == "ready" {
+                sqlx::query("UPDATE deployments d SET runtime_health='healthy',runtime_health_reason=NULL WHERE d.id=(SELECT deployment_id FROM instances WHERE id=$1) AND d.status='active' AND d.runtime_health='recovering' AND NOT EXISTS(SELECT 1 FROM instances sibling WHERE sibling.deployment_id=d.id AND sibling.desired_state='running' AND sibling.state<>'ready') AND NOT EXISTS(SELECT 1 FROM relocations move JOIN instances source ON source.id=move.old_instance WHERE source.deployment_id=d.id AND move.state IN ('preparing','draining'))")
+                    .bind(o.instance_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db_error)?;
+            }
         }
         sqlx::query("UPDATE instances SET io_read_bytes_per_second=$2,io_write_bytes_per_second=$3,network_rx_bytes_per_second=$4,network_tx_bytes_per_second=$5 WHERE id=$1").bind(o.instance_id).bind(m.and_then(|m|m.io_read_bytes_per_second)).bind(m.and_then(|m|m.io_write_bytes_per_second)).bind(m.and_then(|m|m.network_rx_bytes_per_second)).bind(m.and_then(|m|m.network_tx_bytes_per_second)).execute(&mut *tx).await.map_err(db_error)?;
         if let Some(m) = m {
@@ -796,6 +869,14 @@ async fn sync_inner(
             .get::<String, _>("image_digest")
             .try_into()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "invalid stored image"))?;
+        let recovery_eligible = r.get::<String, _>("deployment_status") == "active"
+            && r.get::<bool, _>("recovery_eligible");
+        let configured_recovery = match &spec.workload {
+            Workload::OciService { recovery, .. } => *recovery,
+            _ => RecoveryPolicy::default(),
+        };
+        let recovery_v2 =
+            recovery_eligible && input.capabilities.iter().any(|c| c == "recovery-v2");
         assignments.push(Assignment {
             private_backends,
             job,
@@ -805,9 +886,10 @@ async fn sync_inner(
             service_id: r.get("service_id"),
             generation: r.get("generation"),
             desired_state: r.get("desired_state"),
-            recovery_allowed: r.get::<String, _>("deployment_status") == "active"
-                && r.get::<bool, _>("recovery_eligible")
+            recovery_allowed: recovery_eligible
+                && !recovery_v2
                 && input.capabilities.iter().any(|c| c == "recovery-v1"),
+            recovery_policy: recovery_v2.then_some(configured_recovery),
             image_repository: r.get("image_repository"),
             image_digest: digest,
             spec,
@@ -843,8 +925,9 @@ pub(crate) async fn status(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     service_exists(&pool, id).await?;
-    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'status',d.status,'edgePhase',(SELECT phase FROM edge_rollouts WHERE deployment_id=d.id),'errorCode',d.error_code,'createdAt',d.created_at,'preDeploy',(SELECT jsonb_build_object('id',j.id,'status',j.status,'result',j.job_result,'instanceId',(SELECT id FROM instances WHERE deployment_id=j.id LIMIT 1)) FROM deployments j WHERE j.parent_deployment_id=d.id)) FROM deployments d WHERE d.service_id=$1 AND d.job_options IS NULL ORDER BY d.created_at DESC LIMIT 20").bind(id).fetch_all(&pool).await?;
-    let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deploymentId',i.deployment_id,'nodeId',n.id,'nodeName',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'desiredState',i.desired_state,'diagnostic',i.diagnostic,'observedAt',i.observed_at,'cpuMillis',i.cpu_millis,'memoryBytes',i.memory_bytes,'pids',i.pids,'ioReadBytesPerSecond',i.io_read_bytes_per_second,'ioWriteBytesPerSecond',i.io_write_bytes_per_second,'networkRxBytesPerSecond',i.network_rx_bytes_per_second,'networkTxBytesPerSecond',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
+    let deployments:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',d.id,'revisionId',d.revision_id,'status',d.status,'runtimeHealth',d.runtime_health,'runtimeHealthReason',d.runtime_health_reason,'edgePhase',(SELECT phase FROM edge_rollouts WHERE deployment_id=d.id),'errorCode',d.error_code,'createdAt',d.created_at,'preDeploy',(SELECT jsonb_build_object('id',j.id,'status',j.status,'result',j.job_result,'instanceId',(SELECT id FROM instances WHERE deployment_id=j.id LIMIT 1)) FROM deployments j WHERE j.parent_deployment_id=d.id)) FROM deployments d WHERE d.service_id=$1 AND d.job_options IS NULL ORDER BY d.created_at DESC LIMIT 20").bind(id).fetch_all(&pool).await?;
+    let instances:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',i.id,'deploymentId',i.deployment_id,'nodeId',n.id,'nodeName',n.name,'state',CASE WHEN i.state='stopped' THEN 'stopped' WHEN n.last_seen<now()-interval '30 seconds' OR i.observed_at<now()-interval '15 seconds' THEN 'unknown' ELSE i.state END,'agentReachability',CASE WHEN n.last_seen<now()-interval '30 seconds' THEN 'unreachable' WHEN i.observed_at<now()-interval '15 seconds' THEN 'stale' ELSE 'reachable' END,'desiredState',i.desired_state,'diagnostic',i.diagnostic,'observedAt',i.observed_at,'cpuMillis',i.cpu_millis,'memoryBytes',i.memory_bytes,'pids',i.pids,'ioReadBytesPerSecond',i.io_read_bytes_per_second,'ioWriteBytesPerSecond',i.io_write_bytes_per_second,'networkRxBytesPerSecond',i.network_rx_bytes_per_second,'networkTxBytesPerSecond',i.network_tx_bytes_per_second) FROM instances i JOIN nodes n ON n.id=i.node_id JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 ORDER BY d.created_at DESC,n.name LIMIT 80").bind(id).fetch_all(&pool).await?;
+    let health_history:Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('sequence',h.sequence,'instanceId',h.instance_id,'nodeName',n.name,'observedAt',h.observed_at,'process',h.process,'startup',h.startup,'readiness',h.readiness,'liveness',h.liveness,'recovery',h.recovery,'restartAttempts',h.restart_attempts,'retryAt',h.retry_at,'diagnostic',h.diagnostic) FROM instance_health_events h JOIN instances i ON i.id=h.instance_id JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 ORDER BY h.observed_at DESC LIMIT 100").bind(id).fetch_all(&pool).await?;
     let nodes: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM nodes n WHERE (n.organization_id IS NULL OR n.organization_id=(SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1)) AND n.last_seen>now()-interval '30 seconds' AND NOT n.cordoned",
     )
@@ -857,7 +940,7 @@ pub(crate) async fn status(
             .fetch_optional(&pool)
             .await?;
     Ok(Json(
-        json!({"deployments":deployments,"instances":instances,"healthyNodes":nodes,"previewUrl":authority.map(|a|format!("https://{a}"))}),
+        json!({"deployments":deployments,"instances":instances,"healthHistory":health_history,"healthyNodes":nodes,"previewUrl":authority.map(|a|format!("https://{a}"))}),
     ))
 }
 pub(crate) async fn metrics(

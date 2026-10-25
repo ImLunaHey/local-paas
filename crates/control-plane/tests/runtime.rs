@@ -636,6 +636,22 @@ async fn recovery_is_only_authorized_after_promotion_and_for_capable_agents(pool
     control_plane::runtime::reconcile(&pool).await.unwrap();
     let (_, active) = call(&pool, "/api/agent/sync", request.clone(), Some(&token)).await;
     assert_eq!(active["assignments"][0]["recoveryAllowed"], true);
+    let (_, configured) = call(
+        &pool,
+        "/api/agent/sync",
+        json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[],"capabilities":["recovery-v1","recovery-v2"]}),
+        Some(&token),
+    )
+    .await;
+    assert!(
+        configured["assignments"][0]
+            .get("recoveryAllowed")
+            .is_none()
+    );
+    assert_eq!(
+        configured["assignments"][0]["recoveryPolicy"]["restartAttempts"],
+        5
+    );
     let (_, legacy) = call(
         &pool,
         "/api/agent/sync",
@@ -657,6 +673,94 @@ async fn recovery_is_only_authorized_after_promotion_and_for_capable_agents(pool
     let (_, stopped) = call(&pool, "/api/agent/sync", request, Some(&token)).await;
     assert_eq!(stopped["assignments"][0]["desiredState"], "stopped");
     assert!(stopped["assignments"][0].get("recoveryAllowed").is_none());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn health_transitions_are_bounded_visible_and_auditable(pool: PgPool) {
+    let (service, revision, nodes) = fixture(&pool).await;
+    let (_, deployed) = call(
+        &pool,
+        &format!("/api/services/{service}/deployments"),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
+        None,
+    )
+    .await;
+    let deployment: Uuid = deployed["id"].as_str().unwrap().parse().unwrap();
+    sqlx::query("UPDATE instances SET state='ready',observed_at=now() WHERE deployment_id=$1")
+        .bind(deployment)
+        .execute(&pool)
+        .await
+        .unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let instance: Uuid =
+        sqlx::query_scalar("SELECT id FROM instances WHERE deployment_id=$1 AND node_id=$2")
+            .bind(deployment)
+            .bind(nodes[0])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let observed = chrono::Utc::now().timestamp_millis();
+    let observation = |at| {
+        json!({
+            "instanceId":instance,
+            "generation":1,
+            "observedUnixMs":at,
+            "state":"failed",
+            "diagnostic":"crash_loop",
+            "health":{
+                "process":"exited",
+                "startup":"pending",
+                "readiness":"failing",
+                "liveness":"passing",
+                "recovery":{"phase":"exhausted","attempts":5}
+            },
+            "metrics":null,
+            "logs":[]
+        })
+    };
+    for at in [observed, observed + 1] {
+        assert_eq!(
+            call(
+                &pool,
+                "/api/agent/sync",
+                json!({"version":platform_protocol::VERSION,"nodeId":nodes[0],"observations":[observation(at)],"capabilities":["recovery-v2"]}),
+                Some(&"a".repeat(64)),
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM instance_health_events WHERE instance_id=$1",
+        )
+        .bind(instance)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        1,
+        "unchanged five-second reports must not grow history"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT runtime_health FROM deployments WHERE id=$1")
+            .bind(deployment)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "degraded"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE action='recovery.budget_exhausted' AND target_id=$1",
+        )
+        .bind(deployment.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        1
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]

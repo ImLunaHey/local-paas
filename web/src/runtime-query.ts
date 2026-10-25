@@ -8,6 +8,7 @@ export interface Instance {
   nodeId: string
   nodeName: string
   state: string
+  agentReachability: 'reachable' | 'stale' | 'unreachable'
   desiredState: string
   diagnostic: string | null
   observedAt: string | null
@@ -25,12 +26,29 @@ interface Deployment {
   id: string
   revisionId: string
   status: string
+  runtimeHealth: 'healthy' | 'recovering' | 'degraded'
+  runtimeHealthReason: string | null
   errorCode: string | null
   createdAt: string
+}
+export interface HealthEvent {
+  sequence: number
+  instanceId: string
+  nodeName: string
+  observedAt: string
+  process: string
+  startup: string
+  readiness: string
+  liveness: string
+  recovery: string
+  restartAttempts: number
+  retryAt: string | null
+  diagnostic: string | null
 }
 export interface RuntimeStatus {
   deployments: Deployment[]
   instances: Instance[]
+  healthHistory: HealthEvent[]
   healthyNodes: number
   previewUrl: string | null
 }

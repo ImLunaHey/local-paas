@@ -177,7 +177,11 @@ pub enum Workload {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        readiness: Option<Readiness>,
+        readiness: Option<Box<Readiness>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        liveness: Option<Box<Liveness>>,
+        #[serde(default, skip_serializing_if = "RecoveryPolicy::is_default")]
+        recovery: RecoveryPolicy,
     },
     CelldService {
         wrangler: String,
@@ -263,6 +267,72 @@ pub struct Readiness {
     pub interval_seconds: u16,
     #[serde(rename = "stabilizationSeconds")]
     pub stabilization_seconds: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct Liveness {
+    pub path: String,
+    #[serde(rename = "intervalSeconds")]
+    pub interval_seconds: u16,
+    #[serde(rename = "failureThreshold")]
+    pub failure_threshold: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryPolicy {
+    #[serde(rename = "restartAttempts")]
+    pub restart_attempts: u8,
+    #[serde(rename = "initialBackoffSeconds")]
+    pub initial_backoff_seconds: u16,
+    #[serde(rename = "maxBackoffSeconds")]
+    pub max_backoff_seconds: u16,
+    #[serde(rename = "resetAfterSeconds")]
+    pub reset_after_seconds: u32,
+    #[serde(rename = "replacementAttempts")]
+    pub replacement_attempts: u8,
+    #[serde(rename = "replacementBackoffSeconds")]
+    pub replacement_backoff_seconds: u16,
+}
+
+impl Default for RecoveryPolicy {
+    fn default() -> Self {
+        Self {
+            restart_attempts: 5,
+            initial_backoff_seconds: 5,
+            max_backoff_seconds: 60,
+            reset_after_seconds: 600,
+            replacement_attempts: 3,
+            replacement_backoff_seconds: 30,
+        }
+    }
+}
+
+impl RecoveryPolicy {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    pub fn valid(&self) -> bool {
+        self.restart_attempts <= 20
+            && (1..=300).contains(&self.initial_backoff_seconds)
+            && self.max_backoff_seconds >= self.initial_backoff_seconds
+            && self.max_backoff_seconds <= 3600
+            && (30..=86400).contains(&self.reset_after_seconds)
+            && self.replacement_attempts <= 10
+            && (1..=3600).contains(&self.replacement_backoff_seconds)
+    }
+}
+
+fn valid_probe_path(path: &str) -> bool {
+    path.len() <= 1024
+        && path.starts_with('/')
+        && !path.starts_with("//")
+        && !path.contains(['\r', '\n', '#', '\\'])
+        && !path.chars().any(char::is_control)
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
@@ -551,6 +621,8 @@ impl ServiceSpec {
                 replicas,
                 port,
                 readiness,
+                liveness,
+                recovery,
                 build_mode,
                 build_command,
                 start_command,
@@ -663,6 +735,11 @@ impl ServiceSpec {
                         "background workers use process stabilization, not HTTP readiness",
                     );
                     check(
+                        liveness.is_none(),
+                        "workload.liveness",
+                        "background workers do not support HTTP liveness probes",
+                    );
+                    check(
                         self.domains.is_empty(),
                         "domains",
                         "background workers cannot receive domain mappings",
@@ -681,11 +758,7 @@ impl ServiceSpec {
                 }
                 if let Some(readiness) = readiness {
                     check(
-                        readiness.path.len() <= 1024
-                            && readiness.path.starts_with('/')
-                            && !readiness.path.starts_with("//")
-                            && !readiness.path.contains(['\r', '\n', '#', '\\'])
-                            && !readiness.path.chars().any(char::is_control),
+                        valid_probe_path(&readiness.path),
                         "workload.readiness.path",
                         "use an absolute HTTP path beginning with a single /",
                     );
@@ -701,6 +774,28 @@ impl ServiceSpec {
                         "must cover at least one check interval and be at most 3600",
                     );
                 }
+                if let Some(liveness) = liveness {
+                    check(
+                        valid_probe_path(&liveness.path),
+                        "workload.liveness.path",
+                        "use an absolute HTTP path beginning with a single /",
+                    );
+                    check(
+                        (1..=300).contains(&liveness.interval_seconds),
+                        "workload.liveness.intervalSeconds",
+                        "must be between 1 and 300",
+                    );
+                    check(
+                        (1..=20).contains(&liveness.failure_threshold),
+                        "workload.liveness.failureThreshold",
+                        "must be between 1 and 20",
+                    );
+                }
+                check(
+                    recovery.valid(),
+                    "workload.recovery",
+                    "restart/replacement limits, backoff and reset window are out of range",
+                );
             }
             Workload::CelldService {
                 wrangler,
@@ -914,6 +1009,44 @@ mod tests {
                 .unwrap_err()
                 .iter()
                 .any(|i| i.field.ends_with("stabilizationSeconds"))
+        );
+    }
+
+    #[test]
+    fn health_policy_and_liveness_are_bounded() {
+        let mut spec = example();
+        if let Workload::OciService {
+            liveness, recovery, ..
+        } = &mut spec.workload
+        {
+            *liveness = Some(Box::new(Liveness {
+                path: "health".into(),
+                interval_seconds: 0,
+                failure_threshold: 0,
+            }));
+            recovery.restart_attempts = 21;
+            recovery.replacement_attempts = 11;
+        }
+        let issues = spec.validate().unwrap_err();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.field == "workload.liveness.path")
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.field == "workload.liveness.intervalSeconds")
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.field == "workload.liveness.failureThreshold")
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.field == "workload.recovery")
         );
     }
 

@@ -113,6 +113,83 @@ async fn count(pool: &PgPool) -> i64 {
         .await
         .unwrap()
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn exhausted_replica_is_replaced_without_interrupting_healthy_replica(pool: PgPool) {
+    let (service, deployment, _) = active(&pool).await;
+    let originals: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM instances WHERE deployment_id=$1 ORDER BY id")
+            .bind(deployment)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    enabled(&pool, service).await;
+    sqlx::query("UPDATE instances SET state='failed',diagnostic='crash_loop' WHERE id=$1")
+        .bind(originals[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    let (old, replacement, reason): (Uuid, Uuid, String) = sqlx::query_as(
+        "SELECT old_instance,new_instance,reason FROM relocations WHERE reason='health'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(old, originals[0]);
+    assert_eq!(reason, "health");
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT routing_enabled AND state='ready' FROM instances WHERE id=$1",
+        )
+        .bind(originals[1])
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "the healthy replica must remain routed during recovery"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT runtime_health FROM deployments WHERE id=$1")
+            .bind(deployment)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "recovering"
+    );
+
+    sqlx::query("UPDATE instances SET state='ready',observed_at=now() WHERE id=$1")
+        .bind(replacement)
+        .execute(&pool)
+        .await
+        .unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE relocations SET drain_after=now()-interval '1 second' WHERE new_instance=$1",
+    )
+    .bind(replacement)
+    .execute(&pool)
+    .await
+    .unwrap();
+    control_plane::runtime::reconcile(&pool).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT desired_state FROM instances WHERE id=$1")
+            .bind(old)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "stopped"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT runtime_health FROM deployments WHERE id=$1")
+            .bind(deployment)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "healthy"
+    );
+}
 #[sqlx::test(migrations = "./migrations")]
 #[ignore = "requires disposable PostgreSQL"]
 async fn drain_waits_for_opt_in_readiness_and_route_expiry_then_keeps_slot_until_cleanup(

@@ -1,5 +1,6 @@
 import { DeploymentControls } from './deployment-controls'
 import { DeploymentHistory } from './deployment-history'
+import { RuntimeHealth } from './runtime-health'
 import { useDeploymentPanel } from './use-deployment-panel'
 
 import { ExternalLink } from 'lucide-react'
@@ -39,6 +40,7 @@ export function DeploymentPanel({ service }: { service: Service }) {
           {error.message}
         </p>
       )}
+      {runtime.data && <RuntimeHealth runtime={runtime.data} />}
       {<DeploymentHistory runtime={runtime} stop={stop} rollback={rollback} service={service} />}
       {runtime.data?.previewUrl && runtimeLabel(runtime.data) === 'Running' && (
         <a className="back-link" href={runtime.data.previewUrl} target="_blank" rel="noreferrer">

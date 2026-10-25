@@ -1,5 +1,5 @@
 //! Versioned outbound node protocol. Runtime-specific identifiers stay on nodes.
-use platform_domain::{ImageDigest, ServiceSpec};
+use platform_domain::{ImageDigest, RecoveryPolicy, ServiceSpec};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -24,6 +24,8 @@ pub struct Assignment {
     pub desired_state: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub recovery_allowed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_policy: Option<RecoveryPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job: Option<JobExecution>,
     pub image_repository: String,
@@ -77,8 +79,90 @@ pub struct InstanceReport {
     pub job_result: Option<JobResult>,
     pub state: String,
     pub diagnostic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<RuntimeHealth>,
     pub metrics: Option<Metrics>,
     pub logs: Vec<LogEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHealth {
+    pub process: ProcessObservation,
+    pub startup: ProbeObservation,
+    pub readiness: ProbeObservation,
+    pub liveness: ProbeObservation,
+    pub recovery: RecoveryObservation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessObservation {
+    Running,
+    Exited,
+    Unknown,
+}
+impl ProcessObservation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Exited => "exited",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProbeObservation {
+    NotConfigured,
+    Pending,
+    Passing,
+    Failing,
+    Unknown,
+}
+impl ProbeObservation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotConfigured => "not_configured",
+            Self::Pending => "pending",
+            Self::Passing => "passing",
+            Self::Failing => "failing",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecoveryPhase {
+    Stable,
+    Backoff,
+    Restarting,
+    Exhausted,
+    Disabled,
+}
+impl RecoveryPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Backoff => "backoff",
+            Self::Restarting => "restarting",
+            Self::Exhausted => "exhausted",
+            Self::Disabled => "disabled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryObservation {
+    pub phase: RecoveryPhase,
+    pub attempts: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_at_unix_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,6 +312,7 @@ mod contract_tests {
             job_result: None,
             state: "ready".into(),
             diagnostic: None,
+            health: None,
             metrics: Some(Metrics::default()),
             logs: vec![LogEntry {
                 key: "one".into(),

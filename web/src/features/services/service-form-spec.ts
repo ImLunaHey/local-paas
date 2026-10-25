@@ -22,6 +22,7 @@ export function readServiceForm(
   const data = new FormData(form)
   const text = (key: string) => String(data.get(key) ?? '').trim()
   const number = (key: string) => Number(text(key))
+  const numberOr = (key: string, fallback: number) => (text(key) ? number(key) : fallback)
   const buildArgsInput = form.elements.namedItem('buildArgs') as HTMLTextAreaElement | null
   const lines = text('buildArgs').split('\n').filter(Boolean)
   const keys = lines.map((line) => line.slice(0, line.indexOf('=')))
@@ -70,6 +71,33 @@ export function readServiceForm(
                 intervalSeconds: number('interval'),
                 stabilizationSeconds: number('stabilization'),
               },
+          liveness:
+            worker || !text('liveness')
+              ? undefined
+              : {
+                  path: text('liveness'),
+                  intervalSeconds: number('liveness_interval'),
+                  failureThreshold: number('liveness_failures'),
+                },
+          recovery: {
+            restartAttempts: numberOr('restart_attempts', oci?.recovery?.restartAttempts ?? 5),
+            initialBackoffSeconds: numberOr(
+              'restart_backoff',
+              oci?.recovery?.initialBackoffSeconds ?? 5,
+            ),
+            maxBackoffSeconds: numberOr(
+              'restart_backoff_max',
+              oci?.recovery?.maxBackoffSeconds ?? 60,
+            ),
+            resetAfterSeconds: numberOr('recovery_reset', oci?.recovery?.resetAfterSeconds ?? 600),
+            replacementAttempts: worker
+              ? 0
+              : numberOr('replacement_attempts', oci?.recovery?.replacementAttempts ?? 3),
+            replacementBackoffSeconds: numberOr(
+              'replacement_backoff',
+              oci?.recovery?.replacementBackoffSeconds ?? 30,
+            ),
+          },
         }
       : {
           kind,

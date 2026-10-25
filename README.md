@@ -74,6 +74,8 @@ host are three scheduling nodes, not three physical failure domains.
 - Signed, replay-safe GitHub webhooks that pin public-repository events to commits.
 - Health-gated deployments, retained revisions, failed-candidate rollback,
   independent ingress, cordon/drain and opt-in stateless relocation.
+- Durable bounded crash/liveness recovery, replica health history and opt-in
+  stateless replacement after restart-budget exhaustion.
 - DNS-verified public OCI domains, Caddy API route updates, observed TLS and
   acknowledged promotion/rollback; explicit edge installation is required.
 - Singleton workers, one-off jobs, interval schedules and pre-deployment commands.

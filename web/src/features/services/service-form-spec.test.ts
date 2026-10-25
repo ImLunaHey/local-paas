@@ -26,6 +26,14 @@ function form(overrides: Record<string, string> = {}) {
     readiness: '/health',
     interval: '10',
     stabilization: '5',
+    liveness_interval: '10',
+    liveness_failures: '3',
+    restart_attempts: '5',
+    restart_backoff: '5',
+    restart_backoff_max: '60',
+    recovery_reset: '600',
+    replacement_attempts: '3',
+    replacement_backoff: '30',
     buildArgs: 'PUBLIC_URL=https://example.com/?a=b',
     ...overrides,
   }
@@ -59,6 +67,14 @@ describe('service configuration submission', () => {
       buildArgs: { PUBLIC_URL: 'https://example.com/?a=b' },
       privateConnections: baseline.workload.privateConnections,
       readiness: { path: '/health', intervalSeconds: 10, stabilizationSeconds: 5 },
+      recovery: {
+        restartAttempts: 5,
+        initialBackoffSeconds: 5,
+        maxBackoffSeconds: 60,
+        resetAfterSeconds: 600,
+        replacementAttempts: 3,
+        replacementBackoffSeconds: 30,
+      },
     })
   })
 
@@ -73,6 +89,10 @@ describe('service configuration submission', () => {
       replicas: 1,
       port: undefined,
       readiness: undefined,
+      recovery: {
+        restartAttempts: 5,
+        replacementAttempts: 0,
+      },
     })
   })
 

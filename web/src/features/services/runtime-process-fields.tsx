@@ -4,6 +4,173 @@ import { Field } from '../../components/field'
 import { Textarea } from '../../components/textarea'
 import type { ServiceFormState } from './use-service-form'
 
+function RecoveryFields({
+  oci,
+  allowReplacement,
+}: Pick<ServiceFormState, 'oci'> & { allowReplacement: boolean }) {
+  return (
+    <div className="sm:col-span-2 rounded-md border border-zinc-800 p-4 space-y-4">
+      <h3 className="text-sm">Recovery policy</h3>
+      <p className="text-xs text-muted">
+        Restart attempts are persisted on the worker.
+        {allowReplacement &&
+          ' Overlap-safe services with relocation enabled can also replace an exhausted instance on another worker.'}
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Restart attempts">
+          <Input
+            name="restart_attempts"
+            type="number"
+            defaultValue={oci?.recovery?.restartAttempts ?? 5}
+            min={0}
+            max={20}
+            required
+          />
+        </Field>
+        <Field label="Budget reset after (seconds)">
+          <Input
+            name="recovery_reset"
+            type="number"
+            defaultValue={oci?.recovery?.resetAfterSeconds ?? 600}
+            min={30}
+            max={86400}
+            required
+          />
+        </Field>
+        <Field label="Initial restart backoff (seconds)">
+          <Input
+            name="restart_backoff"
+            type="number"
+            defaultValue={oci?.recovery?.initialBackoffSeconds ?? 5}
+            min={1}
+            max={300}
+            required
+          />
+        </Field>
+        <Field label="Maximum restart backoff (seconds)">
+          <Input
+            name="restart_backoff_max"
+            type="number"
+            defaultValue={oci?.recovery?.maxBackoffSeconds ?? 60}
+            min={1}
+            max={3600}
+            required
+          />
+        </Field>
+        {allowReplacement && (
+          <>
+            <Field label="Replacement attempts">
+              <Input
+                name="replacement_attempts"
+                type="number"
+                defaultValue={oci?.recovery?.replacementAttempts ?? 3}
+                min={0}
+                max={10}
+                required
+              />
+            </Field>
+            <Field label="Replacement backoff (seconds)">
+              <Input
+                name="replacement_backoff"
+                type="number"
+                defaultValue={oci?.recovery?.replacementBackoffSeconds ?? 30}
+                min={1}
+                max={3600}
+                required
+              />
+            </Field>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function HttpProcessFields({ oci }: Pick<ServiceFormState, 'oci'>) {
+  return (
+    <>
+      <Field label="Replicas">
+        <Input
+          name="replicas"
+          type="number"
+          defaultValue={oci?.replicas ?? 2}
+          min={1}
+          max={32}
+          required
+        />
+      </Field>
+      <Field label="HTTP port">
+        <Input
+          name="port"
+          type="number"
+          defaultValue={oci?.port ?? 3000}
+          min={1}
+          max={65535}
+          required
+        />
+      </Field>
+      <div className="sm:col-span-2">
+        <Field label="Readiness path">
+          <Input name="readiness" defaultValue={oci?.readiness?.path ?? '/health'} required />
+        </Field>
+      </div>
+      <Field label="Check interval (seconds)">
+        <Input
+          name="interval"
+          type="number"
+          defaultValue={oci?.readiness?.intervalSeconds ?? 10}
+          min={1}
+          max={300}
+          required
+        />
+      </Field>
+      <Field label="Stabilization period (seconds)">
+        <Input
+          name="stabilization"
+          type="number"
+          defaultValue={oci?.readiness?.stabilizationSeconds ?? 30}
+          min={1}
+          max={3600}
+          required
+        />
+      </Field>
+      <div className="sm:col-span-2">
+        <Field
+          label="Liveness path (optional)"
+          hint="Repeated failures restart the process. Readiness only removes traffic and never restarts it."
+        >
+          <Input
+            name="liveness"
+            defaultValue={oci?.liveness?.path ?? ''}
+            placeholder="/health/live"
+          />
+        </Field>
+      </div>
+      <Field label="Liveness interval (seconds)">
+        <Input
+          name="liveness_interval"
+          type="number"
+          defaultValue={oci?.liveness?.intervalSeconds ?? 10}
+          min={1}
+          max={300}
+          required
+        />
+      </Field>
+      <Field label="Liveness failure threshold">
+        <Input
+          name="liveness_failures"
+          type="number"
+          defaultValue={oci?.liveness?.failureThreshold ?? 3}
+          min={1}
+          max={20}
+          required
+        />
+      </Field>
+      <RecoveryFields oci={oci} allowReplacement />
+    </>
+  )
+}
+
 export function RuntimeProcessFields({
   baseline,
   oci,
@@ -83,59 +250,16 @@ export function RuntimeProcessFields({
         </Select>
       </Field>
       {worker ? (
-        <p className="sm:col-span-2 text-sm text-muted">
-          One running instance. Deployments stop the previous instance and wait for confirmed
-          shutdown before starting its replacement. A running process is observed for 10 seconds;
-          this does not verify application progress.
-        </p>
-      ) : (
         <>
-          <Field label="Replicas">
-            <Input
-              name="replicas"
-              type="number"
-              defaultValue={oci?.replicas ?? 2}
-              min={1}
-              max={32}
-              required
-            />
-          </Field>
-          <Field label="HTTP port">
-            <Input
-              name="port"
-              type="number"
-              defaultValue={oci?.port ?? 3000}
-              min={1}
-              max={65535}
-              required
-            />
-          </Field>
-          <div className="sm:col-span-2">
-            <Field label="Readiness path">
-              <Input name="readiness" defaultValue={oci?.readiness?.path ?? '/health'} required />
-            </Field>
-          </div>
-          <Field label="Check interval (seconds)">
-            <Input
-              name="interval"
-              type="number"
-              defaultValue={oci?.readiness?.intervalSeconds ?? 10}
-              min={1}
-              max={300}
-              required
-            />
-          </Field>
-          <Field label="Stabilization period (seconds)">
-            <Input
-              name="stabilization"
-              type="number"
-              defaultValue={oci?.readiness?.stabilizationSeconds ?? 30}
-              min={1}
-              max={3600}
-              required
-            />
-          </Field>
+          <p className="sm:col-span-2 text-sm text-muted">
+            One running instance. Deployments stop the previous instance and wait for confirmed
+            shutdown before starting its replacement. A running process is observed for 10 seconds;
+            this does not verify application progress.
+          </p>
+          <RecoveryFields oci={oci} allowReplacement={false} />
         </>
+      ) : (
+        <HttpProcessFields oci={oci} />
       )}
     </>
   ) : (

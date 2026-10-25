@@ -1263,6 +1263,30 @@
         },
         "additionalProperties": false
       },
+      "Liveness": {
+        "type": "object",
+        "required": [
+          "path",
+          "intervalSeconds",
+          "failureThreshold"
+        ],
+        "properties": {
+          "failureThreshold": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "intervalSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "OwnershipRecord": {
         "type": "object",
         "required": [
@@ -1442,6 +1466,48 @@
           "stabilizationSeconds": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "RecoveryPolicy": {
+        "type": "object",
+        "properties": {
+          "initialBackoffSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 5,
+            "minimum": 0
+          },
+          "maxBackoffSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 60,
+            "minimum": 0
+          },
+          "replacementAttempts": {
+            "type": "integer",
+            "format": "int32",
+            "default": 3,
+            "minimum": 0
+          },
+          "replacementBackoffSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 30,
+            "minimum": 0
+          },
+          "resetAfterSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 600,
+            "minimum": 0
+          },
+          "restartAttempts": {
+            "type": "integer",
+            "format": "int32",
+            "default": 5,
             "minimum": 0
           }
         },
@@ -2023,6 +2089,16 @@
                   "oci-service"
                 ]
               },
+              "liveness": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Liveness"
+                  }
+                ]
+              },
               "port": {
                 "type": [
                   "integer",
@@ -2056,6 +2132,9 @@
                     "$ref": "#/components/schemas/Readiness"
                   }
                 ]
+              },
+              "recovery": {
+                "$ref": "#/components/schemas/RecoveryPolicy"
               },
               "replicas": {
                 "type": "integer",

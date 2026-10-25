@@ -85,7 +85,7 @@ Progress across all capabilities is collected in
 | Git provider automation and private repositories | Signed, replay-safe GitHub events pin commits; repository-scoped GitHub App tokens support bounded private fetches with rotation and revocation state | [#4](https://github.com/ImLunaHey/local-paas/issues/4) |
 | Safe automated platform upgrades | Development contract resets and manual replacement are documented; rolling upgrades are absent | [#7](https://github.com/ImLunaHey/local-paas/issues/7) |
 | Production registry lifecycle | The co-located registry is development-only; production authentication and garbage collection are release gates | [#8](https://github.com/ImLunaHey/local-paas/issues/8) |
-| Continuous runtime health and self-healing | Deployment readiness and independent ingress probing exist; ongoing recovery policy is incomplete | [#10](https://github.com/ImLunaHey/local-paas/issues/10) |
+| Continuous runtime health and self-healing | Separate readiness/liveness/process observations, durable bounded restart and replacement budgets, independent ingress withdrawal and degraded-state history | [#10](https://github.com/ImLunaHey/local-paas/issues/10) |
 | Autoscaling and scale to zero | Fixed desired replicas exist; demand-based capacity control does not | [#9](https://github.com/ImLunaHey/local-paas/issues/9) |
 | Remote-worker enrollment and certificate rotation | Authenticated remote workers work over an operator-provided private network | [#11](https://github.com/ImLunaHey/local-paas/issues/11) |
 | Controller and physical failure-domain HA | Persistent work and advisory locks exist; active-controller leadership and hardware HA do not | [#15](https://github.com/ImLunaHey/local-paas/issues/15) |
