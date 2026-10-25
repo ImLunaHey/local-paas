@@ -86,7 +86,7 @@ function Shell() {
     queryFn: () => api<{ summary: { totalNodes: number } }>('/overview'),
     enabled: !isPlatformAdmin,
   })
-  const hasOrganizationNodes = (overview.data?.summary.totalNodes ?? 0) > 0
+  const hasOrganizationNodes = (overview.data?.summary?.totalNodes ?? 0) > 0
   const path = useRouterState({ select: (s) => s.location.pathname })
   const navClass = (active: boolean) =>
     cn(
