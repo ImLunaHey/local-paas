@@ -46,7 +46,9 @@ test('command dialog supports keyboard selection, escape and focus restoration',
   const input = page.getByRole('combobox', { name: 'Search commands' })
   await expect(input).toBeFocused()
   await input.fill('hosts')
-  await expect(page.getByRole('option', { name: 'Hosts', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('option', { name: 'Hosts', exact: true })).toHaveCount(0)
+  await input.fill('domains')
+  await expect(page.getByRole('option', { name: 'Domains', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   )
@@ -61,10 +63,10 @@ test('command dialog supports keyboard selection, escape and focus restoration',
   await expect(page.getByRole('dialog')).not.toBeVisible()
   await expect(trigger).toBeFocused()
   await page.keyboard.press('Control+k')
-  await input.fill('hosts')
+  await input.fill('domains')
   await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true })
   await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page).not.toHaveURL(/\/hosts$/)
+  await expect(page).not.toHaveURL(/\/domains$/)
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/hosts$/)
+  await expect(page).toHaveURL(/\/domains$/)
 })
