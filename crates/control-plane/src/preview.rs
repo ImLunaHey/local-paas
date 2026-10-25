@@ -3,7 +3,7 @@ use axum::{
     Router,
     body::Body,
     extract::{Request, State},
-    http::{HeaderMap, HeaderName, StatusCode},
+    http::{HeaderMap, HeaderName, Method, StatusCode},
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
@@ -251,14 +251,43 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
             .filter(|b| b.expires > Utc::now())
             .collect();
         if ready.is_empty() {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [("retry-after", "5")],
-                "No healthy application instances are ready. Retry after five seconds; requests are not queued.\n",
-            )
-                .into_response();
+            None
+        } else {
+            Some(ready[p.next.fetch_add(1, Ordering::Relaxed) % ready.len()].clone())
         }
-        ready[p.next.fetch_add(1, Ordering::Relaxed) % ready.len()].clone()
+    };
+    // Reserved ingress probe: never call the application, even if its policy
+    // changes while a browser is waiting. Only registered authorities qualify.
+    if sleeper.is_some()
+        && request.method() == Method::HEAD
+        && request
+            .headers()
+            .get("x-local-paas-wake-check")
+            .is_some_and(|v| v == "1")
+    {
+        return (
+            if backend.is_some() {
+                StatusCode::NO_CONTENT
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            },
+            [
+                ("cache-control", "no-store"),
+                ("retry-after", "5"),
+                (
+                    "x-local-paas-wake-status",
+                    if backend.is_some() {
+                        "ready"
+                    } else {
+                        "waiting"
+                    },
+                ),
+            ],
+        )
+            .into_response();
+    }
+    let Some(backend) = backend else {
+        return unavailable(&request, sleeper.is_some_and(|(_, enabled)| enabled));
     };
     forward(
         &p.client,
@@ -269,6 +298,51 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         Some(backend.expires),
     )
     .await
+}
+
+fn unavailable(request: &Request, can_wake: bool) -> Response {
+    let navigation = request.method() == Method::GET
+        && !websocket(request.headers())
+        && request
+            .headers()
+            .get("sec-fetch-mode")
+            .is_none_or(|v| v == "navigate")
+        && request
+            .headers()
+            .get_all("accept")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .any(|v| {
+                v.split(',').any(|media| {
+                    let mut parts = media.trim().split(';');
+                    parts
+                        .next()
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("text/html"))
+                        && !parts.any(|p| {
+                            p.trim()
+                                .strip_prefix("q=")
+                                .is_some_and(|q| q.parse::<f32>().map_or(true, |q| q <= 0.0))
+                        })
+                })
+            });
+    if can_wake && navigation {
+        let nonce = Uuid::new_v4().simple().to_string();
+        let html = include_str!("waking.html").replace("{{NONCE}}", &nonce);
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [("content-type", "text/html; charset=utf-8".to_owned()),
+             ("cache-control", "no-store".to_owned()),
+             ("retry-after", "5".to_owned()),
+             ("x-content-type-options", "nosniff".to_owned()),
+             ("content-security-policy", format!("default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"))],
+            html,
+        ).into_response();
+    }
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [("retry-after", "5"), ("cache-control", "no-store")],
+        "No healthy application instances are ready. Retry after five seconds; requests are not queued.\n",
+    ).into_response()
 }
 fn connection_tokens(headers: &HeaderMap) -> Vec<HeaderName> {
     headers
@@ -452,6 +526,135 @@ mod tests {
         }))
         .await
     }
+    #[test]
+    fn waking_page_is_only_for_safe_html_navigation_to_sleeping_services() {
+        for (method, accept, mode, enabled, html) in [
+            ("GET", "text/html,application/xhtml+xml", None, true, true),
+            ("GET", "text/html", Some("navigate"), true, true),
+            ("POST", "text/html", Some("navigate"), true, false),
+            ("HEAD", "text/html", None, true, false),
+            ("GET", "application/json", None, true, false),
+            ("GET", "*/*", None, true, false),
+            ("GET", "text/html;q=0.0", None, true, false),
+            ("GET", "text/html", Some("cors"), true, false),
+            ("GET", "text/html", None, false, false),
+        ] {
+            let mut builder = Request::builder().method(method).header("accept", accept);
+            if let Some(mode) = mode {
+                builder = builder.header("sec-fetch-mode", mode);
+            }
+            let response = unavailable(&builder.body(Body::empty()).unwrap(), enabled);
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.headers()["retry-after"], "5");
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            assert_eq!(
+                response.headers()["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("text/html"),
+                html,
+                "{method} {accept} {mode:?} {enabled}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn wake_checks_require_fresh_routes_and_never_reach_the_app() {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = requests.clone();
+        let (port, server) = serve(Router::new().fallback(move |request: Request| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            async move { request.uri().to_string() }
+        }))
+        .await;
+        let id = Uuid::new_v4();
+        let state = Proxy {
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/unused")
+                .unwrap(),
+            sleepers: Arc::new(RwLock::new(HashMap::from([(
+                "sleep.test".into(),
+                (id, true),
+            )]))),
+            activity: Arc::default(),
+            recent_demand: Arc::new(std::sync::Mutex::new(HashMap::from([(
+                id,
+                std::time::Instant::now(),
+            )]))),
+            routes: Arc::default(),
+            client: client().unwrap(),
+            next: Arc::new(AtomicUsize::new(0)),
+            connections: Arc::new(Semaphore::new(256)),
+        };
+        let request = |method| {
+            Request::builder()
+                .method(method)
+                .uri("/account?tab=billing")
+                .header("host", "sleep.test")
+                .header("accept", "text/html")
+                .body(Body::empty())
+                .unwrap()
+        };
+        let response = proxy(State(state.clone()), request("GET")).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let csp = response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let body = axum::body::to_bytes(response.into_body(), 16384)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert!(html.contains("Waking up service"));
+        assert!(!html.contains("{{NONCE}}"));
+        let nonce = csp
+            .split("'nonce-")
+            .nth(1)
+            .unwrap()
+            .split('\'')
+            .next()
+            .unwrap();
+        assert!(html.contains(&format!("<script nonce=\"{nonce}\">")));
+        for fresh in [false, true] {
+            state.routes.write().await.insert(
+                "sleep.test".into(),
+                vec![Backend {
+                    port,
+                    expires: Utc::now() + chrono::Duration::seconds(if fresh { 30 } else { -1 }),
+                }],
+            );
+            let mut probe = request("HEAD");
+            probe
+                .headers_mut()
+                .insert("x-local-paas-wake-check", "1".parse().unwrap());
+            let response = proxy(State(state.clone()), probe).await;
+            assert_eq!(
+                response.status(),
+                if fresh {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            );
+            assert_eq!(
+                response.headers()["x-local-paas-wake-status"],
+                if fresh { "ready" } else { "waiting" }
+            );
+            assert_eq!(requests.load(Ordering::Relaxed), 0);
+        }
+        let response = proxy(State(state.clone()), request("GET")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap(),
+            "/account?tab=billing"
+        );
+        assert_eq!(requests.load(Ordering::Relaxed), 1);
+        assert!(state.activity.lock().unwrap().is_empty());
+        server.abort();
+    }
+
     #[test]
     fn removes_all_case_insensitive_connection_nominations() {
         let mut headers = HeaderMap::new();

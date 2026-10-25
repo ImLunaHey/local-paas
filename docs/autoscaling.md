@@ -95,8 +95,17 @@ background tasks are safe to stop; applications must explicitly tolerate this.
 
 Only registered preview/domain HTTP routes activate sleeping services. The first
 request records a durable, coalesced wake request and receives **503 with
-`Retry-After: 5`**. There is no queue, body persistence or automatic replay. Clients
-must retry with their own appropriate idempotency rules. Unknown authorities
+`Retry-After: 5`**. Browser GET navigations accepting HTML show a **Waking up
+service** page. It polls ingress readiness every five seconds and reloads the
+original URL (including its path, query and fragment) once a healthy, unexpired
+route is available. These HEAD probes use `X-Local-Paas-Wake-Check: 1` and never
+reach the application on registered authorities; only a 204 with
+`X-Local-Paas-Wake-Status: ready` triggers the reload. Pages and probes are not
+cached. Without JavaScript the page refreshes every five seconds instead.
+
+API calls, non-navigation fetches and form submissions keep the plain 503
+response. There is no queue, body persistence or automatic replay of submissions.
+Clients must retry with their own appropriate idempotency rules. Unknown authorities
 cannot wake services. Further requests return 503 until a ready backend is
 published; cold start includes the evaluation delay, image preparation and
 readiness stabilization. The first ready replica may take minutes, and exhausted

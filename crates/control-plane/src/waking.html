@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Waking up service</title>
+    <noscript><meta http-equiv="refresh" content="5"></noscript>
+    <style nonce="{{NONCE}}">
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101218; color: #f4f5f7; }
+      * { box-sizing: border-box; }
+      body { min-height: 100svh; margin: 0; display: grid; place-items: center; padding: 24px; }
+      main { width: 100%; max-width: 460px; }
+      .indicator { width: 36px; height: 36px; border: 3px solid #303642; border-top-color: #a7bbff; border-radius: 50%; animation: spin 1.2s linear infinite; }
+      h1 { margin: 28px 0 12px; font-size: clamp(26px, 6vw, 34px); letter-spacing: -0.03em; line-height: 1.2; }
+      p { color: #b5bdcd; line-height: 1.6; margin: 0; }
+      .status { margin-top: 28px; font-size: 14px; color: #a7bbff; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .indicator { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="indicator" aria-hidden="true"></div>
+      <h1>Waking up service</h1>
+      <p>This service is starting up. You’ll be taken to the app automatically when it’s ready.</p>
+      <p class="status" role="status" id="status">Waiting for the app to be ready…</p>
+      <noscript><p>This page refreshes every five seconds while you wait.</p></noscript>
+    </main>
+    <script nonce="{{NONCE}}">
+      const started = Date.now();
+      async function checkReadiness() {
+        try {
+          const response = await fetch(location.href, {
+            method: "HEAD",
+            headers: { "X-Local-Paas-Wake-Check": "1" },
+            cache: "no-store",
+            redirect: "error",
+            signal: AbortSignal.timeout(10000),
+          });
+          if (response.status === 204 && response.headers.get("X-Local-Paas-Wake-Status") === "ready") {
+            location.reload();
+            return;
+          }
+        } catch {
+          // Keep waiting through transient network failures.
+        }
+        if (Date.now() - started >= 60000) {
+          document.getElementById("status").textContent = "This is taking longer than usual. We’ll keep checking automatically.";
+        }
+        setTimeout(checkReadiness, 5000);
+      }
+      setTimeout(checkReadiness, 5000);
+    </script>
+  </body>
+</html>

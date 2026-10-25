@@ -122,9 +122,10 @@ function ScalingForm({ serviceId, state }: { serviceId: string; state: ScalingSt
       </div>
       <p className="text-xs leading-relaxed text-zinc-400">
         A minimum of zero enables sleep after sustained CPU at or below 1% and no ingress requests
-        or open streams. The first request wakes the service and receives 503 with Retry-After: 5.
-        Requests are never queued or replayed. Clients must retry safely; private connection targets
-        cannot sleep.
+        or open streams. The first request wakes the service. Browser visitors see a “Waking up
+        service” page and automatically continue when the app is ready. API calls and form
+        submissions receive 503 with Retry-After: 5 and must retry safely. Requests are never queued
+        or replayed; private connection targets cannot sleep.
       </p>
       <p className="text-xs leading-relaxed text-zinc-400">
         Scaling pauses during deployments, jobs, cleanup, missing measurements, or capacity

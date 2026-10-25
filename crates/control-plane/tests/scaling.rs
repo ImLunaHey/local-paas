@@ -443,6 +443,25 @@ async fn idle_service_sleeps_and_http_request_wakes_without_routing_candidates(p
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     assert!(requested);
+    let page = client
+        .get(format!("http://{address}/account?tab=billing"))
+        .header("host", "sleep.test")
+        .header("accept", "text/html")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(page.headers()["cache-control"], "no-store");
+    assert!(page.text().await.unwrap().contains("Waking up service"));
+    let probe = client
+        .head(format!("http://{address}/account?tab=billing"))
+        .header("host", "sleep.test")
+        .header("x-local-paas-wake-check", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(probe.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(probe.headers()["x-local-paas-wake-status"], "waiting");
     elapsed(&pool).await;
     reconcile(&pool).await;
     assert_eq!(desired(&pool).await, 1);

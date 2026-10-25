@@ -412,5 +412,8 @@ been eliminated. Further network fault testing remains a production requirement.
 Eligible stateless HTTP OCI services can opt into durable CPU scaling and HTTP
 scale-to-zero. Policies, cooldowns and decisions persist in PostgreSQL; capacity,
 rollout and job barriers remain authoritative. Cold requests receive 503 with
-Retry-After until readiness, without queuing or replay. See [autoscaling](autoscaling.md)
+Retry-After until readiness. Browser GET navigations show a “Waking up service”
+page that checks ingress readiness and reloads the original URL when ready.
+API calls and submissions require client retries; no requests are queued or
+submissions replayed. See [autoscaling](autoscaling.md)
 for eligibility, operator budgets, placement, metric lag and verification limits.
