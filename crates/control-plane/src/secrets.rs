@@ -117,16 +117,22 @@ impl Bao {
         Ok((version, values))
     }
 
-    pub(crate) async fn create_source_webhook_secret(
+    pub(crate) async fn create_source_secret(
         &self,
         path: &str,
         secret: &str,
+        github_private_key: Option<&str>,
     ) -> Result<(), ApiError> {
+        let mut data = serde_json::Map::new();
+        data.insert("webhook".into(), Value::String(secret.into()));
+        if let Some(key) = github_private_key {
+            data.insert("githubPrivateKey".into(), Value::String(key.into()));
+        }
         let response = self
             .call(
                 reqwest::Method::POST,
                 &format!("platform/data/{path}"),
-                Some(json!({"options":{"cas":0},"data":{"webhook":secret}})),
+                Some(json!({"options":{"cas":0},"data":data})),
                 None,
             )
             .await?;
@@ -144,6 +150,45 @@ impl Bao {
         values.get("webhook").cloned().ok_or(ApiError::Unavailable(
             "source connection webhook credential is unavailable",
         ))
+    }
+
+    pub(crate) async fn source_github_private_key(&self, path: &str) -> Result<String, ApiError> {
+        let (_, values) = self.read(path, None, None).await?;
+        values
+            .get("githubPrivateKey")
+            .cloned()
+            .ok_or(ApiError::Unavailable(
+                "source connection GitHub App key is unavailable",
+            ))
+    }
+
+    pub(crate) async fn rotate_source_github_private_key(
+        &self,
+        path: &str,
+        key: &str,
+    ) -> Result<(), ApiError> {
+        let (version, mut values) = self.read(path, None, None).await?;
+        if version < 1 || !values.contains_key("webhook") {
+            return Err(ApiError::Unavailable(
+                "source connection credentials are unavailable",
+            ));
+        }
+        values.insert("githubPrivateKey".into(), key.into());
+        let response = self
+            .call(
+                reqwest::Method::POST,
+                &format!("platform/data/{path}"),
+                Some(json!({"options":{"cas":version},"data":values})),
+                None,
+            )
+            .await?;
+        if response["data"]["version"].as_i64() == Some(i64::from(version + 1)) {
+            Ok(())
+        } else {
+            Err(ApiError::Unavailable(
+                "OpenBao did not acknowledge GitHub App key rotation",
+            ))
+        }
     }
 
     pub(crate) async fn delete_source_secret(&self, path: &str) {

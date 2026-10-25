@@ -84,7 +84,8 @@ pub struct ProjectDetail {
         crate::edge::rollout::rollback,
         crate::source_connections::list,
         crate::source_connections::create,
-        crate::source_connections::deliveries
+        crate::source_connections::deliveries,
+        crate::source_connections::rotate_github_key
     ),
     components(schemas(
         ErrorResponse,
@@ -96,7 +97,8 @@ pub struct ProjectDetail {
         ProjectDetail,
         crate::source_connections::SourceConnection,
         crate::source_connections::WebhookDelivery,
-        crate::source_connections::CreateSourceConnection
+        crate::source_connections::CreateSourceConnection,
+        crate::source_connections::RotateGitHubKey
     ))
 )]
 pub struct ApiDoc;

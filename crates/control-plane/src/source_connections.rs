@@ -11,14 +11,17 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::collections::BTreeSet;
+use std::time::Duration;
 use url::Url;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -36,6 +39,11 @@ pub struct SourceConnection {
     pub secret_path: String,
     pub events: Vec<String>,
     pub enabled: bool,
+    pub github_app_id: Option<i64>,
+    pub github_installation_id: Option<i64>,
+    pub authentication_status: String,
+    pub authentication_error: Option<String>,
+    pub last_authenticated_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub last_delivery_at: Option<DateTime<Utc>>,
 }
@@ -69,6 +77,20 @@ pub struct CreateSourceConnection {
     pub webhook_secret: String,
     /// Any combination of `push`, `tag`, and `pull_request`.
     pub events: Vec<String>,
+    /// GitHub App ID. Supply all three GitHub App fields for private access.
+    pub github_app_id: Option<i64>,
+    /// Repository installation ID for this app.
+    pub github_installation_id: Option<i64>,
+    /// PEM-encoded GitHub App private key. Stored only in OpenBao.
+    pub github_private_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateGitHubKey {
+    /// Replacement PEM-encoded GitHub App private key.
+    pub github_private_key: String,
 }
 
 #[utoipa::path(
@@ -108,6 +130,11 @@ pub(crate) async fn create(
             "webhook secret must contain between 32 and 512 bytes",
         ));
     }
+    validate_github_app(
+        input.github_app_id,
+        input.github_installation_id,
+        input.github_private_key.as_deref(),
+    )?;
     let service_repository: String = sqlx::query_scalar(
         "SELECT s.spec->'source'->>'repository' FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1 AND p.organization_id=$2",
     )
@@ -126,10 +153,14 @@ pub(crate) async fn create(
     let id = Uuid::now_v7();
     let secret_path = format!("source-connections/{id}");
     let bao = Bao::new()?;
-    bao.create_source_webhook_secret(&secret_path, &input.webhook_secret)
-        .await?;
+    bao.create_source_secret(
+        &secret_path,
+        &input.webhook_secret,
+        input.github_private_key.as_deref(),
+    )
+    .await?;
     let inserted = sqlx::query_as::<_, SourceConnection>(
-        "INSERT INTO source_connections(id,service_id,organization_id,provider,repository,repository_key,secret_path,events) VALUES($1,$2,$3,'github',$4,$5,$6,$7) RETURNING *",
+        "INSERT INTO source_connections(id,service_id,organization_id,provider,repository,repository_key,secret_path,events,github_app_id,github_installation_id,authentication_status) VALUES($1,$2,$3,'github',$4,$5,$6,$7,$8,$9,$10) RETURNING *",
     )
     .bind(id)
     .bind(input.service_id)
@@ -138,6 +169,13 @@ pub(crate) async fn create(
     .bind(repository_key)
     .bind(&secret_path)
     .bind(events)
+    .bind(input.github_app_id)
+    .bind(input.github_installation_id)
+    .bind(if input.github_app_id.is_some() {
+        "configured"
+    } else {
+        "public"
+    })
     .fetch_one(&pool)
     .await;
     match inserted {
@@ -156,6 +194,233 @@ pub(crate) async fn create(
             }
         }
     }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/source-connections/{id}/github-key",
+    params(("id" = Uuid, Path)),
+    request_body = RotateGitHubKey,
+    responses((status = 200, body = SourceConnection))
+)]
+pub(crate) async fn rotate_github_key(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<auth::Context>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<RotateGitHubKey>,
+) -> Result<Json<SourceConnection>, ApiError> {
+    validate_private_key(&input.github_private_key)?;
+    let organization_id = auth::required_organization(&context)?;
+    let connection: SourceConnection =
+        sqlx::query_as("SELECT * FROM source_connections WHERE id=$1 AND organization_id=$2")
+            .bind(id)
+            .bind(organization_id)
+            .fetch_optional(&pool)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    if connection.github_app_id.is_none() {
+        return Err(ApiError::Conflict(
+            "this source connection has no GitHub App configuration",
+        ));
+    }
+    Bao::new()?
+        .rotate_source_github_private_key(&connection.secret_path, &input.github_private_key)
+        .await?;
+    let connection = sqlx::query_as(
+        "UPDATE source_connections SET authentication_status='configured',authentication_error=NULL WHERE id=$1 RETURNING *",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await?;
+    Ok(Json(connection))
+}
+
+fn validate_github_app(
+    app_id: Option<i64>,
+    installation_id: Option<i64>,
+    private_key: Option<&str>,
+) -> Result<(), ApiError> {
+    match (app_id, installation_id, private_key) {
+        (None, None, None) => Ok(()),
+        (Some(app), Some(installation), Some(key)) if app > 0 && installation > 0 => {
+            validate_private_key(key)
+        }
+        _ => Err(ApiError::Conflict(
+            "GitHub App ID, installation ID, and private key must be supplied together",
+        )),
+    }
+}
+
+fn validate_private_key(key: &str) -> Result<(), ApiError> {
+    if !(512..=32 * 1024).contains(&key.len())
+        || key.contains('\0')
+        || EncodingKey::from_rsa_pem(key.as_bytes()).is_err()
+    {
+        return Err(ApiError::Conflict(
+            "GitHub App private key must be a valid bounded RSA PEM",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct GitHubAppClaims {
+    iat: i64,
+    exp: i64,
+    iss: String,
+}
+
+#[derive(Deserialize)]
+struct InstallationTokenResponse {
+    token: String,
+    expires_at: DateTime<Utc>,
+    permissions: std::collections::BTreeMap<String, String>,
+}
+
+enum MintError {
+    Credential,
+    Dependency,
+}
+
+/// Mint a new repository-scoped installation token for one build. Neither the
+/// app key nor token is cached, persisted, returned by the API, or logged.
+pub async fn github_build_token(
+    pool: &PgPool,
+    connection_id: Uuid,
+) -> Result<Option<platform_build_runner::GitAuthToken>, platform_build_runner::Error> {
+    let connection: SourceConnection =
+        sqlx::query_as("SELECT * FROM source_connections WHERE id=$1 AND enabled")
+            .bind(connection_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|_| platform_build_runner::Error::Client)?
+            .ok_or(platform_build_runner::Error::SourceAuthentication)?;
+    let (Some(app_id), Some(installation_id)) =
+        (connection.github_app_id, connection.github_installation_id)
+    else {
+        return Ok(None);
+    };
+    let result = mint_installation_token(&connection, app_id, installation_id).await;
+    match result {
+        Ok(token) => {
+            sqlx::query("UPDATE source_connections SET authentication_status='active',authentication_error=NULL,last_authenticated_at=now() WHERE id=$1")
+                .bind(connection_id)
+                .execute(pool)
+                .await
+                .map_err(|_| platform_build_runner::Error::Client)?;
+            Ok(Some(token))
+        }
+        Err(error) => {
+            let (message, runner_error) = match error {
+                MintError::Credential => (
+                    "GitHub denied credential exchange; verify the key, installation, repository access, and provider rate limits",
+                    platform_build_runner::Error::SourceAuthentication,
+                ),
+                MintError::Dependency => (
+                    "GitHub credential exchange is unavailable; check OpenBao and GitHub connectivity",
+                    platform_build_runner::Error::SourceAuthenticationUnavailable,
+                ),
+            };
+            sqlx::query("UPDATE source_connections SET authentication_status='error',authentication_error=$2 WHERE id=$1")
+                .bind(connection_id)
+                .bind(message)
+                .execute(pool)
+                .await
+                .map_err(|_| platform_build_runner::Error::Client)?;
+            Err(runner_error)
+        }
+    }
+}
+
+async fn mint_installation_token(
+    connection: &SourceConnection,
+    app_id: i64,
+    installation_id: i64,
+) -> Result<platform_build_runner::GitAuthToken, MintError> {
+    let private_key = Zeroizing::new(
+        Bao::new()
+            .map_err(|_| MintError::Dependency)?
+            .source_github_private_key(&connection.secret_path)
+            .await
+            .map_err(|_| MintError::Dependency)?,
+    );
+    let now = Utc::now().timestamp();
+    let claims = GitHubAppClaims {
+        iat: now - 60,
+        exp: now + 9 * 60,
+        iss: app_id.to_string(),
+    };
+    let key =
+        EncodingKey::from_rsa_pem(private_key.as_bytes()).map_err(|_| MintError::Credential)?;
+    let jwt =
+        encode(&Header::new(Algorithm::RS256), &claims, &key).map_err(|_| MintError::Credential)?;
+    let repository = connection
+        .repository
+        .split('/')
+        .nth(1)
+        .ok_or(MintError::Credential)?;
+    let client = reqwest::Client::builder()
+        .https_only(true)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(15))
+        .user_agent("local-paas-github-app/1")
+        .build()
+        .map_err(|_| MintError::Dependency)?;
+    let response = client
+        .post(format!(
+            "https://api.github.com/app/installations/{installation_id}/access_tokens"
+        ))
+        .bearer_auth(jwt)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2026-03-10")
+        .header("Content-Type", "application/json")
+        .body(
+            serde_json::json!({
+                "repositories":[repository],
+                "permissions":{"contents":"read"}
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .map_err(|_| MintError::Dependency)?;
+    if !response.status().is_success() {
+        return Err(
+            if matches!(
+                response.status(),
+                reqwest::StatusCode::UNAUTHORIZED
+                    | reqwest::StatusCode::FORBIDDEN
+                    | reqwest::StatusCode::NOT_FOUND
+                    | reqwest::StatusCode::UNPROCESSABLE_ENTITY
+            ) {
+                MintError::Credential
+            } else {
+                MintError::Dependency
+            },
+        );
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size > 64 * 1024)
+    {
+        return Err(MintError::Dependency);
+    }
+    let body = response.bytes().await.map_err(|_| MintError::Dependency)?;
+    if body.len() > 64 * 1024 {
+        return Err(MintError::Dependency);
+    }
+    let response: InstallationTokenResponse =
+        serde_json::from_slice(&body).map_err(|_| MintError::Dependency)?;
+    if response.expires_at < Utc::now() + chrono::Duration::minutes(5)
+        || !matches!(
+            response.permissions.get("contents").map(String::as_str),
+            Some("read" | "write")
+        )
+    {
+        return Err(MintError::Credential);
+    }
+    platform_build_runner::GitAuthToken::new(response.token).map_err(|_| MintError::Dependency)
 }
 
 #[utoipa::path(
@@ -280,9 +545,15 @@ async fn process_delivery(
             reason = "service already has a queued or running build";
         } else if let Some(commit) = decision.commit.as_deref() {
             build_id = Some(
-                builds::enqueue_pinned(&mut tx, connection.service_id, operation_id, commit)
-                    .await?
-                    .id,
+                builds::enqueue_pinned(
+                    &mut tx,
+                    connection.service_id,
+                    operation_id,
+                    commit,
+                    connection.id,
+                )
+                .await?
+                .id,
             );
         }
     }
@@ -594,6 +865,11 @@ mod tests {
             secret_path: "source-connections/test".into(),
             events: events.iter().map(|event| (*event).into()).collect(),
             enabled: true,
+            github_app_id: None,
+            github_installation_id: None,
+            authentication_status: "public".into(),
+            authentication_error: None,
+            last_authenticated_at: None,
             created_at: Utc::now(),
             last_delivery_at: None,
         }
@@ -635,6 +911,24 @@ mod tests {
         ] {
             assert!(canonical_repository(invalid).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn github_app_configuration_is_all_or_nothing_and_responses_are_redacted() {
+        assert!(validate_github_app(None, None, None).is_ok());
+        assert!(validate_github_app(Some(1), None, None).is_err());
+        assert!(validate_github_app(Some(1), Some(2), Some("not a PEM")).is_err());
+
+        let mut source = connection(&["push"]);
+        source.github_app_id = Some(1);
+        source.github_installation_id = Some(2);
+        source.authentication_status = "error".into();
+        source.authentication_error = Some("credential-free remediation".into());
+        let value = serde_json::to_value(source).unwrap();
+        assert_eq!(value["authenticationStatus"], "error");
+        assert_eq!(value["authenticationError"], "credential-free remediation");
+        assert!(value.get("secret_path").is_none());
+        assert!(!value.to_string().contains("source-connections/test"));
     }
 
     #[test]
@@ -729,6 +1023,16 @@ mod tests {
         assert_eq!(first.0, StatusCode::ACCEPTED);
         assert_eq!(first.1.status, "accepted");
         assert_eq!(first.1.resolved_commit.as_deref(), Some(commit.as_str()));
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<Uuid>>(
+                "SELECT source_connection_id FROM builds WHERE id=$1"
+            )
+            .bind(first.1.build_id.unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            Some(source.id)
+        );
         let retry = process_delivery(
             &pool,
             source.clone(),

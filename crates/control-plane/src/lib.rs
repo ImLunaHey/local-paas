@@ -45,7 +45,7 @@ pub mod runtime;
 mod s3;
 pub mod scaling;
 pub mod secrets;
-mod source_connections;
+pub mod source_connections;
 mod source_uploads;
 mod storage_files;
 mod volume_files;
@@ -83,6 +83,10 @@ fn platform_router(
         .route(
             "/api/source-connections/{id}/deliveries",
             get(source_connections::deliveries),
+        )
+        .route(
+            "/api/source-connections/{id}/github-key",
+            axum::routing::put(source_connections::rotate_github_key),
         )
         .route(
             "/api/source-uploads",

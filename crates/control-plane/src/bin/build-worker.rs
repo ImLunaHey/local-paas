@@ -44,6 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         spec: build.spec.0.clone(),
                         no_cache: build.no_cache,
                         local_context: None,
+                        inspection_context: None,
+                        git_auth_token: None,
                     };
                     // The runner must keep progressing while lease queries await
                     // its short transactions. Polling both inline can deadlock.
@@ -60,17 +62,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             Some(platform_build_runner::uploaded_context(digest).await?)
                         } else { None };
                         request.local_context = uploaded.as_ref().map(|dir|dir.path().to_owned());
-                        if !request.spec.workload.is_managed() && uploaded.is_none() {
-                        let commit =
-                            platform_build_runner::resolve_commit(&config, &request.spec).await?;
-                        if !builds::record_resolution(&pool, &build, &commit)
-                            .await
-                            .map_err(|_| platform_build_runner::Error::Lease)?
+                        let _verified = if !request.spec.workload.is_managed()
+                            && uploaded.is_none()
                         {
-                            return Err(platform_build_runner::Error::Lease);
-                        }
-                        request.spec.source.pin(commit);
-                        }
+                            let token = if let Some(connection_id) = build.source_connection_id {
+                                control_plane::source_connections::github_build_token(
+                                    &pool,
+                                    connection_id,
+                                )
+                                .await?
+                            } else {
+                                None
+                            };
+                            let commit = platform_build_runner::resolve_commit_authenticated(
+                                &config,
+                                &request.spec,
+                                token.as_ref(),
+                            )
+                            .await?;
+                            if !builds::record_resolution(&pool, &build, &commit)
+                                .await
+                                .map_err(|_| platform_build_runner::Error::Lease)?
+                            {
+                                return Err(platform_build_runner::Error::Lease);
+                            }
+                            request.spec.source.pin(commit);
+                            let verified = if build.source_connection_id.is_some() {
+                                Some(
+                                    platform_build_runner::verified_github_context(
+                                        &config,
+                                        &request.spec,
+                                        token.as_ref(),
+                                    )
+                                    .await?,
+                                )
+                            } else {
+                                None
+                            };
+                            request.inspection_context =
+                                verified.as_ref().map(|dir| dir.path().to_owned());
+                            request.git_auth_token = token;
+                            verified
+                        } else {
+                            None
+                        };
                         sender
                             .send("Inspecting build source…\n".into())
                             .await

@@ -164,7 +164,9 @@ CMD ["/data"]
             detection: dockerfile_detection("operator selected Dockerfile mode"),
         });
     }
-    let source = if request.spec.source.upload.is_some() {
+    let source = if let Some(context) = &request.inspection_context {
+        Source::Local(context.clone())
+    } else if request.spec.source.upload.is_some() {
         Source::Local(request.local_context.clone().ok_or(Error::UploadedSource)?)
     } else {
         Source::Remote(PublicSource::new(config, request)?)
@@ -1306,6 +1308,8 @@ mod tests {
             spec,
             no_cache: true,
             local_context: None,
+            inspection_context: None,
+            git_auth_token: None,
         };
         let mut plan = generate(&npm(), &locks("npm"), &[], "!.env", 3000).unwrap();
         if let BuildPlan::Generated { dockerfile, .. } = &mut plan {
@@ -1387,6 +1391,8 @@ mod tests {
                 .unwrap(),
             no_cache: true,
             local_context: None,
+            inspection_context: None,
+            git_auth_token: None,
         };
         let metadata = temp.path().join("metadata.json");
         let mut args = config.arguments(&request, &metadata).unwrap();

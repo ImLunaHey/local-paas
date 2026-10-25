@@ -762,6 +762,47 @@
         }
       }
     },
+    "/api/source-connections/{id}/github-key": {
+      "put": {
+        "tags": [
+          "crate::source_connections"
+        ],
+        "operationId": "rotate_github_key",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateGitHubKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceConnection"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/specs/validate": {
       "post": {
         "tags": [
@@ -915,6 +956,29 @@
               "type": "string"
             },
             "description": "Any combination of `push`, `tag`, and `pull_request`."
+          },
+          "githubAppId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "GitHub App ID. Supply all three GitHub App fields for private access."
+          },
+          "githubInstallationId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Repository installation ID for this app."
+          },
+          "githubPrivateKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PEM-encoded GitHub App private key. Stored only in OpenBao."
           },
           "repository": {
             "type": "string",
@@ -1415,6 +1479,19 @@
         },
         "additionalProperties": false
       },
+      "RotateGitHubKey": {
+        "type": "object",
+        "required": [
+          "githubPrivateKey"
+        ],
+        "properties": {
+          "githubPrivateKey": {
+            "type": "string",
+            "description": "Replacement PEM-encoded GitHub App private key."
+          }
+        },
+        "additionalProperties": false
+      },
       "ScalingPolicy": {
         "type": "object",
         "properties": {
@@ -1616,9 +1693,19 @@
           "repository",
           "events",
           "enabled",
+          "authenticationStatus",
           "createdAt"
         ],
         "properties": {
+          "authenticationError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authenticationStatus": {
+            "type": "string"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -1632,9 +1719,30 @@
               "type": "string"
             }
           },
+          "githubAppId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "githubInstallationId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "lastAuthenticatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "lastDeliveryAt": {
             "type": [

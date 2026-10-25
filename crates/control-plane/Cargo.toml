@@ -41,6 +41,8 @@ redis = { version = "1.7.0", default-features = false, features = ["tokio-comp"]
 utoipa = { version = "5", features = ["uuid", "chrono"] }
 garde = { version = "0.23", features = ["derive"] }
 lucid-auth = { version = "=0.1.0", git = "https://github.com/lucid-softworks/auth.git", rev = "e213a07d4a1b810dbac95e58fe1398b67243d4d5", features = ["axum", "postgres"] }
+jsonwebtoken = "10"
+zeroize = "1"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

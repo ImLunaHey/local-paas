@@ -82,7 +82,7 @@ Progress across all capabilities is collected in
 | --- | --- | --- |
 | Public edge, DNS and TLS lifecycle | Versioned routing, Caddy API updates, DNS/TLS observations and rollback barriers implemented; public infrastructure cutover remains operator-qualified | [#6](https://github.com/ImLunaHey/local-paas/issues/6) |
 | Operator authentication and RBAC | Management access relies on loopback or a trusted tailnet | [#5](https://github.com/ImLunaHey/local-paas/issues/5) |
-| Git provider automation and private repositories | Signed, replay-safe GitHub events pin public repository commits; GitHub App credentials and private checkout remain absent | [#4](https://github.com/ImLunaHey/local-paas/issues/4) |
+| Git provider automation and private repositories | Signed, replay-safe GitHub events pin commits; repository-scoped GitHub App tokens support bounded private fetches with rotation and revocation state | [#4](https://github.com/ImLunaHey/local-paas/issues/4) |
 | Safe automated platform upgrades | Development contract resets and manual replacement are documented; rolling upgrades are absent | [#7](https://github.com/ImLunaHey/local-paas/issues/7) |
 | Production registry lifecycle | The co-located registry is development-only; production authentication and garbage collection are release gates | [#8](https://github.com/ImLunaHey/local-paas/issues/8) |
 | Continuous runtime health and self-healing | Deployment readiness and independent ingress probing exist; ongoing recovery policy is incomplete | [#10](https://github.com/ImLunaHey/local-paas/issues/10) |

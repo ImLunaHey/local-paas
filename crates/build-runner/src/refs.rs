@@ -1,6 +1,6 @@
-use crate::{Config, Error};
+use crate::{Config, Error, GitAuthToken};
 use platform_domain::{ServiceSpec, commit_hash};
-use std::{process::Stdio, time::Duration};
+use std::{io::Write, os::unix::fs::OpenOptionsExt, process::Stdio, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
     process::Command,
@@ -9,6 +9,14 @@ use tokio::{
 /// Fetch ref advertisements only. No clone, checkout, hooks, or source execution
 /// occurs on the controller host. Dockerfiles still run entirely inside the VM.
 pub async fn resolve_commit(config: &Config, spec: &ServiceSpec) -> Result<String, Error> {
+    resolve_commit_authenticated(config, spec, None).await
+}
+
+pub async fn resolve_commit_authenticated(
+    config: &Config,
+    spec: &ServiceSpec,
+    token: Option<&GitAuthToken>,
+) -> Result<String, Error> {
     let repository = config.repository(spec)?;
     if let Some(commit) = &spec.source.commit {
         return Ok(commit.clone());
@@ -28,6 +36,31 @@ pub async fn resolve_commit(config: &Config, spec: &ServiceSpec) -> Result<Strin
             "BUILD_GIT_PATH must name an absolute Git executable",
         ))?;
     let temp = tempfile::tempdir_in("/dev/shm").map_err(|_| Error::Client)?;
+    let askpass = if let Some(token) = token {
+        let token_path = temp.path().join("token");
+        let mut token_file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&token_path)
+            .map_err(|_| Error::Client)?;
+        token_file
+            .write_all(token.expose().as_bytes())
+            .map_err(|_| Error::Client)?;
+        let askpass_path = temp.path().join("askpass");
+        let mut askpass_file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o700)
+            .open(&askpass_path)
+            .map_err(|_| Error::Client)?;
+        askpass_file
+            .write_all(b"#!/bin/sh\ncase \"$1\" in\n*Username*) printf '%s\\n' x-access-token;;\n*Password*) exec /bin/cat \"$GIT_AUTH_TOKEN_FILE\";;\n*) exit 1;;\nesac\n")
+            .map_err(|_| Error::Client)?;
+        Some((askpass_path, token_path))
+    } else {
+        None
+    };
     let mut command = Command::new(binary);
     command
         .env_clear()
@@ -52,6 +85,12 @@ pub async fn resolve_commit(config: &Config, spec: &ServiceSpec) -> Result<Strin
             repository.as_str(),
             &reference,
         ]);
+    if let Some((askpass, token_path)) = &askpass {
+        command
+            .env("GIT_ASKPASS", askpass)
+            .env("GIT_ASKPASS_REQUIRE", "force")
+            .env("GIT_AUTH_TOKEN_FILE", token_path);
+    }
     if spec.source.tag.is_some() {
         command.arg(format!("{reference}^{{}}"));
     }

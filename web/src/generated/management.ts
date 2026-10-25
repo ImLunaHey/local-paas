@@ -38,6 +38,7 @@ import type {
   ProjectList,
   ProjectUpdate,
   RegisterDomain,
+  RotateGitHubKey,
   Service,
   ServiceList,
   ServiceSpec,
@@ -2237,6 +2238,102 @@ export function useDeliveries<TData = Awaited<ReturnType<typeof deliveries>>, TE
   }
 
   return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getRotateGithubKeyUrl = (id: string) => {
+  return `/api/source-connections/${id}/github-key`
+}
+
+export const rotateGithubKey = async (
+  id: string,
+  rotateGitHubKey: RotateGitHubKey,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<SourceConnection> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {}
+    if (h instanceof Headers) return Object.fromEntries(h.entries())
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      )
+    }
+    const headers: Record<string, string | readonly string[]> = {}
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value
+    }
+    return headers
+  }
+  return apiFetch<SourceConnection>(getRotateGithubKeyUrl(id), {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(rotateGitHubKey),
+  })
+}
+
+export const getRotateGithubKeyMutationKey = () => ['rotateGithubKey'] as const
+
+export const getRotateGithubKeyMutationOptions = <TError = unknown, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rotateGithubKey>>,
+    TError,
+    RotateGithubKeyMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rotateGithubKey>>,
+  TError,
+  RotateGithubKeyMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRotateGithubKeyMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rotateGithubKey>>,
+    RotateGithubKeyMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {}
+
+    return rotateGithubKey(id, data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type RotateGithubKeyMutationResult = NonNullable<Awaited<ReturnType<typeof rotateGithubKey>>>
+export type RotateGithubKeyMutationBody = RotateGitHubKey
+export type RotateGithubKeyMutationError = unknown
+export type RotateGithubKeyMutationVariables = { id: string; data: RotateGitHubKey }
+
+export const useRotateGithubKey = <TError = unknown, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof rotateGithubKey>>,
+      TError,
+      RotateGithubKeyMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof rotateGithubKey>>,
+  TError,
+  RotateGithubKeyMutationVariables,
+  TContext
+> => {
+  return useMutation(getRotateGithubKeyMutationOptions(options), queryClient)
 }
 
 export const getValidateServiceSpecUrl = () => {

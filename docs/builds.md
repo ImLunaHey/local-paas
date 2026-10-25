@@ -37,21 +37,36 @@ Ref discovery uses pinned Git (`BUILD_GIT_PATH`) on the worker host for bounded
 `ls-remote` metadata only: 30-second timeout, 64 KiB output limits, empty inherited
 environment, private tmpfs HOME, no global/system config or credential helpers,
 HTTPS only and redirects disabled. It uses the same repository host allowlist.
-No source files, hooks or build steps execute there. Private Git authentication
-is not implemented. To upgrade an existing development setup, rebuild the tools
-output and add `BUILD_GIT_PATH=/absolute/path/to/.local/builder-tools/bin/git` to
+No source files, hooks or build steps execute there. A private build uses a
+tmpfs-only askpass helper backed by a newly minted installation token; neither
+the token nor an authenticated URL enters argv, logs, PostgreSQL, or a durable
+file. To upgrade an existing development setup, rebuild the tools output and add
+`BUILD_GIT_PATH=/absolute/path/to/.local/builder-tools/bin/git` to
 `.local/builder.env`; existing certificates do not need regeneration.
 
 BuildKit fetches a credential-free HTTPS Git repository at the full commit SHA.
 The initial host allowlist is `github.com`. Dockerfile paths are repository-relative;
 the context can independently select a subdirectory. No host checkout, local
-source directory, SSH agent, Docker socket, developer dotenv file or build secret is
-forwarded. Custom Dockerfile frontends and insecure entitlements are disabled.
+source directory, SSH agent, Docker socket, or developer dotenv file is
+forwarded. Private builds add only BuildKit's reserved `GIT_AUTH_TOKEN` session
+secret from a mode-0600 tmpfs file. The short-lived repository-restricted token
+is unavailable to Dockerfile instructions and disappears with the client
+session. Custom Dockerfile frontends and insecure entitlements are disabled.
 Signed GitHub push, tag and same-repository pull-request events can enqueue this
 same flow with an already pinned commit. Webhook credentials remain in OpenBao
 and delivery payloads are not retained. See
-[Git provider automation](git-automation.md). Private Git authentication is not
-yet supported.
+[Git provider automation](git-automation.md).
+
+Before a connected GitHub source reaches BuildKit, the worker downloads the
+provider's ZIP for the same immutable commit. Redirects are handled manually and
+may target only verified HTTPS on `codeload.github.com`; proxy environment is
+ignored. The compressed body is capped at 32 MiB, and the shared source validator
+caps expansion at 128 MiB, individual files at 16 MiB, and entries at 10,000.
+Absolute/traversal paths, multiple archive roots, symlinks, special files,
+overlaps, dotenv files, credential files, `.git`, and submodule metadata are
+rejected. The validated tmpfs extraction is used only for non-executing build
+plan inspection. BuildKit independently fetches the exact commit inside the
+isolated VM; no host-side checkout or hook execution occurs.
 Cache mount namespaces are per service; **Bypass build cache** sends `--no-cache`.
 This bypasses instruction caching, not necessarily cache-mount contents or
 upstream package caches. Pin base images/dependencies in the application for

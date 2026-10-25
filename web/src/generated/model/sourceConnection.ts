@@ -7,10 +7,19 @@
  */
 
 export interface SourceConnection {
+  /** @nullable */
+  authenticationError?: string | null
+  authenticationStatus: string
   createdAt: string
   enabled: boolean
   events: string[]
+  /** @nullable */
+  githubAppId?: number | null
+  /** @nullable */
+  githubInstallationId?: number | null
   id: string
+  /** @nullable */
+  lastAuthenticatedAt?: string | null
   /** @nullable */
   lastDeliveryAt?: string | null
   organizationId: string
