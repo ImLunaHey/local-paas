@@ -73,7 +73,7 @@ import { useRuntime, runtimeLabel } from './runtime-query'
 import { AccountMenu, AuthShell } from './auth-shell'
 import { authClient, isPlatformAdministrator } from './auth-client'
 import { OrganizationSettings } from './organization'
-import { PlatformAdmin } from './platform-admin'
+import { PlatformAdmin, PlatformUserDetail } from './platform-admin'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
@@ -89,11 +89,6 @@ function Shell() {
         ? 'border-orange-400/20 bg-orange-400/10 text-orange-300'
         : 'border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200',
     )
-  const health = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api<{ status: string }>('/health'),
-    refetchInterval: 15_000,
-  })
   return (
     <div className="min-h-screen">
       <aside className="sidebar max-[720px]:!grid max-[720px]:grid-cols-1 max-[720px]:gap-3">
@@ -138,9 +133,13 @@ function Shell() {
                 <Building2 size={17} />
                 <span>Organizations</span>
               </Link>
-              <Link to="/platform/users" className={navClass(path === '/platform/users')}>
+              <Link to="/platform/users" className={navClass(path.startsWith('/platform/users'))}>
                 <Users size={17} />
                 <span>Users</span>
+              </Link>
+              <Link to="/platform/host" className={navClass(path === '/platform/host')}>
+                <Server size={17} />
+                <span>Host</span>
               </Link>
               <Link to="/platform/billing" className={navClass(path === '/platform/billing')}>
                 <CreditCard size={17} />
@@ -183,17 +182,6 @@ function Shell() {
             </>
           )}
         </nav>
-        <div className="sidebar-bottom mt-auto">
-          <span className="tiny-label">CONTROL PLANE</span>
-          <span className="flex items-center gap-2 text-xs mt-2">
-            <i className={cn('status-dot', { online: health.isSuccess })} />
-            {health.isPending
-              ? 'Connecting…'
-              : health.isError
-                ? 'API unavailable'
-                : 'Connected locally'}
-          </span>
-        </div>
         <AccountMenu />
       </aside>
       <div className="main-shell">
@@ -478,6 +466,16 @@ const platformUsersRoute = createRoute({
   path: '/platform/users',
   component: () => <PlatformAdmin view="users" />,
 })
+const platformUserRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/platform/users/$userId',
+  component: PlatformUserDetail,
+})
+const platformHostRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/platform/host',
+  component: () => <PlatformAdmin view="host" />,
+})
 const platformBillingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/platform/billing',
@@ -673,6 +671,8 @@ const router = createRouter({
     indexRoute,
     platformOrganizationsRoute,
     platformUsersRoute,
+    platformUserRoute,
+    platformHostRoute,
     platformBillingRoute,
     projectsRoute,
     hostsRoute,
