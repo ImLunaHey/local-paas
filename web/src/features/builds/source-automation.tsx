@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { PrPreviews } from './pr-previews'
 import { useQueryClient } from '@tanstack/react-query'
 import { Copy, GitBranch, Webhook } from 'lucide-react'
 import {
@@ -34,7 +35,8 @@ export function SourceAutomation({ service }: { service: Service }) {
           <Webhook size={17} /> GitHub automation
         </h2>
         <p className="mt-2 text-xs text-muted">
-          Verify signed events and queue the exact commit without changing deployment traffic.
+          Verify signed events and build exact commits. Opt-in PR previews deploy to isolated
+          environments.
         </p>
       </div>
       {connections.isPending ? (
@@ -72,7 +74,7 @@ function ConnectionDetails({ connection }: { connection: SourceConnection }) {
   }
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 rounded-lg border border-zinc-800 bg-zinc-950/30 p-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-800 bg-zinc-950/30 p-4 md:grid-cols-3">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-muted">Repository</div>
           <div className="mt-2 flex items-center gap-2 text-xs">
@@ -156,6 +158,7 @@ function ConnectionDetails({ connection }: { connection: SourceConnection }) {
           </div>
         </form>
       )}
+      <PrPreviews connectionId={connection.id} />
       <div>
         <h3 className="text-xs font-medium text-zinc-200">Recent deliveries</h3>
         {deliveries.isPending ? (

@@ -43,15 +43,26 @@ pub(crate) async fn deploy(
         crate::secrets::database_password(&pool, service_id).await?;
     }
     let mut tx = pool.begin().await?;
+    let result = deploy_in_transaction(&pool, &mut tx, service_id, input).await?;
+    tx.commit().await?;
+    Ok(result)
+}
+
+pub(crate) async fn deploy_in_transaction(
+    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    service_id: Uuid,
+    input: DeployRequest,
+) -> Result<Json<Value>, ApiError> {
     // Serializes allocation and promotion across API processes without a leader lease.
     sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     if let Some(row) = sqlx::query(
         "SELECT id,service_id,revision_id,job_options FROM deployments WHERE operation_id=$1",
     )
     .bind(input.operation_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?
     {
         if row.get::<Option<DbJson<Value>>, _>("job_options").is_some()
@@ -66,22 +77,22 @@ pub(crate) async fn deploy(
     }
     let service: Service = sqlx::query_as("SELECT * FROM services WHERE id=$1 FOR UPDATE")
         .bind(service_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?
         .ok_or(ApiError::NotFound)?;
     let mut resolved_spec = service.spec.0.clone();
-    resolved_spec.secrets = crate::secrets::references(&pool, service_id).await?;
-    crate::discovery::validate(&mut tx, &resolved_spec).await?;
-    let scaling_pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped' AND (i.scaling_deadline IS NOT NULL OR i.scale_down_after IS NOT NULL))").bind(service_id).fetch_one(&mut *tx).await?;
+    resolved_spec.secrets = crate::secrets::references(pool, service_id).await?;
+    crate::discovery::validate(tx, &resolved_spec).await?;
+    let scaling_pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped' AND (i.scaling_deadline IS NOT NULL OR i.scale_down_after IS NOT NULL))").bind(service_id).fetch_one(&mut **tx).await?;
     if scaling_pending {
         return Err(ApiError::Conflict(
             "wait for committed scaling actions and cleanup before a rollout",
         ));
     }
-    if let Some(policy) = crate::scaling::policy(&mut tx, service_id).await? {
-        crate::scaling::validate_eligibility(&mut tx, service_id, &resolved_spec, &policy).await?;
-        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped' AND (d.status<>'active' OR i.desired_state='stopped' OR i.scaling_deadline IS NOT NULL OR i.scale_down_after IS NOT NULL) UNION ALL SELECT 1 FROM relocations r JOIN instances i ON i.id=r.old_instance JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND r.state IN ('preparing','draining'))").bind(service_id).fetch_one(&mut *tx).await?;
-        if pending || crate::jobs::occupied(&mut tx, service_id).await? {
+    if let Some(policy) = crate::scaling::policy(tx, service_id).await? {
+        crate::scaling::validate_eligibility(tx, service_id, &resolved_spec, &policy).await?;
+        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped' AND (d.status<>'active' OR i.desired_state='stopped' OR i.scaling_deadline IS NOT NULL OR i.scale_down_after IS NOT NULL) UNION ALL SELECT 1 FROM relocations r JOIN instances i ON i.id=r.old_instance JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND r.state IN ('preparing','draining'))").bind(service_id).fetch_one(&mut **tx).await?;
+        if pending || crate::jobs::occupied(tx, service_id).await? {
             return Err(ApiError::Conflict(
                 "wait for scaling, relocation and job cleanup before a rollout",
             ));
@@ -89,16 +100,16 @@ pub(crate) async fn deploy(
         let desired: i32 =
             sqlx::query_scalar("SELECT desired_replicas FROM scaling_policies WHERE service_id=$1")
                 .bind(service_id)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?;
         let count = (desired as u16).clamp(policy.min_replicas.max(1), policy.max_replicas);
         crate::scaling::set_replicas(&mut resolved_spec, count);
-        if crate::scaling::budget(&mut tx, &resolved_spec).await? < count {
+        if crate::scaling::budget(tx, &resolved_spec).await? < count {
             return Err(ApiError::Conflict(
                 "rollout would exceed the operator scaling budget",
             ));
         }
-        sqlx::query("UPDATE scaling_policies SET failure_latched=false,direction=0,stable_since=now() WHERE service_id=$1").bind(service_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE scaling_policies SET failure_latched=false,direction=0,stable_since=now() WHERE service_id=$1").bind(service_id).execute(&mut **tx).await?;
     }
     let spec = &resolved_spec;
     let (replicas, database_size) = match spec.workload {
@@ -113,7 +124,7 @@ pub(crate) async fn deploy(
         }
     };
     if !spec.workload.is_worker() && (database_size.is_some() || spec.volume.is_some()) {
-        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND d.job_options IS NULL AND i.state<>'stopped')").bind(service_id).fetch_one(&mut *tx).await?;
+        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND d.job_options IS NULL AND i.state<>'stopped')").bind(service_id).fetch_one(&mut **tx).await?;
         if occupied {
             return Err(ApiError::Conflict(
                 "stop this service and wait for confirmed shutdown before deploying a volume-backed revision; other attached services keep running",
@@ -123,7 +134,7 @@ pub(crate) async fn deploy(
     let volume: Option<(Uuid, i32, i32)> =
         sqlx::query_as("SELECT node_id,slot,size_gib FROM volumes WHERE id=$1")
             .bind(service_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
     if let Some((_, _, size)) = volume
         && database_size != Some(size as u16)
@@ -136,25 +147,25 @@ pub(crate) async fn deploy(
         "SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1",
     )
     .bind(service_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
-    crate::volumes::validate_scope(&mut tx, spec, &organization_id).await?;
+    crate::volumes::validate_scope(tx, spec, &organization_id).await?;
     let shared: Option<(Option<Uuid>, i32)> = if let Some(v) = &spec.volume {
         Some(
             sqlx::query_as("SELECT node_id,size_gib FROM shared_volumes WHERE id=$1 FOR UPDATE")
                 .bind(v.id)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?,
         )
     } else {
         None
     };
-    let secret_version = crate::secrets::snapshot(&pool, service_id, &spec.secrets).await?;
+    let secret_version = crate::secrets::snapshot(pool, service_id, &spec.secrets).await?;
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM revisions WHERE id=$1 AND service_id=$2)")
             .bind(input.revision_id)
             .bind(service_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
     if !exists {
         return Err(ApiError::NotFound);
@@ -163,54 +174,43 @@ pub(crate) async fn deploy(
         "SELECT EXISTS(SELECT 1 FROM deployments WHERE service_id=$1 AND status IN ('preparing','waiting','releasing'))",
     )
     .bind(service_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
-    if preparing || crate::edge::busy(&mut tx, service_id).await? {
+    if preparing || crate::edge::busy(tx, service_id).await? {
         return Err(ApiError::Conflict("a deployment is already preparing"));
     }
-    let database_ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 UNION SELECT n.endpoint_base+v.slot FROM storage_bindings c JOIN storage_buckets b ON b.id=c.bucket_id JOIN volumes v ON v.id=b.service_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 AND c.status='ready'").bind(service_id).fetch_all(&mut *tx).await?;
+    let database_ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 UNION SELECT n.endpoint_base+v.slot FROM storage_bindings c JOIN storage_buckets b ON b.id=c.bucket_id JOIN volumes v ON v.id=b.service_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 AND c.status='ready'").bind(service_id).fetch_all(&mut **tx).await?;
     if let Workload::OciService {
         pre_deploy: Some(options),
         ..
     } = &spec.workload
     {
-        if crate::jobs::occupied(&mut tx, service_id).await? {
+        if crate::jobs::occupied(tx, service_id).await? {
             return Err(ApiError::Conflict(
                 "a job is still queued, running or awaiting cleanup",
             ));
         }
         let deployment = Uuid::now_v7();
         sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code) VALUES($1,$2,$3,$4,$5,'releasing',$6,true,$7,$8,'pre_deploy_running')")
-            .bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(&database_ports).bind(shared.map(|v| v.1)).execute(&mut *tx).await?;
-        crate::releases::enqueue(&mut tx, deployment, spec, options).await?;
-        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
-        tx.commit().await?;
+            .bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(&database_ports).bind(shared.map(|v| v.1)).execute(&mut **tx).await?;
+        crate::releases::enqueue(tx, deployment, spec, options).await?;
+        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut **tx).await?;
         return Ok(Json(json!({"id":deployment})));
     }
     if spec.workload.is_worker() {
         let deployment = Uuid::now_v7();
-        sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code) VALUES($1,$2,$3,$4,$5,'waiting',$6,true,$7,$8,'waiting_for_shutdown')").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(&database_ports).bind(shared.map(|v| v.1)).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code) VALUES($1,$2,$3,$4,$5,'waiting',$6,true,$7,$8,'waiting_for_shutdown')").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(&database_ports).bind(shared.map(|v| v.1)).execute(&mut **tx).await?;
         sqlx::query(
             "UPDATE deployments SET status='superseded' WHERE service_id=$1 AND status='active'",
         )
         .bind(service_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-        sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id IN(SELECT id FROM deployments WHERE service_id=$1 AND job_options IS NULL) AND desired_state<>'stopped'").bind(service_id).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
-        tx.commit().await?;
+        sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id IN(SELECT id FROM deployments WHERE service_id=$1 AND job_options IS NULL) AND desired_state<>'stopped'").bind(service_id).execute(&mut **tx).await?;
+        sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut **tx).await?;
         return Ok(Json(json!({"id":deployment})));
     }
-    let placements = place(
-        &mut tx,
-        service_id,
-        spec,
-        &database_ports,
-        volume,
-        shared,
-        false,
-    )
-    .await?;
+    let placements = place(tx, service_id, spec, &database_ports, volume, shared, false).await?;
     if placements.len() != replicas as usize {
         return Err(ApiError::Conflict(
             "insufficient healthy worker capacity for the requested replicas and placement; the current deployment is unchanged",
@@ -224,23 +224,22 @@ pub(crate) async fn deploy(
             .bind(placements[0].0)
             .bind(placements[0].1)
             .bind(i32::from(size))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
     if let Some(v) = &spec.volume {
         sqlx::query("UPDATE shared_volumes SET node_id=$2 WHERE id=$1 AND node_id IS NULL")
             .bind(v.id)
             .bind(placements[0].0)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
     let deployment = Uuid::now_v7();
-    sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib) VALUES($1,$2,$3,$4,$5,'preparing',$6,true,$7,$8)").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(database_ports).bind(shared.map(|v| v.1)).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,secret_version,secret_snapshot,database_ports,volume_size_gib) VALUES($1,$2,$3,$4,$5,'preparing',$6,true,$7,$8)").bind(deployment).bind(input.operation_id).bind(service_id).bind(input.revision_id).bind(DbJson(spec)).bind(secret_version).bind(database_ports).bind(shared.map(|v| v.1)).execute(&mut **tx).await?;
     for (node, slot) in placements {
-        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::now_v7()).bind(deployment).bind(node).bind(slot).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO instances(id,deployment_id,node_id,slot,desired_state) VALUES($1,$2,$3,$4,'running')").bind(Uuid::now_v7()).bind(deployment).bind(node).bind(slot).execute(&mut **tx).await?;
     }
-    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut *tx).await?;
-    tx.commit().await?;
+    sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,'deployment.requested')").bind(Uuid::now_v7()).bind(service_id).bind(input.operation_id).execute(&mut **tx).await?;
     Ok(Json(json!({"id":deployment})))
 }
 

@@ -58,6 +58,7 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     let env:Uuid=sqlx::query_scalar("SELECT e.id FROM environments e JOIN projects p ON p.id=e.project_id WHERE p.organization_id=$1 AND p.name=$2 AND e.name=$3").bind(crate::auth::required_organization(&context)?).bind(&input.project).bind(&input.environment).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
+    crate::pr_previews::ensure_environment_writable(&mut tx, env).await?;
     if let Some((id, e, name, size)) = sqlx::query_as::<_, (Uuid, Uuid, String, i32)>(
         "SELECT id,environment_id,name,size_gib FROM shared_volumes WHERE operation_id=$1",
     )

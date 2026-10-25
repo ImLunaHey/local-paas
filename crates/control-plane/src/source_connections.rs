@@ -135,6 +135,17 @@ pub(crate) async fn create(
         input.github_installation_id,
         input.github_private_key.as_deref(),
     )?;
+    let managed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pull_request_previews WHERE service_id=$1)",
+    )
+    .bind(input.service_id)
+    .fetch_one(&pool)
+    .await?;
+    if managed {
+        return Err(ApiError::Conflict(
+            "PR previews use their parent source connection",
+        ));
+    }
     let service_repository: String = sqlx::query_scalar(
         "SELECT s.spec->'source'->>'repository' FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1 AND p.organization_id=$2",
     )
@@ -492,7 +503,7 @@ pub(crate) async fn github_webhook(
     process_delivery(&pool, connection, event, delivery_id, body_sha256, payload).await
 }
 
-async fn process_delivery(
+pub(crate) async fn process_delivery(
     pool: &PgPool,
     connection: SourceConnection,
     event: String,
@@ -503,6 +514,7 @@ async fn process_delivery(
     let decision = decide(&connection, &event, &payload)?;
 
     let mut tx = pool.begin().await?;
+    crate::pr_previews::lock(&mut tx).await?;
     sqlx::query("SELECT id FROM source_connections WHERE id=$1 FOR UPDATE")
         .bind(connection.id)
         .execute(&mut *tx)
@@ -529,7 +541,16 @@ async fn process_delivery(
     let mut status = decision.status;
     let mut reason = decision.reason;
     let mut build_id = None;
-    if status == "accepted" {
+    let preview_decision = if event == "pull_request" {
+        crate::pr_previews::receive(&mut tx, &connection, &payload).await?
+    } else {
+        None
+    };
+    if let Some((preview_status, preview_reason)) = preview_decision {
+        status = preview_status;
+        reason = preview_reason;
+    }
+    if status == "accepted" && preview_decision.is_none() {
         sqlx::query("SELECT id FROM services WHERE id=$1 FOR UPDATE")
             .bind(connection.service_id)
             .execute(&mut *tx)
@@ -761,7 +782,7 @@ fn policy_decision(
     }
 }
 
-fn canonical_repository(input: &str) -> Result<(String, String), ApiError> {
+pub(crate) fn canonical_repository(input: &str) -> Result<(String, String), ApiError> {
     let candidate = if input.contains("://") {
         let url = Url::parse(input).map_err(|_| ApiError::Conflict("invalid GitHub repository"))?;
         if url.scheme() != "https"

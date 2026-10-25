@@ -803,6 +803,150 @@
         }
       }
     },
+    "/api/source-connections/{id}/preview-policy": {
+      "get": {
+        "tags": [
+          "crate::pr_previews"
+        ],
+        "operationId": "getPreviewPolicy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PreviewPolicy"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::pr_previews"
+        ],
+        "operationId": "configurePreviewPolicy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewPolicy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewPolicy"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/source-connections/{id}/previews": {
+      "get": {
+        "tags": [
+          "crate::pr_previews"
+        ],
+        "operationId": "listPreviews",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PullRequestPreview"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/source-connections/{id}/previews/{preview_id}": {
+      "delete": {
+        "tags": [
+          "crate::pr_previews"
+        ],
+        "operationId": "deletePreview",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "preview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/specs/validate": {
       "post": {
         "tags": [
@@ -1299,6 +1443,37 @@
         },
         "additionalProperties": false
       },
+      "PreviewPolicy": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "maxActive",
+          "maxBuilds",
+          "ttlHours",
+          "resources"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "maxActive": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxBuilds": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/Resources"
+          },
+          "ttlHours": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "PrivateConnection": {
         "type": "object",
         "required": [
@@ -1422,6 +1597,79 @@
           }
         },
         "additionalProperties": false
+      },
+      "PullRequestPreview": {
+        "type": "object",
+        "required": [
+          "id",
+          "sourceConnectionId",
+          "number",
+          "headCommit",
+          "status",
+          "reason",
+          "expiresAt"
+        ],
+        "properties": {
+          "buildId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "deploymentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "environmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "headCommit": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "previewUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "serviceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sourceConnectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
       },
       "Readiness": {
         "type": "object",

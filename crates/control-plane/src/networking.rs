@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
-fn endpoints() -> Vec<String> {
+pub(crate) fn endpoints() -> Vec<String> {
     let Ok(host) = std::env::var("PREVIEW_HOST") else {
         return vec![];
     };

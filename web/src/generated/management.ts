@@ -32,11 +32,13 @@ import type {
   Event,
   GetHealth200,
   ListServicesParams,
+  PreviewPolicy,
   ProjectCreate,
   ProjectDetail,
   ProjectIdentity,
   ProjectList,
   ProjectUpdate,
+  PullRequestPreview,
   RegisterDomain,
   RotateGitHubKey,
   Service,
@@ -2334,6 +2336,406 @@ export const useRotateGithubKey = <TError = unknown, TContext = unknown>(
   TContext
 > => {
   return useMutation(getRotateGithubKeyMutationOptions(options), queryClient)
+}
+
+export const getGetPreviewPolicyUrl = (id: string) => {
+  return `/api/source-connections/${id}/preview-policy`
+}
+
+export const getPreviewPolicy = async (
+  id: string,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<null | PreviewPolicy> => {
+  return apiFetch<null | PreviewPolicy>(getGetPreviewPolicyUrl(id), {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export const getGetPreviewPolicyQueryKey = (id: string) => {
+  return [`/api/source-connections/${id}/preview-policy`] as const
+}
+
+export const getGetPreviewPolicyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPreviewPolicy>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreviewPolicy>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {}
+
+  const queryKey = queryOptions?.queryKey ?? getGetPreviewPolicyQueryKey(id)
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPreviewPolicy>>> = ({ signal }) =>
+    getPreviewPolicy(id, { signal, ...requestOptions })
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getPreviewPolicy>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+}
+
+export type GetPreviewPolicyQueryResult = NonNullable<Awaited<ReturnType<typeof getPreviewPolicy>>>
+export type GetPreviewPolicyQueryError = unknown
+
+export function useGetPreviewPolicy<
+  TData = Awaited<ReturnType<typeof getPreviewPolicy>>,
+  TError = unknown,
+>(
+  id: string,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreviewPolicy>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreviewPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getPreviewPolicy>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPreviewPolicy<
+  TData = Awaited<ReturnType<typeof getPreviewPolicy>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreviewPolicy>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreviewPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getPreviewPolicy>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPreviewPolicy<
+  TData = Awaited<ReturnType<typeof getPreviewPolicy>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreviewPolicy>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetPreviewPolicy<
+  TData = Awaited<ReturnType<typeof getPreviewPolicy>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreviewPolicy>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPreviewPolicyQueryOptions(id, options)
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+
+  return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getConfigurePreviewPolicyUrl = (id: string) => {
+  return `/api/source-connections/${id}/preview-policy`
+}
+
+export const configurePreviewPolicy = async (
+  id: string,
+  previewPolicy: PreviewPolicy,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<PreviewPolicy> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {}
+    if (h instanceof Headers) return Object.fromEntries(h.entries())
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      )
+    }
+    const headers: Record<string, string | readonly string[]> = {}
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value
+    }
+    return headers
+  }
+  return apiFetch<PreviewPolicy>(getConfigurePreviewPolicyUrl(id), {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(previewPolicy),
+  })
+}
+
+export const getConfigurePreviewPolicyMutationKey = () => ['configurePreviewPolicy'] as const
+
+export const getConfigurePreviewPolicyMutationOptions = <
+  TError = unknown,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof configurePreviewPolicy>>,
+    TError,
+    ConfigurePreviewPolicyMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof configurePreviewPolicy>>,
+  TError,
+  ConfigurePreviewPolicyMutationVariables,
+  TContext
+> => {
+  const mutationKey = getConfigurePreviewPolicyMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof configurePreviewPolicy>>,
+    ConfigurePreviewPolicyMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {}
+
+    return configurePreviewPolicy(id, data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type ConfigurePreviewPolicyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof configurePreviewPolicy>>
+>
+export type ConfigurePreviewPolicyMutationBody = PreviewPolicy
+export type ConfigurePreviewPolicyMutationError = unknown
+export type ConfigurePreviewPolicyMutationVariables = { id: string; data: PreviewPolicy }
+
+export const useConfigurePreviewPolicy = <TError = unknown, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof configurePreviewPolicy>>,
+      TError,
+      ConfigurePreviewPolicyMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof configurePreviewPolicy>>,
+  TError,
+  ConfigurePreviewPolicyMutationVariables,
+  TContext
+> => {
+  return useMutation(getConfigurePreviewPolicyMutationOptions(options), queryClient)
+}
+
+export const getListPreviewsUrl = (id: string) => {
+  return `/api/source-connections/${id}/previews`
+}
+
+export const listPreviews = async (
+  id: string,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<PullRequestPreview[]> => {
+  return apiFetch<PullRequestPreview[]>(getListPreviewsUrl(id), {
+    ...options,
+    method: 'GET',
+  })
+}
+
+export const getListPreviewsQueryKey = (id: string) => {
+  return [`/api/source-connections/${id}/previews`] as const
+}
+
+export const getListPreviewsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPreviews>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPreviews>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {}
+
+  const queryKey = queryOptions?.queryKey ?? getListPreviewsQueryKey(id)
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPreviews>>> = ({ signal }) =>
+    listPreviews(id, { signal, ...requestOptions })
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listPreviews>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+}
+
+export type ListPreviewsQueryResult = NonNullable<Awaited<ReturnType<typeof listPreviews>>>
+export type ListPreviewsQueryError = unknown
+
+export function useListPreviews<TData = Awaited<ReturnType<typeof listPreviews>>, TError = unknown>(
+  id: string,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPreviews>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPreviews>>,
+          TError,
+          Awaited<ReturnType<typeof listPreviews>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPreviews<TData = Awaited<ReturnType<typeof listPreviews>>, TError = unknown>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPreviews>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPreviews>>,
+          TError,
+          Awaited<ReturnType<typeof listPreviews>>
+        >,
+        'initialData'
+      >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPreviews<TData = Awaited<ReturnType<typeof listPreviews>>, TError = unknown>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPreviews>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListPreviews<TData = Awaited<ReturnType<typeof listPreviews>>, TError = unknown>(
+  id: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPreviews>>, TError, TData>>
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListPreviewsQueryOptions(id, options)
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>
+  }
+
+  return withQueryKey(query, queryOptions.queryKey)
+}
+
+export const getDeletePreviewUrl = (id: string, previewId: string) => {
+  return `/api/source-connections/${id}/previews/${previewId}`
+}
+
+export const deletePreview = async (
+  id: string,
+  previewId: string,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<void> => {
+  return apiFetch<void>(getDeletePreviewUrl(id, previewId), {
+    ...options,
+    method: 'DELETE',
+  })
+}
+
+export const getDeletePreviewMutationKey = () => ['deletePreview'] as const
+
+export const getDeletePreviewMutationOptions = <TError = unknown, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePreview>>,
+    TError,
+    DeletePreviewMutationVariables,
+    TContext
+  >
+  request?: SecondParameter<typeof apiFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deletePreview>>,
+  TError,
+  DeletePreviewMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeletePreviewMutationKey()
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deletePreview>>,
+    DeletePreviewMutationVariables
+  > = (props) => {
+    const { id, previewId } = props ?? {}
+
+    return deletePreview(id, previewId, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type DeletePreviewMutationResult = NonNullable<Awaited<ReturnType<typeof deletePreview>>>
+
+export type DeletePreviewMutationError = unknown
+export type DeletePreviewMutationVariables = { id: string; previewId: string }
+
+export const useDeletePreview = <TError = unknown, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deletePreview>>,
+      TError,
+      DeletePreviewMutationVariables,
+      TContext
+    >
+    request?: SecondParameter<typeof apiFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deletePreview>>,
+  TError,
+  DeletePreviewMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeletePreviewMutationOptions(options), queryClient)
 }
 
 export const getValidateServiceSpecUrl = () => {

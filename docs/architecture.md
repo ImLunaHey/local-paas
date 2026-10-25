@@ -201,6 +201,18 @@ confirmed cleanup before another job for that service. Unknown outcomes never re
 automatically. Interval schedules persist due times and unique occurrences in
 PostgreSQL, forbid overlap, and skip missed ticks. See [runtime.md](runtime.md#one-off-jobs-and-interval-schedules).
 
+### Pull-request previews
+
+Opt-in source policies snapshot a sanitized stateless HTTP OCI template. PR events
+record ordered intent transactionally with delivery observations and audit events.
+A reconciler creates a distinct environment without a parent, queues pinned builds,
+and uses the normal scheduler and readiness-gated deployment path. Close, expiry
+and manual cleanup withdraw private routes and wait for build cancellation,
+confirmed instance shutdown and route lease expiry. Preview history is retained.
+Production secrets, bindings and storage are excluded; runtime and celld boundaries
+are unchanged. See [Git automation](git-automation.md#pull-request-preview-environments)
+for limits, event ordering, permissions, quotas and validation scope.
+
 ### Release gates and private connections
 
 Pre-deploy commands run as durable child jobs against the candidate revision and

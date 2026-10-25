@@ -182,6 +182,17 @@ pub async fn update(
         ));
     }
     if let Some(id) = input.service_id {
+        let managed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pull_request_previews WHERE service_id=$1)",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if managed {
+            return Err(ApiError::Conflict(
+                "PR previews support private routes only",
+            ));
+        }
         let worker: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id JOIN domains d ON d.hostname=$2 WHERE s.id=$1 AND p.organization_id=d.organization_id AND s.spec->'workload'->>'execution'='worker')")
             .bind(id).bind(&hostname).fetch_one(&mut *tx).await?;
         if worker {
