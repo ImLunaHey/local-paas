@@ -19,46 +19,50 @@ type Entry = ReturnType<typeof entry>
 
 async function mockLogs(page: Page, entries: () => Entry[]) {
   // Browser-only fixtures: no services, logs, or other records are written to the API.
-  await page.route('**/api/**', async (route) => {
-    const url = new URL(route.request().url())
-    if (url.pathname.startsWith('/api/auth/')) return route.continue()
-    let json: unknown = { items: [] }
-    if (url.pathname.endsWith('/health')) json = { status: 'ok' }
-    if (url.pathname.endsWith(`/services/${id}`))
-      json = {
-        id,
-        version: 1,
-        spec: {
-          schemaVersion: 1,
-          name: 'log-viewer-test',
-          project: 'test',
-          environment: 'development',
-          source: { repository: 'https://github.com/example/app', branch: 'main' },
-          resources: { cpuMillis: 100, memoryMib: 64 },
-          distinctNodes: false,
-          domains: [],
-          secrets: [],
-          workload: { kind: 'oci-service', dockerfile: 'Dockerfile', context: '.', replicas: 1 },
-        },
+  // Match API routes, not Vite imports such as /@fs/.../docs/api/openapi.json.
+  await page.route(
+    (url) => url.pathname.startsWith('/api/'),
+    async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname.startsWith('/api/auth/')) return route.continue()
+      let json: unknown = { items: [] }
+      if (url.pathname.endsWith('/health')) json = { status: 'ok' }
+      if (url.pathname.endsWith(`/services/${id}`))
+        json = {
+          id,
+          version: 1,
+          spec: {
+            schemaVersion: 1,
+            name: 'log-viewer-test',
+            project: 'test',
+            environment: 'development',
+            source: { repository: 'https://github.com/example/app', branch: 'main' },
+            resources: { cpuMillis: 100, memoryMib: 64 },
+            distinctNodes: false,
+            domains: [],
+            secrets: [],
+            workload: { kind: 'oci-service', dockerfile: 'Dockerfile', context: '.', replicas: 1 },
+          },
+        }
+      if (url.pathname.endsWith('/runtime'))
+        json = { instances: [], deployments: [], healthyNodes: 0, previewUrl: null }
+      if (url.pathname.endsWith('/log-storage'))
+        json = { available: true, configured: true, pendingEntries: 0, bytesOnDisk: 0 }
+      if (url.pathname.endsWith('/runtime/logs')) {
+        const rows = entries()
+        const after = Number(url.searchParams.get('after') ?? 0)
+        json = {
+          entries: rows.filter((row) => row.sequence > after),
+          markers: [{ id: 'start', timestamp: rows[0].timestamp, message: 'Deployment started' }],
+          nextCursor: rows.at(-1)?.sequence ?? 0,
+          oldestCursor: rows[0]?.sequence,
+          hasMore: false,
+          archiveWarning: null,
+        }
       }
-    if (url.pathname.endsWith('/runtime'))
-      json = { instances: [], deployments: [], healthyNodes: 0, previewUrl: null }
-    if (url.pathname.endsWith('/log-storage'))
-      json = { available: true, configured: true, pendingEntries: 0, bytesOnDisk: 0 }
-    if (url.pathname.endsWith('/runtime/logs')) {
-      const rows = entries()
-      const after = Number(url.searchParams.get('after') ?? 0)
-      json = {
-        entries: rows.filter((row) => row.sequence > after),
-        markers: [{ id: 'start', timestamp: rows[0].timestamp, message: 'Deployment started' }],
-        nextCursor: rows.at(-1)?.sequence ?? 0,
-        oldestCursor: rows[0]?.sequence,
-        hasMore: false,
-        archiveWarning: null,
-      }
-    }
-    await route.fulfill({ json })
-  })
+      await route.fulfill({ json })
+    },
+  )
   await page.goto(`/services/${id}/logs`)
 }
 

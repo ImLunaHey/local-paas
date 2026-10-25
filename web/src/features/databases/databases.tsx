@@ -24,9 +24,9 @@ export function DatabaseForm({
       {!service && (
         <>
           <ProjectBackLink project={scope.project} environment={scope.environment} />
-          <div className="page-heading">
+          <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
             <div>
-              <div className="eyebrow">
+              <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
                 {engine === 'rustfs-service' ? 'NEW STORAGE' : 'NEW DATABASE'}
               </div>
               <h1>{engine === 'rustfs-service' ? 'Create S3 storage' : 'Create a database'}</h1>
@@ -39,7 +39,10 @@ export function DatabaseForm({
           </div>
         </>
       )}
-      <form className="panel max-w-3xl space-y-5 p-6" onSubmit={submit}>
+      <form
+        className="panel max-w-3xl space-y-5 p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+        onSubmit={submit}
+      >
         <div className="flex items-center gap-3">
           <Database size={21} className="text-accent" />
           <h2>
@@ -66,7 +69,10 @@ export function DatabaseForm({
           Development database: configure and test backups before storing important data.
         </p>
         {mutation.error && (
-          <p role="alert" className="error-notice">
+          <p
+            role="alert"
+            className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          >
             {mutation.error.message}
           </p>
         )}

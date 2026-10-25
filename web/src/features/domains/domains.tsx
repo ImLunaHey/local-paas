@@ -34,15 +34,17 @@ export function Domains() {
   })
   return (
     <>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
-          <div className="eyebrow">WORKSPACE NETWORKING</div>
+          <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+            WORKSPACE NETWORKING
+          </div>
           <h1>Domains</h1>
           <p>Register a domain once. Assign it to any project’s web service.</p>
         </div>
         <Globe size={24} className="text-accent" />
       </div>
-      <section className="panel mb-6 space-y-4 p-5">
+      <section className="panel mb-6 space-y-4 p-5 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2>Public edge</h2>
         </div>
@@ -68,7 +70,7 @@ export function Domains() {
         )}
       </section>
       <form
-        className="panel mb-6 grid items-end gap-3 p-5 sm:grid-cols-[1fr_auto]"
+        className="panel mb-6 grid items-end gap-3 p-5 sm:grid-cols-[1fr_auto] [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
         onSubmit={(e) => {
           e.preventDefault()
           create.mutate()
@@ -101,7 +103,10 @@ export function Domains() {
         </p>
       </form>
       {(query.error || create.error) && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {(query.error || create.error)?.message}
         </p>
       )}
@@ -112,7 +117,7 @@ export function Domains() {
       </div>
       {query.isPending && <p className="text-xs text-muted">Loading domains…</p>}
       {query.data?.items.length === 0 && (
-        <div className="panel p-12 text-center">
+        <div className="panel p-12 text-center [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
           <Globe size={24} className="mx-auto mb-4 text-muted" />
           <h2>No domains yet</h2>
           <p className="mt-2 text-xs text-muted">

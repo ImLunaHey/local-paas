@@ -75,6 +75,7 @@ import { AccountMenu, AuthShell } from './auth-shell'
 import { authClient, isPlatformAdministrator } from './auth-client'
 import { OrganizationSettings } from './organization'
 import { PlatformAdmin, PlatformUserDetail } from './platform-admin'
+import { DocsSite, MarketingHome } from './public-site'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
@@ -97,18 +98,23 @@ function Shell() {
         : 'border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200',
     )
   return (
-    <div className="min-h-screen">
-      <aside className="sidebar max-[720px]:!grid max-[720px]:grid-cols-1 max-[720px]:gap-3">
-        <Link to="/" className="brand">
-          <span className="brand-mark">
+    <div className="min-h-screen [&_section[id]]:[scroll-margin-top:24px] [&_main]:[max-width:1440px] [&_main]:[width:100%] [&_main]:[margin:0_auto] [&_main]:[padding:34px_42px_48px] [&_main]:[flex:1] [&_footer]:[border-top:1px_solid_light-dark(#e4e4e7,_#28282c)] [&_footer]:[margin:0_42px] [&_footer]:[padding:19px_0] [&_footer]:[color:light-dark(#52525b,_#8d8d95)] [&_footer]:[font-size:10px] [&_footer]:[display:flex] [&_footer]:[justify-content:space-between] [&_footer_>_span]:[color:light-dark(#52525b,_#a0a0a8)] [&_h1]:[font-size:clamp(24px,_2.5vw,_30px)] [&_h1]:[font-weight:500] [&_h1]:[line-height:1.2] [&_h1]:[letter-spacing:-1.15px] [&_h1]:[overflow-wrap:anywhere] [&_h2]:[font-size:14px] [&_h2]:[font-weight:500] [&_h2]:[letter-spacing:-0.15px] [&_h3]:[font-size:12px] [&_h3]:[font-weight:500] min-[1600px]:[&_main]:[padding-top:55px] max-[1100px]:[&_main]:[padding:32px_26px] max-[1100px]:[&_footer]:[margin:0_26px] max-[720px]:[&_main]:[padding:30px_20px] max-[720px]:[&_footer]:[margin:0_20px] max-[720px]:[&_footer]:[font-size:9px] max-[720px]:[&_h1]:[font-size:27px]">
+      <aside className="sidebar max-[720px]:!grid max-[720px]:grid-cols-1 max-[720px]:gap-3 [width:212px] [position:fixed] [inset:0_auto_0_0] [background:light-dark(#fafafa,_#0e0e0f)] [border-right:1px_solid_light-dark(#e4e4e7,_#28282c)] [display:flex] [flex-direction:column] [padding:24px_16px_20px] max-[1100px]:[width:205px] max-[1100px]:[padding-left:15px] max-[1100px]:[padding-right:15px] max-[720px]:[width:auto] max-[720px]:[position:static] max-[720px]:[padding:16px_20px] max-[720px]:[border-right:0] max-[720px]:[border-bottom:1px_solid_light-dark(#e4e4e7,_#28282c)] max-[720px]:[flex-direction:row] max-[720px]:[justify-content:space-between] max-[720px]:[align-items:center] max-[720px]:[&_.workspace]:[display:none] max-[720px]:[&_nav]:[flex-wrap:wrap]">
+        <Link
+          to="/app"
+          className="brand [display:flex] [align-items:center] [gap:11px] [font-size:18px] [font-weight:650] [letter-spacing:-0.9px] [margin:0_8px_28px] max-[720px]:[margin:0] max-[720px]:[font-size:19px]"
+        >
+          <span className="brand-mark [width:34px] [height:34px] [display:grid] [place-items:center] [color:light-dark(#27272a,_#ececef)] [border:1px_solid_light-dark(#d4d4d8,_#38383c)] [border-radius:9px] [background:linear-gradient(145deg,_light-dark(#d4d4d8,_#2b2b2f),_light-dark(#f4f4f5,_#18181b))]">
             <Layers3 size={21} />
           </span>
           <span>
             local<span className="text-muted"> / </span>paas
           </span>
         </Link>
-        <div className="workspace">
-          <div className="workspace-icon">{isPlatformAdmin ? 'P' : 'L'}</div>
+        <div className="workspace [display:flex] [align-items:center] [gap:9px] [padding:12px_10px] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:7px] [margin-bottom:26px] [&_strong]:[display:block] [&_strong]:[font-size:11px] [&_strong]:[font-weight:500] [&_span]:[display:block] [&_span]:[font-size:10px] [&_span]:[color:light-dark(#52525b,_#a0a0a8)] [&_span]:[margin-top:3px]">
+          <div className="workspace-icon [width:28px] [height:29px] [border-radius:5px] [background:light-dark(#e4e4e7,_#252527)] [display:grid] [place-items:center] [font-size:12px]">
+            {isPlatformAdmin ? 'P' : 'L'}
+          </div>
           <div>
             <strong>
               {isPlatformAdmin
@@ -122,14 +128,16 @@ function Shell() {
             </span>
           </div>
         </div>
-        <div className="nav-label">{isPlatformAdmin ? 'PLATFORM' : 'WORKSPACE'}</div>
+        <div className="nav-label [font-size:9px] [letter-spacing:1.1px] [font-weight:600] [color:light-dark(#52525b,_#a0a0a8)] [margin:0_12px_12px] max-[720px]:[display:none]">
+          {isPlatformAdmin ? 'PLATFORM' : 'WORKSPACE'}
+        </div>
         <nav
           aria-label="Workspace navigation"
           className="flex gap-2 py-2 max-[720px]:w-full max-[720px]:flex-1 max-[720px]:!flex-nowrap max-[720px]:overflow-x-auto max-[720px]:pb-2 min-[721px]:flex-col"
         >
           {isPlatformAdmin ? (
             <>
-              <Link to="/" className={navClass(path === '/')}>
+              <Link to="/app" className={navClass(path === '/app')}>
                 <Box size={17} />
                 <span>Overview</span>
               </Link>
@@ -155,7 +163,7 @@ function Shell() {
             </>
           ) : (
             <>
-              <Link to="/" className={navClass(path === '/')}>
+              <Link to="/app" className={navClass(path === '/app')}>
                 <Box size={17} />
                 <span>Overview</span>
               </Link>
@@ -189,11 +197,12 @@ function Shell() {
         </nav>
         <AccountMenu />
       </aside>
-      <div className="main-shell">
-        <header className="topbar">
+      <div className="main-shell [margin-left:212px] [min-height:100vh] [display:flex] [flex-direction:column] max-[1100px]:[margin-left:205px] max-[720px]:[margin-left:0]">
+        <header className="topbar [min-height:62px] [border-bottom:1px_solid_light-dark(#e4e4e7,_#28282c)] [padding:0_42px] [display:flex] [align-items:center] [justify-content:space-between] [font-size:11px] [gap:12px] [height:auto] [padding-top:10px] [padding-bottom:10px] [flex-wrap:wrap] max-[1100px]:[padding:0_26px] max-[720px]:[min-height:54px] max-[720px]:[padding:0_20px] max-[720px]:[&_.environment-tag]:[display:none]">
           <WorkspaceBreadcrumbs />
-          <span className="environment-tag">
-            <span className="status-dot" /> Private platform
+          <span className="environment-tag [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:5px] [padding:6px_9px] [display:flex] [align-items:center] [gap:7px] [color:light-dark(#27272a,_#c3c3ca)] [font-size:10px]">
+            <span className="status-dot [width:5px] [height:5px] [display:inline-block] [border-radius:50%] [background:light-dark(#52525b,_#8d8d95)] [&.online]:[background:#86c897] [&.online]:[box-shadow:0_0_7px_#86c89725]" />{' '}
+            Private platform
           </span>
           <CommandMenu
             showInfrastructure={Boolean(isPlatformAdmin) || hasOrganizationNodes}
@@ -241,9 +250,11 @@ function CreationKind() {
     return (
       <>
         <ProjectBackLink project={scope.project} environment={scope.environment} />
-        <div className="page-heading">
+        <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
           <div>
-            <div className="eyebrow">NEW SERVICE</div>
+            <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+              NEW SERVICE
+            </div>
             <h1>What do you want to create?</h1>
             <p>Choose what to add to this project’s environment.</p>
           </div>
@@ -374,7 +385,7 @@ function ServiceStorage() {
     )
   if (service.spec.workload.kind === 'rustfs-service') return <BucketPanel service={service} />
   return (
-    <section className="panel p-6">
+    <section className="panel p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
       <h2>Managed storage</h2>
       <p className="text-sm text-muted mt-3">
         {service.spec.workload.kind === 'celld-service'
@@ -397,7 +408,10 @@ function ServiceActivity() {
     refetchInterval: 3000,
   })
   return (
-    <section className="panel p-6" aria-label="Service activity">
+    <section
+      className="panel p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+      aria-label="Service activity"
+    >
       <h2 className="mb-6">Activity</h2>
       <DeploymentHistory serviceId={service.id} />
       <h3 className="my-6 text-sm">Events</h3>
@@ -412,8 +426,14 @@ function ServiceActivity() {
         />
       ) : (
         events.data.map((event) => (
-          <div className="activity-event" key={event.id}>
-            <span className="activity-dot" data-state={event.kind.split('.')[1]}>
+          <div
+            className="activity-event [display:flex] [gap:12px] [align-items:start] [padding:14px_0] [border-bottom:1px_solid_light-dark(#e4e4e7,_#242427)] [&_p]:[font-size:11px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[margin-top:7px] [&_time]:[display:block] [&_time]:[font-size:10px] [&_time]:[color:light-dark(#52525b,_#8d8d95)] [&_time]:[margin-top:10px]"
+            key={event.id}
+          >
+            <span
+              className="activity-dot [&[data-state=succeeded]]:[color:#9bd2a8] [&[data-state=succeeded]]:[background:light-dark(#e4e4e7,_#18271d)] [&[data-state=succeeded]]:[border-color:#2d4a35] [&[data-state=failed]]:[color:#ffaaa1] [&[data-state=failed]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=failed]]:[border-color:#4b2a2a] [&[data-state=interrupted]]:[color:#ffaaa1] [&[data-state=interrupted]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=interrupted]]:[border-color:#4b2a2a] [border-radius:50%] [padding:5px] [background:light-dark(#e4e4e7,_#222225)] [color:light-dark(#27272a,_#c3c3ca)]"
+              data-state={event.kind.split('.')[1]}
+            >
               {event.kind === 'build.failed' || event.kind === 'build.interrupted' ? (
                 <AlertCircle size={13} />
               ) : event.kind === 'build.succeeded' || event.kind === 'service.registered' ? (
@@ -434,7 +454,7 @@ function ServiceActivity() {
           </div>
         ))
       )}
-      <div className="aside-divider" />
+      <div className="aside-divider [border-top:1px_solid_light-dark(#e4e4e7,_#28282c)] [margin:25px_0]" />
       <p className="text-xs text-muted break-all">
         Service ID
         <br />
@@ -444,12 +464,26 @@ function ServiceActivity() {
   )
 }
 
+function RootLayout() {
+  const path = useRouterState({ select: (state) => state.location.pathname })
+  const publicRoute = path === '/' || path === '/docs' || path.startsWith('/docs/')
+  if (publicRoute) return <Outlet />
+  return (
+    <AuthShell>
+      <Shell />
+    </AuthShell>
+  )
+}
+
 const rootRoute = createRootRoute({
-  component: Shell,
+  component: RootLayout,
   notFoundComponent: () => (
     <div>
       <h1>Page not found</h1>
-      <Link to="/" className="back-link mt-5">
+      <Link
+        to="/"
+        className="back-link mt-5 [display:inline-flex] [gap:7px] [align-items:center] [font-size:11px] [color:light-dark(#52525b,_#a0a0a8)] [margin-bottom:25px] [&:hover]:[color:light-dark(#27272a,_#e7e7eb)]"
+      >
         Return to services
       </Link>
     </div>
@@ -458,6 +492,24 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  component: MarketingHome,
+})
+const docsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs',
+  component: () => <DocsSite page="introduction" />,
+})
+const docsPageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs/$slug',
+  component: function DocumentationPage() {
+    const { slug } = docsPageRoute.useParams()
+    return <DocsSite page={slug} />
+  },
+})
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/app',
   component: function Home() {
     const session = authClient.useSession()
     return isPlatformAdministrator(session.data?.user.role) ? (
@@ -526,7 +578,7 @@ const networkingRoute = createRoute({
     const service = useCurrentService()
     if (service.spec.workload.kind === 'rustfs-service')
       return (
-        <section className="panel p-6">
+        <section className="panel p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
           <h2>Private S3 endpoint</h2>
           <p className="text-sm text-muted mt-3">
             Attach buckets to apps from their Storage tab. Public S3 routing is not enabled.
@@ -677,9 +729,13 @@ const serviceActivityRoute = createRoute({
   component: ServiceActivity,
 })
 const router = createRouter({
+  scrollRestoration: true,
   defaultErrorComponent: RouteError,
   routeTree: rootRoute.addChildren([
     indexRoute,
+    docsRoute,
+    docsPageRoute,
+    appRoute,
     platformOrganizationsRoute,
     platformUsersRoute,
     platformUserRoute,
@@ -721,9 +777,7 @@ declare module '@tanstack/react-router' {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AuthShell>
-        <RouterProvider router={router} />
-      </AuthShell>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 )

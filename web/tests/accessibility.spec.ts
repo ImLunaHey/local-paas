@@ -10,7 +10,7 @@ for (const theme of ['dark', 'light'] as const) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
     for (const width of [390, 768, 1440]) {
       await page.setViewportSize({ width, height: 1000 })
-      for (const route of ['/', '/projects', '/domains', '/nodes', '/audit']) {
+      for (const route of ['/app', '/projects', '/domains', '/nodes', '/audit']) {
         await page.goto(route)
         await expect(page.locator('main h1')).toBeVisible()
         const results = await new AxeBuilder({ page })
@@ -39,7 +39,7 @@ for (const theme of ['dark', 'light'] as const) {
 test('command dialog supports keyboard selection, escape and focus restoration', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/app')
   const trigger = page.getByRole('button', { name: 'Open command menu' })
   await trigger.focus()
   await page.keyboard.press('Enter')

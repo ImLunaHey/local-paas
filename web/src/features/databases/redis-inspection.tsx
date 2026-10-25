@@ -35,7 +35,7 @@ export function RedisInspection({ snapshot }: { snapshot: Snapshot }) {
         data={snapshot.keyspaces ?? []}
         empty="No keys stored yet."
       />
-      <section className="panel p-5">
+      <section className="panel p-5 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
         <h3 className="text-sm font-medium">Persistence and eviction</h3>
         <dl className="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {[

@@ -8,7 +8,7 @@ test('host history uses persisted samples and supports ranges on desktop and mob
   if (!passwordFile) throw new Error('Browser authentication is not configured')
   const password = fs.readFileSync(passwordFile, 'utf8').trim()
   await page.context().clearCookies()
-  await page.goto('/')
+  await page.goto('/app')
   await page.getByLabel('Username').fill('root')
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()

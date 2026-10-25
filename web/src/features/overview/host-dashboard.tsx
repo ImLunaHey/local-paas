@@ -21,9 +21,11 @@ export function Hosts() {
   const fresh = latest && Date.now() - Date.parse(latest.timestamp) < 20000 && !query.isError
   return (
     <>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
-          <div className="eyebrow">INFRASTRUCTURE</div>
+          <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+            INFRASTRUCTURE
+          </div>
           <h1>
             {query.data?.host.name ?? 'Host'} <span className="text-muted">/ resources</span>
           </h1>
@@ -45,14 +47,20 @@ export function Hosts() {
         </div>
       </div>
       {query.error && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           Could not refresh host statistics. {query.error.message}
         </p>
       )}
       <HostSummary fresh={fresh} latest={latest} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {fields.map(({ field, label, unit, scale }) => (
-          <section key={field} className="panel min-w-0 p-5">
+          <section
+            key={field}
+            className="panel min-w-0 p-5 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+          >
             <div className="mb-4 flex justify-between gap-3">
               <h2>{label}</h2>
               <span className="text-xs text-muted">

@@ -24,7 +24,10 @@ export function LogRow({
 }) {
   return (
     <Fragment key={l.sequence}>
-      <tr className="runtime-log-row" data-level={l.level}>
+      <tr
+        className="runtime-log-row [&[data-level=error]_.log-level]:[color:#ff8585] [&[data-level=fatal]_.log-level]:[color:#ff8585] [&[data-level=warn]_.log-level]:[color:#e9b86e] [&[data-level=info]_.log-level]:[color:#8ab6a2] [&:hover]:[background:light-dark(#e4e4e7,_#1d1d20)] [&:focus-within]:[background:light-dark(#e4e4e7,_#1d1d20)]"
+        data-level={l.level}
+      >
         <td>
           <Button
             variant="ghost"
@@ -53,9 +56,14 @@ export function LogRow({
             </time>
           </Button>
         </td>
-        <td className="log-level">{l.level === 'unclassified' ? '—' : l.level}</td>
-        <td className="log-stream">{l.stream}</td>
-        <td className="log-instance" title={l.node + ' / ' + l.instanceId}>
+        <td className="log-level [color:light-dark(#52525b,_#aaaab2)] [font-size:10px] [text-transform:uppercase]">
+          {l.level === 'unclassified' ? '—' : l.level}
+        </td>
+        <td className="log-stream [color:light-dark(#52525b,_#85858e)]">{l.stream}</td>
+        <td
+          className="log-instance [color:light-dark(#52525b,_#85858e)]"
+          title={l.node + ' / ' + l.instanceId}
+        >
           {l.instanceId.slice(0, 8)}
         </td>
         {structure.columns.map((field) => {

@@ -60,7 +60,7 @@ export function LogFeed({
           selectField={selectField}
         />
       ) : (
-        <div className="console-empty">
+        <div className="console-empty [height:100%] [min-height:280px] [border:1px_solid_light-dark(#e4e4e7,_#242427)] [border-radius:7px] [background:light-dark(#fafafa,_#0b0b0d)] [display:flex] [align-items:center] [justify-content:center] [flex-direction:column] [gap:12px] [color:light-dark(#52525b,_#a0a0a8)] [font-size:12px] [&_p]:[font-size:11px] [&_p]:[text-align:center] [&_p]:[padding:0_15px]">
           <Terminal size={24} />
           <h3>{hasInstances ? 'No matching log entries' : 'No running instances'}</h3>
           <p>

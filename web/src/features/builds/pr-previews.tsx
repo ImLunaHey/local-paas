@@ -50,7 +50,10 @@ export function PrPreviews({ connectionId }: { connectionId: string }) {
       {policy.isPending ? (
         <p className="text-xs text-muted">Loading preview policy…</p>
       ) : policy.error ? (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           Preview policy is unavailable.
         </p>
       ) : (
@@ -62,7 +65,10 @@ export function PrPreviews({ connectionId }: { connectionId: string }) {
         />
       )}
       {save.error && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {save.error.message}
         </p>
       )}
@@ -74,7 +80,10 @@ export function PrPreviews({ connectionId }: { connectionId: string }) {
       {previews.isPending ? (
         <p className="text-xs text-muted">Loading previews…</p>
       ) : previews.error ? (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           Previews are unavailable.
         </p>
       ) : previews.data?.length ? (
@@ -138,7 +147,10 @@ export function PrPreviews({ connectionId }: { connectionId: string }) {
         </p>
       )}
       {remove.error && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {remove.error.message}
         </p>
       )}
@@ -251,7 +263,10 @@ function PreviewPolicyForm({
         />
       </Field>
       {templateError && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {templateError}
         </p>
       )}

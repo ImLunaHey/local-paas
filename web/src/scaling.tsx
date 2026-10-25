@@ -135,7 +135,10 @@ function ScalingForm({ serviceId, state }: { serviceId: string; state: ScalingSt
         fixed replicas.
       </p>
       {save.error && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {save.error.message}
         </p>
       )}
@@ -160,7 +163,10 @@ export function ScalingPanel({ service }: { service: Service }) {
     >
       <h2 className="text-base font-medium">Autoscaling</h2>
       {query.error && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {query.error.message}
         </p>
       )}

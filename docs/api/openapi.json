@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "local-paas management API",
-    "description": "Private operator API with camelCase fields. Controller, dashboard and protocol v2 agents must be upgraded together.",
+    "description": "Organization-scoped management API with camelCase fields. Authenticate with a browser session or a scoped personal API key. This schema documents the supported reference operations, not internal agent or authentication endpoints.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -10,6 +10,81 @@
     "version": "0.2.0"
   },
   "paths": {
+    "/api/api-keys": {
+      "get": {
+        "tags": [
+          "crate::api_keys"
+        ],
+        "operationId": "listApiKeys",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/KeyMetadata"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "crate::api_keys"
+        ],
+        "operationId": "createApiKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedKey"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/api-keys/{id}": {
+      "delete": {
+        "tags": [
+          "crate::api_keys"
+        ],
+        "operationId": "revokeApiKey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/deployments/{id}/rollback": {
       "post": {
         "tags": [
@@ -1010,6 +1085,18 @@
         },
         "additionalProperties": false
       },
+      "BTreeMap": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "propertyNames": {
+          "type": "string"
+        }
+      },
       "BuildMode": {
         "type": "string",
         "enum": [
@@ -1061,6 +1148,31 @@
           "operationId": {
             "type": "string",
             "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateKey": {
+        "type": "object",
+        "required": [
+          "name",
+          "expiresInDays",
+          "permissions"
+        ],
+        "properties": {
+          "expiresInDays": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 90,
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/BTreeMap"
           }
         },
         "additionalProperties": false
@@ -1138,6 +1250,21 @@
           }
         },
         "additionalProperties": false
+      },
+      "CreatedKey": {
+        "type": "object",
+        "required": [
+          "key",
+          "metadata"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/KeyMetadata"
+          }
+        }
       },
       "DomainList": {
         "type": "object",
@@ -1406,6 +1533,56 @@
           }
         },
         "additionalProperties": false
+      },
+      "KeyMetadata": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "permissions",
+          "createdAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
       },
       "Liveness": {
         "type": "object",

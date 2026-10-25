@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import fs from 'node:fs'
 
 test('scoped creation, breadcrumb environments and shared volume attachments', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/app')
   const name = `storage-${Date.now()}`
   const spec = JSON.parse(fs.readFileSync('../examples/oci-service.json', 'utf8'))
   const fixture = await page.evaluate(

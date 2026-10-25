@@ -47,11 +47,17 @@ export function BuildLogs({ build }: { build: Build }) {
         </Button>
       </div>
       {logs.isError && (
-        <p className="error-notice mb-3" role="alert">
+        <p
+          className="error-notice mb-3 [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          role="alert"
+        >
           {logs.error.message}
         </p>
       )}
-      <pre className="build-log" aria-label="Build output">
+      <pre
+        className="build-log [max-height:340px] [overflow:auto] [white-space:pre-wrap] [overflow-wrap:anywhere] [background:light-dark(#fafafa,_#0b0b0d)] [border:1px_solid_light-dark(#e4e4e7,_#242427)] [border-radius:6px] [padding:16px] [font:11px/1.85_var(--font-mono)] [color:light-dark(#27272a,_#c3c3ca)]"
+        aria-label="Build output"
+      >
         {logs.data?.text || (logs.isPending ? 'Loading build output…' : 'No build output yet.')}
       </pre>
       {logs.data?.truncated && (

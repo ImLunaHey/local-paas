@@ -20,7 +20,7 @@ export function BuildSettings({
       >
         <Select
           name="buildMode"
-          className="build-select"
+          className="build-select [width:100%] [background:light-dark(#f4f4f5,_#171719)] [border:1px_solid_light-dark(#d4d4d8,_#38383c)] [border-radius:5px] [padding:10px_12px] [font-size:12px] [color:light-dark(#27272a,_#e7e7eb)]"
           value={buildMode}
           onChange={(event) => setBuildMode(event.target.value as typeof buildMode)}
         >

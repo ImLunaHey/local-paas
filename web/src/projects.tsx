@@ -25,9 +25,11 @@ export function Projects() {
   })
   return (
     <>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
-          <div className="eyebrow">YOUR WORKSPACE</div>
+          <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+            YOUR WORKSPACE
+          </div>
           <h1>Projects</h1>
           <p>Applications and databases, grouped by project and environment.</p>
         </div>
@@ -39,7 +41,10 @@ export function Projects() {
       />
 
       {(projects.error || create.error) && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {(projects.error || create.error)?.message}
         </p>
       )}
@@ -49,7 +54,7 @@ export function Projects() {
             key={p.id}
             to="/projects/$projectId"
             params={{ projectId: p.id }}
-            className="panel p-6 space-y-4 hover:border-neutral-600"
+            className="panel p-6 space-y-4 hover:border-neutral-600 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
           >
             <Layers3 size={22} className="text-accent" />
             <h2>{p.name}</h2>
@@ -118,13 +123,18 @@ export function ProjectWorkspace({
   })
   return (
     <>
-      <Link to="/projects" className="back-link mb-6">
+      <Link
+        to="/projects"
+        className="back-link mb-6 [display:inline-flex] [gap:7px] [align-items:center] [font-size:11px] [color:light-dark(#52525b,_#a0a0a8)] [margin-bottom:25px] [&:hover]:[color:light-dark(#27272a,_#e7e7eb)]"
+      >
         <ArrowLeft size={14} />
         All projects
       </Link>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
-          <div className="eyebrow">PROJECT</div>
+          <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+            PROJECT
+          </div>
           <h1>{project.data?.name ?? 'Loading…'}</h1>
           <p>Services share an environment. Deployments and secrets stay isolated.</p>
         </div>
@@ -132,14 +142,14 @@ export function ProjectWorkspace({
           <Link
             to="/projects/$projectId/settings"
             params={{ projectId }}
-            className="button secondary"
+            className="button secondary [display:inline-flex] [align-items:center] [justify-content:center] [gap:8px] [font-size:11px] [font-weight:600] [line-height:1] [white-space:nowrap] [border:1px_solid_transparent] [border-radius:6px] [padding:12px_15px] [&.primary]:[background:#ff8a4c] [&.primary]:[color:#1b100a] [&.primary]:[border-color:#ff8a4c] [&.primary:hover]:[background:#ffa36c] [&.secondary]:[background:light-dark(#e4e4e7,_#1b1b1e)] [&.secondary]:[border-color:light-dark(#d4d4d8,_#38383c)] [&.secondary]:[color:light-dark(#27272a,_#e7e7eb)] [&.secondary:hover]:[background:light-dark(#e4e4e7,_#1b1b1e)]"
           >
             Settings
           </Link>
           <Link
             to="/services/new"
             search={{ project: project.data?.name, environment: env?.name }}
-            className="button primary"
+            className="button primary [display:inline-flex] [align-items:center] [justify-content:center] [gap:8px] [font-size:11px] [font-weight:600] [line-height:1] [white-space:nowrap] [border:1px_solid_transparent] [border-radius:6px] [padding:12px_15px] [&.primary]:[background:#ff8a4c] [&.primary]:[color:#1b100a] [&.primary]:[border-color:#ff8a4c] [&.primary:hover]:[background:#ffa36c] [&.secondary]:[background:light-dark(#e4e4e7,_#1b1b1e)] [&.secondary]:[border-color:light-dark(#d4d4d8,_#38383c)] [&.secondary]:[color:light-dark(#27272a,_#e7e7eb)] [&.secondary:hover]:[background:light-dark(#e4e4e7,_#1b1b1e)]"
           >
             <Plus size={15} />
             Add service
@@ -147,7 +157,10 @@ export function ProjectWorkspace({
         </div>
       </div>
       {(project.error || services.error || create.error) && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {(project.error || services.error || create.error)?.message}
         </p>
       )}
@@ -158,7 +171,7 @@ export function ProjectWorkspace({
           </p>
         )}
       </div>
-      <details className="panel p-5 mb-7">
+      <details className="panel p-5 mb-7 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
         <summary className="cursor-pointer text-sm">Create or shadow an environment</summary>
         <form
           className="grid sm:grid-cols-3 gap-3 mt-5 items-end"
@@ -197,8 +210,11 @@ export function ProjectWorkspace({
           copied.
         </p>
       </details>
-      <section className="panel overflow-hidden" aria-label="Project services">
-        <div className="service-table-head">
+      <section
+        className="panel overflow-hidden [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+        aria-label="Project services"
+      >
+        <div className="service-table-head [display:grid] [grid-template-columns:minmax(150px,_1fr)_130px_100px_110px_150px] [gap:16px] [align-items:center] [padding:19px_22px] [font-size:9px] [letter-spacing:1px] [color:light-dark(#52525b,_#8d8d95)] [border-bottom:1px_solid_light-dark(#e4e4e7,_#28282c)] max-[1100px]:[grid-template-columns:minmax(0,_1fr)_130px] max-[1100px]:[gap:10px] max-[1100px]:[&_>_:nth-child(2)]:[display:none] max-[1200px]:[grid-template-columns:minmax(140px,_1fr)_90px_100px_135px] max-[1200px]:[&_>_:nth-child(2)]:[display:none] max-[720px]:[display:none]">
           <span>SERVICE / SOURCE</span>
           <span>WORKLOAD</span>
           <span>CPU</span>
@@ -243,13 +259,16 @@ export function ProjectBackLink({
       to="/projects/$projectId"
       params={{ projectId: selected.id }}
       search={{ environment }}
-      className="back-link"
+      className="back-link [display:inline-flex] [gap:7px] [align-items:center] [font-size:11px] [color:light-dark(#52525b,_#a0a0a8)] [margin-bottom:25px] [&:hover]:[color:light-dark(#27272a,_#e7e7eb)]"
     >
       <ArrowLeft size={14} />
       Project services
     </Link>
   ) : (
-    <Link to="/projects" className="back-link">
+    <Link
+      to="/projects"
+      className="back-link [display:inline-flex] [gap:7px] [align-items:center] [font-size:11px] [color:light-dark(#52525b,_#a0a0a8)] [margin-bottom:25px] [&:hover]:[color:light-dark(#27272a,_#e7e7eb)]"
+    >
       <ArrowLeft size={14} />
       All projects
     </Link>
@@ -278,18 +297,24 @@ export function ProjectSettings() {
   })
   return (
     <>
-      <Link to="/projects/$projectId" params={{ projectId }} className="back-link mb-6">
+      <Link
+        to="/projects/$projectId"
+        params={{ projectId }}
+        className="back-link mb-6 [display:inline-flex] [gap:7px] [align-items:center] [font-size:11px] [color:light-dark(#52525b,_#a0a0a8)] [margin-bottom:25px] [&:hover]:[color:light-dark(#27272a,_#e7e7eb)]"
+      >
         <ArrowLeft size={14} />
         Project services
       </Link>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
-          <div className="eyebrow">PROJECT SETTINGS</div>
+          <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+            PROJECT SETTINGS
+          </div>
           <h1>{project.data?.name ?? 'Loading…'}</h1>
           <p>Manage this project's identity.</p>
         </div>
       </div>
-      <section className="panel max-w-2xl space-y-5 p-6">
+      <section className="panel max-w-2xl space-y-5 p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
         <p className="text-xs leading-relaxed text-muted">
           Renaming keeps the project's services, environments, secrets and URLs. Existing deployment
           history keeps its original name.
@@ -303,7 +328,10 @@ export function ProjectSettings() {
           />
         )}
         {project.error && (
-          <p role="alert" className="error-notice">
+          <p
+            role="alert"
+            className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          >
             {project.error.message}
           </p>
         )}

@@ -7,7 +7,7 @@ test('new service selects registered domains and saves OpenBao secrets before bu
 }) => {
   const name = `setup-${Date.now()}`
   const hostname = `${name}.invalid`
-  await page.goto('/')
+  await page.goto('/app')
   await page.evaluate(
     async ({ name, hostname }) => {
       for (const [path, body] of [

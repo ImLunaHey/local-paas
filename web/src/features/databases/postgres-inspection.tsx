@@ -50,7 +50,10 @@ export function PostgresInspection({
         {snapshot.tablesTruncated ? ' Showing the first 200 tables.' : ''}
       </p>
       {table && !snapshot.table && (
-        <p role="status" className="panel p-5 text-sm text-muted">
+        <p
+          role="status"
+          className="panel p-5 text-sm text-muted [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+        >
           This table no longer exists or cannot be inspected.
         </p>
       )}

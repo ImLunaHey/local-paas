@@ -57,15 +57,20 @@ export function MetricsViewer({ service }: { service: Service }) {
       ? fresh.reduce((sum, i) => sum + i[field]!, 0)
       : null
   return (
-    <section className="panel p-6 space-y-5" aria-label="Runtime metrics">
-      <div className="section-heading">
+    <section
+      className="panel p-6 space-y-5 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+      aria-label="Runtime metrics"
+    >
+      <div className="section-heading [display:flex] [justify-content:space-between] [align-items:center] [margin-bottom:15px] [gap:12px] max-[720px]:[&_.tiny-label]:[font-size:8px] max-[720px]:[&_.tiny-label]:[letter-spacing:0.6px]">
         <div>
           <h2>Runtime metrics</h2>
           <p className="text-xs text-muted mt-2">
             Measured usage · recent 15 minutes · updates every 5 seconds
           </p>
         </div>
-        <span className="chip">{selected ? 'Instance view' : 'Combined view'}</span>
+        <span className="chip [&[data-state=succeeded]]:[color:#9bd2a8] [&[data-state=succeeded]]:[background:light-dark(#e4e4e7,_#18271d)] [&[data-state=succeeded]]:[border-color:#2d4a35] [&[data-state=failed]]:[color:#ffaaa1] [&[data-state=failed]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=failed]]:[border-color:#4b2a2a] [&[data-state=interrupted]]:[color:#ffaaa1] [&[data-state=interrupted]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=interrupted]]:[border-color:#4b2a2a] [&[data-state=running]]:[color:#ffb282] [&[data-state=running]]:[background:#2c1c12] [&[data-state=running]]:[border-color:#4e3120] [&[data-state=queued]]:[color:#ffb282] [&[data-state=queued]]:[background:#2c1c12] [&[data-state=queued]]:[border-color:#4e3120] [display:inline-flex] [align-items:center] [gap:6px] [border:1px_solid_light-dark(#d4d4d8,_#38383c)] [background:light-dark(#e4e4e7,_#1b1b1e)] [color:light-dark(#27272a,_#c3c3ca)] [font-size:10px] [padding:5px_8px] [border-radius:5px] [white-space:nowrap]">
+          {selected ? 'Instance view' : 'Combined view'}
+        </span>
       </div>
       <Field label="View">
         <Select
@@ -82,7 +87,10 @@ export function MetricsViewer({ service }: { service: Service }) {
         </Select>
       </Field>
       {(metrics.error || runtime.error) && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {(metrics.error || runtime.error)?.message}
         </p>
       )}
@@ -95,7 +103,10 @@ export function MetricsViewer({ service }: { service: Service }) {
         {series.map(({ field, label, unit, scale }) => {
           const value = total(field)
           return (
-            <div className="metric" key={field}>
+            <div
+              className="metric [padding:18px_20px] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:7px] [background:linear-gradient(145deg,_light-dark(#f4f4f5,_#19191b),_light-dark(#f4f4f5,_#121213))] [&_strong]:[display:block] [&_strong]:[font-size:23px] [&_strong]:[font-weight:450] [&_strong]:[letter-spacing:-0.6px] [&_strong]:[margin:15px_0_7px] [&_p]:[font-size:10px] [&_p]:[color:light-dark(#52525b,_#8d8d95)] [&_p]:[line-height:1.6] max-[720px]:[padding:17px] max-[720px]:[&_strong]:[margin:12px_0_6px] max-[720px]:[&_strong]:[font-size:22px]"
+              key={field}
+            >
               <div className="text-xs text-muted">{label}</div>
               <strong>
                 {value == null
@@ -124,7 +135,7 @@ export function MetricsViewer({ service }: { service: Service }) {
             ))}
         </div>
       ) : (
-        <div className="console-empty">
+        <div className="console-empty [height:100%] [min-height:280px] [border:1px_solid_light-dark(#e4e4e7,_#242427)] [border-radius:7px] [background:light-dark(#fafafa,_#0b0b0d)] [display:flex] [align-items:center] [justify-content:center] [flex-direction:column] [gap:12px] [color:light-dark(#52525b,_#a0a0a8)] [font-size:12px] [&_p]:[font-size:11px] [&_p]:[text-align:center] [&_p]:[padding:0_15px]">
           <Activity size={24} />
           <h3>No runtime metrics yet</h3>
           <p>Measurements appear after an application instance starts.</p>
@@ -223,7 +234,8 @@ function Chart({
       maxFocusDistance: Number.POSITIVE_INFINITY,
       tooltip: {
         use: tooltip,
-        className: 'metric-tooltip',
+        className:
+          'metric-tooltip [--ts-chart-tooltip-background:light-dark(#f4f4f5,_#1a1a1e)] [--ts-chart-tooltip-color:light-dark(#27272a,_#eeeef2)] [--ts-chart-tooltip-border:1px_solid_light-dark(#d4d4d8,_#3b3b43)] [--ts-chart-tooltip-border-radius:8px] [--ts-chart-tooltip-padding:10px_12px] [--ts-chart-tooltip-shadow:0_8px_28px_#0008] [--ts-chart-tooltip-font:400_12px/1.65_ui-sans-serif,_system-ui,_sans-serif] [color-scheme:dark]',
         format: (point) =>
           new Date(point.datum.time).toLocaleString() +
           '\n' +
@@ -240,7 +252,7 @@ function Chart({
     })
   }, [samples, field, scale, label, unit])
   return (
-    <div className="revision-row metric-chart">
+    <div className="revision-row metric-chart [border:1px_solid_light-dark(#d4d4d8,_#2c2c30)] [border-radius:6px] [padding:14px] [background:light-dark(#f4f4f5,_#19191b)] [&_code]:[color:light-dark(#27272a,_#d5d5dc)] [min-width:0] [color:light-dark(#52525b,_#a1a1aa)]">
       <h3 className="text-xs mb-3">
         {label} ({unit})
       </h3>

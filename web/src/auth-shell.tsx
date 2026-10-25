@@ -51,7 +51,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
   return children
 }
 
-function Login() {
+export function Login({ inline = false }: { inline?: boolean }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -73,7 +73,7 @@ function Login() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center p-6">
+    <div className={cn('grid place-items-center', inline ? 'my-5' : 'min-h-screen p-6')}>
       <form
         className="w-full max-w-md rounded-lg border border-line bg-[light-dark(#f4f4f5,#131315)] p-7 shadow-[inset_0_1px_0_#ffffff04,0_8px_24px_#0000000d]"
         onSubmit={submit}
@@ -83,8 +83,8 @@ function Login() {
             <Layers3 size={21} />
           </span>
           <div>
-            <div className="mb-[13px] text-[9px] font-semibold tracking-[1.7px] text-zinc-500 uppercase">
-              CONTROL PLANE
+            <div className="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">
+              Your workspace
             </div>
             <h1 className="mt-1 text-xl">Sign in to local-paas</h1>
           </div>
@@ -115,7 +115,7 @@ function Login() {
           </Button>
         </div>
       </form>
-    </main>
+    </div>
   )
 }
 

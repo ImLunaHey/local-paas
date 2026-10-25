@@ -6,7 +6,7 @@ test('PR preview policy, signed events, failures and cleanup at desktop and mobi
 }) => {
   const project = `previews-${crypto.randomUUID().slice(0, 8)}`
   const secret = randomBytes(32).toString('hex')
-  await page.goto('/')
+  await page.goto('/app')
   const fixture = await page.evaluate(
     async ({ project, secret }) => {
       const create = async (path: string, body: unknown) => {

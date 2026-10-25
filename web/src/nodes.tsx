@@ -68,12 +68,12 @@ function Capacity({
           {used} / {total} {unit}
         </span>
       </div>
-      <div className="h-1 rounded-full bg-zinc-800">
-        <div
-          className="h-1 rounded-full bg-orange-400"
-          style={{ width: `${Math.min(100, (used / Math.max(1, total)) * 100)}%` }}
-        />
-      </div>
+      <progress
+        aria-label={`${label} usage`}
+        max={Math.max(1, total)}
+        value={Math.min(Math.max(0, used), Math.max(1, total))}
+        className="block h-1 w-full overflow-hidden rounded-full border-0 bg-zinc-800 [&::-moz-progress-bar]:bg-orange-400 [&::-webkit-progress-bar]:bg-zinc-800 [&::-webkit-progress-value]:bg-orange-400"
+      />
     </div>
   )
 }
@@ -108,9 +108,11 @@ export function Nodes() {
   const error = query.error || action.error || policy.error
   return (
     <>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
-          <p className="eyebrow">INFRASTRUCTURE</p>
+          <p className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+            INFRASTRUCTURE
+          </p>
           <h1>Nodes</h1>
           <p className="page-description">
             Placement, capacity and safe maintenance for your workers.

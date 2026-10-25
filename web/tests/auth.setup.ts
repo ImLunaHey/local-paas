@@ -22,7 +22,7 @@ export default async function authenticateBrowserTests() {
   })
   try {
     const page = await browser.newPage({ baseURL })
-    await page.goto('/')
+    await page.goto('/app')
     await page.getByLabel('Username').fill('admin')
     await page.getByLabel('Password').fill(password)
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()

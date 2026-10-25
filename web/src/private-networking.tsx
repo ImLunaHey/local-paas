@@ -52,7 +52,10 @@ export function PrivateNetworking({ service }: { service: Service }) {
     },
   })
   return (
-    <section className="panel p-6 space-y-5" aria-label="Private service connections">
+    <section
+      className="panel p-6 space-y-5 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+      aria-label="Private service connections"
+    >
       <div>
         <h2>Private service connections</h2>
         <p className="text-xs text-muted mt-2">
@@ -164,7 +167,10 @@ export function PrivateNetworking({ service }: { service: Service }) {
         </div>
       </form>
       {(targets.error || save.error) && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {(targets.error || save.error)?.message}
         </p>
       )}

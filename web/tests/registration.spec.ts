@@ -7,7 +7,7 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   page,
 }) => {
   const name = `browser-oci-${Date.now()}`
-  await page.goto('/')
+  await page.goto('/app')
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   await newApp(page)
   await page.getByLabel('Service name').fill(name)
@@ -342,7 +342,7 @@ test('all metric charts have dark pointer and keyboard tooltips', async ({ page 
 })
 
 test('expose TanStack Query and Router devtools', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/app')
   await page.getByRole('button', { name: 'Open TanStack Devtools', exact: true }).click()
   await expect(page.getByText('TanStack Query', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('TanStack Router', { exact: true }).first()).toBeVisible()
@@ -355,7 +355,7 @@ test('expose TanStack Query and Router devtools', async ({ page }) => {
 test('project environment form uses aligned shared controls at desktop and mobile widths', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/app')
   const projects = await page.evaluate(async () => (await fetch('/api/projects')).json())
   const project =
     projects.items.find((p: { name: string }) => p.name === 'personal') ?? projects.items[0]
