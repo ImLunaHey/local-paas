@@ -1,6 +1,6 @@
 //! Explicit operator enrollment; never accepted from an unauthenticated node.
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -14,6 +14,8 @@ pub struct Enrollment {
     pub memory_mib: i32,
     pub slots: i32,
     pub endpoint_base: i32,
+    #[serde(default)]
+    pub organization_id: Option<String>,
     #[serde(default = "unspecified")]
     pub failure_domain: String,
     #[serde(default)]
@@ -39,6 +41,13 @@ impl Enrollment {
         }
         if self.controller_url != "https://controller.local-paas:18443" {
             return Err("unsupported controller gateway");
+        }
+        if self
+            .organization_id
+            .as_ref()
+            .is_some_and(|id| id.is_empty() || id.len() > 255)
+        {
+            return Err("invalid organization ID");
         }
         if !(1..=1000).contains(&self.cpu_millis)
             || !(1..=1400).contains(&self.memory_mib)
@@ -67,12 +76,31 @@ pub async fn enroll(pool: &PgPool, input: &Enrollment) -> Result<(), Box<dyn std
         .execute(&mut *tx)
         .await?;
     let hash = crate::runtime::token_hash(&input.token);
-    if let Some(row) = sqlx::query!(
-        "SELECT name,token_hash,cpu_millis,memory_mib,slots,endpoint_base,failure_domain FROM nodes WHERE id=$1", input.node_id
-    ).fetch_optional(&mut *tx).await? {
-        if row.name != input.name || row.token_hash != hash || row.cpu_millis != input.cpu_millis
-            || row.memory_mib != input.memory_mib || row.slots != input.slots
-            || row.endpoint_base != input.endpoint_base || row.failure_domain != input.failure_domain
+    if let Some(organization_id) = &input.organization_id {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM organization WHERE id=$1)")
+                .bind(organization_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if !exists {
+            return Err("organization does not exist".into());
+        }
+    }
+    if let Some(row) = sqlx::query(
+        "SELECT name,token_hash,cpu_millis,memory_mib,slots,endpoint_base,failure_domain,organization_id FROM nodes WHERE id=$1",
+    )
+    .bind(input.node_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        if row.get::<String, _>("name") != input.name
+            || row.get::<String, _>("token_hash") != hash
+            || row.get::<i32, _>("cpu_millis") != input.cpu_millis
+            || row.get::<i32, _>("memory_mib") != input.memory_mib
+            || row.get::<i32, _>("slots") != input.slots
+            || row.get::<i32, _>("endpoint_base") != input.endpoint_base
+            || row.get::<String, _>("failure_domain") != input.failure_domain
+            || row.get::<Option<String>, _>("organization_id") != input.organization_id
         { return Err("node already exists with different identity or configuration".into()); }
         // A retry must not undo maintenance state or generate duplicate audit entries.
         tx.commit().await?;
@@ -85,15 +113,30 @@ pub async fn enroll(pool: &PgPool, input: &Enrollment) -> Result<(), Box<dyn std
     if reserved {
         return Err("node name or endpoint range is already reserved".into());
     }
-    sqlx::query!(
-        "INSERT INTO nodes(id,name,token_hash,cpu_millis,memory_mib,slots,endpoint_base,failure_domain,cordoned) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-        input.node_id,input.name,hash,input.cpu_millis,input.memory_mib,input.slots,input.endpoint_base,input.failure_domain,input.cordoned
-    ).execute(&mut *tx).await?;
-    let details = serde_json::json!({"name":input.name,"failureDomain":input.failure_domain,"endpointBase":input.endpoint_base,"cordoned":input.cordoned});
-    sqlx::query!(
-        "INSERT INTO audit_log(actor,action,outcome,target_type,target_id,details) VALUES('operator','node.enroll','succeeded','node',$1,$2)",
-        input.node_id.to_string(),details
-    ).execute(&mut *tx).await?;
+    sqlx::query(
+        "INSERT INTO nodes(id,name,token_hash,cpu_millis,memory_mib,slots,endpoint_base,failure_domain,cordoned,organization_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(input.node_id)
+    .bind(&input.name)
+    .bind(hash)
+    .bind(input.cpu_millis)
+    .bind(input.memory_mib)
+    .bind(input.slots)
+    .bind(input.endpoint_base)
+    .bind(&input.failure_domain)
+    .bind(input.cordoned)
+    .bind(&input.organization_id)
+    .execute(&mut *tx)
+    .await?;
+    let details = serde_json::json!({"name":input.name,"failureDomain":input.failure_domain,"endpointBase":input.endpoint_base,"cordoned":input.cordoned,"organizationId":input.organization_id});
+    sqlx::query(
+        "INSERT INTO audit_log(actor,action,outcome,target_type,target_id,organization_id,details) VALUES('operator','node.enroll','succeeded','node',$1,$2,$3)",
+    )
+    .bind(input.node_id.to_string())
+    .bind(&input.organization_id)
+    .bind(details)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }

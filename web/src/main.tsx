@@ -81,6 +81,12 @@ function Shell() {
   const session = authClient.useSession()
   const activeOrganization = authClient.useActiveOrganization()
   const isPlatformAdmin = isPlatformAdministrator(session.data?.user.role)
+  const overview = useQuery({
+    queryKey: ['overview', activeOrganization.data?.id],
+    queryFn: () => api<{ summary: { totalNodes: number } }>('/overview'),
+    enabled: !isPlatformAdmin,
+  })
+  const hasOrganizationNodes = (overview.data?.summary.totalNodes ?? 0) > 0
   const path = useRouterState({ select: (s) => s.location.pathname })
   const navClass = (active: boolean) =>
     cn(
@@ -159,14 +165,12 @@ function Shell() {
                 <Layers3 size={17} />
                 <span>Projects</span>
               </Link>
-              <Link to="/hosts" className={navClass(path === '/hosts')}>
-                <Server size={17} />
-                <span>Hosts</span>
-              </Link>
-              <Link to="/nodes" className={navClass(path === '/nodes')}>
-                <Server size={17} />
-                <span>Nodes</span>
-              </Link>
+              {hasOrganizationNodes && (
+                <Link to="/nodes" className={navClass(path === '/nodes')}>
+                  <Server size={17} />
+                  <span>Hardware</span>
+                </Link>
+              )}
               <Link to="/domains" className={navClass(path === '/domains')}>
                 <Globe size={17} />
                 <span>Domains</span>
@@ -190,7 +194,10 @@ function Shell() {
           <span className="environment-tag">
             <span className="status-dot" /> Private platform
           </span>
-          <CommandMenu />
+          <CommandMenu
+            showInfrastructure={Boolean(isPlatformAdmin) || hasOrganizationNodes}
+            platformAdministrator={Boolean(isPlatformAdmin)}
+          />
           <AccountMenu compact />
         </header>
         <main>

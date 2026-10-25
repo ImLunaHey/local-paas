@@ -160,6 +160,42 @@ async fn deployments_spread_deduplicate_and_preserve_active_revision_on_failure(
             .unwrap();
     assert_eq!(generations, vec![2, 2]);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn placements_exclude_nodes_owned_by_another_organization(pool: PgPool) {
+    let (service, revision, nodes) = fixture(&pool).await;
+    sqlx::query("UPDATE nodes SET organization_id='another-organization' WHERE id=$1")
+        .bind(nodes[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE nodes SET organization_id='test-organization' WHERE id=$1")
+        .bind(nodes[1])
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (status, deployment) = call(
+        &pool,
+        &format!("/api/services/{service}/deployments"),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let deployment: Uuid = deployment["id"].as_str().unwrap().parse().unwrap();
+    let assigned: Vec<Uuid> =
+        sqlx::query_scalar("SELECT node_id FROM instances WHERE deployment_id=$1 ORDER BY node_id")
+            .bind(deployment)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(assigned.len(), 2);
+    assert!(!assigned.contains(&nodes[0]));
+    assert!(assigned.contains(&nodes[1]));
+    assert!(assigned.contains(&nodes[2]));
+}
 #[sqlx::test(migrations = "./migrations")]
 #[ignore = "requires disposable PostgreSQL"]
 async fn node_identity_and_generations_fence_observations(pool: PgPool) {

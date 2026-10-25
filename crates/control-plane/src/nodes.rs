@@ -1,7 +1,7 @@
 //! Node maintenance and opt-in, overlap-safe HTTP relocation.
 use crate::ApiError;
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
 };
 use platform_domain::{ServiceSpec, Workload};
@@ -25,9 +25,17 @@ fn blocked(spec: &ServiceSpec, enabled: bool, job: bool) -> Option<&'static str>
         None
     }
 }
-pub async fn list(State(pool): State<PgPool>) -> Result<Json<Value>, ApiError> {
-    let nodes: Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',n.id,'name',n.name,'failureDomain',n.failure_domain,'cordoned',n.cordoned,'draining',n.draining,'lastSeen',n.last_seen,'online',coalesce(n.last_seen>now()-interval '30 seconds',false),'cpuMillis',n.cpu_millis,'memoryMib',n.memory_mib,'slots',n.slots,'reservedDiskGib',(SELECT coalesce(sum(size_gib),0) FROM volumes WHERE node_id=n.id)+(SELECT coalesce(sum(size_gib),0) FROM shared_volumes WHERE node_id=n.id),'capabilities',n.capabilities) FROM nodes n ORDER BY n.name").fetch_all(&pool).await?;
-    let rows=sqlx::query("SELECT i.*,d.service_id,d.spec,d.status AS deployment_status,d.job_options IS NOT NULL AS job,s.name,s.relocation_enabled,n.last_seen,r.state AS relocation_state,r.diagnostic AS relocation_diagnostic FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id JOIN nodes n ON n.id=i.node_id LEFT JOIN relocations r ON r.old_instance=i.id AND r.state<>'cancelled' WHERE i.state<>'stopped' ORDER BY n.name,s.name,i.id").fetch_all(&pool).await?;
+pub async fn list(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
+) -> Result<Json<Value>, ApiError> {
+    let organization = if context.is_superuser {
+        None
+    } else {
+        context.organization_id.as_deref()
+    };
+    let nodes: Vec<DbJson<Value>>=sqlx::query_scalar("SELECT jsonb_build_object('id',n.id,'name',n.name,'failureDomain',n.failure_domain,'cordoned',n.cordoned,'draining',n.draining,'lastSeen',n.last_seen,'online',coalesce(n.last_seen>now()-interval '30 seconds',false),'cpuMillis',n.cpu_millis,'memoryMib',n.memory_mib,'slots',n.slots,'reservedDiskGib',(SELECT coalesce(sum(size_gib),0) FROM volumes WHERE node_id=n.id)+(SELECT coalesce(sum(size_gib),0) FROM shared_volumes WHERE node_id=n.id),'capabilities',n.capabilities) FROM nodes n WHERE $1::text IS NULL OR n.organization_id=$1 ORDER BY n.name").bind(organization).fetch_all(&pool).await?;
+    let rows=sqlx::query("SELECT i.*,d.service_id,d.spec,d.status AS deployment_status,d.job_options IS NOT NULL AS job,s.name,s.relocation_enabled,n.last_seen,r.state AS relocation_state,r.diagnostic AS relocation_diagnostic FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN services s ON s.id=d.service_id JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id JOIN nodes n ON n.id=i.node_id LEFT JOIN relocations r ON r.old_instance=i.id AND r.state<>'cancelled' WHERE ($1::text IS NULL OR (n.organization_id=$1 AND p.organization_id=$1)) AND i.state<>'stopped' ORDER BY n.name,s.name,i.id").bind(organization).fetch_all(&pool).await?;
     let mut instances = Vec::new();
     for r in rows {
         let spec: DbJson<ServiceSpec> = r.get("spec");
@@ -98,20 +106,27 @@ async fn audit(
     action: &str,
     details: Value,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO audit_log(actor,action,outcome,target_type,target_id,details) VALUES('platform', $1,'succeeded','node-maintenance',$2,$3)").bind(action).bind(target.to_string()).bind(DbJson(details)).execute(&mut **tx).await?;
+    sqlx::query("INSERT INTO audit_log(actor,action,outcome,target_type,target_id,organization_id,details) VALUES('platform',$1,'succeeded','node-maintenance',$2,(SELECT organization_id FROM nodes WHERE id=$4),$3)").bind(action).bind(target.to_string()).bind(DbJson(details)).bind(target).execute(&mut **tx).await?;
     Ok(())
 }
 pub async fn action(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
+    Extension(context): Extension<crate::auth::Context>,
     Json(input): Json<Action>,
 ) -> Result<Json<Value>, ApiError> {
     if !["cordon", "uncordon", "drain", "retry"].contains(&input.action.as_str()) {
         return Err(ApiError::Conflict("unknown node action"));
     }
     let mut tx = lock(&pool).await?;
-    if !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM nodes WHERE id=$1)")
+    let organization = if context.is_superuser {
+        None
+    } else {
+        context.organization_id.as_deref()
+    };
+    if !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM nodes WHERE id=$1 AND ($2::text IS NULL OR organization_id=$2))")
         .bind(id)
+        .bind(organization)
         .fetch_one(&mut *tx)
         .await?
     {
@@ -313,4 +328,76 @@ pub(crate) async fn reconcile(tx: &mut Transaction<'_, Postgres>) -> Result<(), 
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::Context;
+    use axum::extract::State;
+
+    fn organization_context() -> Context {
+        Context {
+            actor_id: "organization-admin".into(),
+            user_id: "organization-admin".into(),
+            username: "organization-admin".into(),
+            organization_id: Some("organization-a".into()),
+            is_superuser: false,
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[ignore = "requires disposable PostgreSQL"]
+    async fn organization_admins_only_list_and_manage_owned_nodes(pool: PgPool) {
+        let platform = Uuid::now_v7();
+        let owned = Uuid::now_v7();
+        sqlx::query("INSERT INTO nodes(id,name,token_hash,cpu_millis,memory_mib,slots,endpoint_base) VALUES($1,'platform-node','hash',1000,1400,4,21000),($2,'owned-node','hash',1000,1400,4,21100)")
+            .bind(platform)
+            .bind(owned)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE nodes SET organization_id='organization-a' WHERE id=$1")
+            .bind(owned)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let Json(response) = list(State(pool.clone()), Extension(organization_context()))
+            .await
+            .unwrap();
+        assert_eq!(response["nodes"].as_array().unwrap().len(), 1);
+        assert_eq!(response["nodes"][0]["id"], owned.to_string());
+        assert!(matches!(
+            action(
+                State(pool.clone()),
+                Path(platform),
+                Extension(organization_context()),
+                Json(Action {
+                    operation_id: Uuid::now_v7(),
+                    action: "cordon".into(),
+                }),
+            )
+            .await,
+            Err(ApiError::NotFound)
+        ));
+        let _ = action(
+            State(pool.clone()),
+            Path(owned),
+            Extension(organization_context()),
+            Json(Action {
+                operation_id: Uuid::now_v7(),
+                action: "cordon".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(
+            sqlx::query_scalar::<_, bool>("SELECT cordoned FROM nodes WHERE id=$1")
+                .bind(owned)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        );
+    }
 }

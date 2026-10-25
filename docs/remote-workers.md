@@ -113,6 +113,13 @@ Enrollment is transactional, audited and retry-safe. It refuses conflicting node
 identities, names, capacity or endpoint ranges. A remote node starts **cordoned**.
 Repeating enrollment preserves its subsequent maintenance state.
 
+Prepared nodes are platform-owned by default. To dedicate a node to an
+organization, add its opaque authentication organization ID as
+`organization_id` in the controller copy of `enrollment.json` before enrollment.
+The control plane verifies that the organization exists. Organization-owned
+nodes are visible and manageable only by that organization and can run workloads
+for that organization; platform-owned capacity remains hidden from tenants.
+
 ## Install on the remote host
 
 Use a dedicated operator account with sudo on systemd Linux, cgroup v2 and KVM.

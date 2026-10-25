@@ -21,7 +21,13 @@ interface Action {
   detail?: string
   run: () => void
 }
-export function CommandMenu() {
+export function CommandMenu({
+  showInfrastructure,
+  platformAdministrator,
+}: {
+  showInfrastructure: boolean
+  platformAdministrator: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
@@ -69,7 +75,13 @@ export function CommandMenu() {
     ...(
       [
         ['/', 'Overview', 'home deployments'],
-        ['/hosts', 'Hosts', 'infrastructure stats'],
+        ...(showInfrastructure
+          ? [
+              platformAdministrator
+                ? ['/platform/host', 'Host', 'infrastructure stats']
+                : ['/nodes', 'Hardware', 'organization nodes'],
+            ]
+          : []),
         ['/domains', 'Domains', 'DNS routing'],
         ['/projects', 'Projects', 'workspace home'],
         ['/audit', 'Audit log', 'actions'],

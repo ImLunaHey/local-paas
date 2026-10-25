@@ -85,6 +85,34 @@ async fn retries_collisions_audit_and_revocation(pool: PgPool) {
         1
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn organization_ownership_is_validated_and_part_of_node_identity(pool: PgPool) {
+    sqlx::query("CREATE TABLE organization (id text PRIMARY KEY)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO organization(id) VALUES('organization-a')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut config = input();
+    config.organization_id = Some("missing".into());
+    assert!(enroll(&pool, &config).await.is_err());
+    config.organization_id = Some("organization-a".into());
+    enroll(&pool, &config).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, Option<String>>("SELECT organization_id FROM nodes WHERE id=$1")
+            .bind(config.node_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        Some("organization-a".into())
+    );
+    config.organization_id = None;
+    assert!(enroll(&pool, &config).await.is_err());
+}
 #[sqlx::test(migrations = "./migrations")]
 #[ignore = "requires disposable PostgreSQL"]
 async fn concurrent_enrollment_reserves_ports_once(pool: PgPool) {

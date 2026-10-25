@@ -7,14 +7,47 @@ import { Link } from '@tanstack/react-router'
 import { Activity, ArrowUpRight, Layers3, Server, GitBranch } from 'lucide-react'
 
 import { api } from '../../api-client'
+import { authClient } from '../../auth-client'
 
 export function Overview() {
+  const activeOrganization = authClient.useActiveOrganization()
   const query = useQuery({
-    queryKey: ['overview'],
+    queryKey: ['overview', activeOrganization.data?.id],
     queryFn: () => api<OverviewData>('/overview'),
     refetchInterval: 5000,
   })
   const s = query.data?.summary
+  const hasOrganizationNodes = (s?.totalNodes ?? 0) > 0
+  const metrics = [
+    [
+      'Projects',
+      s?.projects,
+      `${s?.services ?? '—'} services`,
+      <Layers3 key="Layers3" size={17} />,
+    ],
+    [
+      'Healthy instances',
+      s?.readyInstances,
+      'Fresh readiness reports',
+      <Activity key="Activity" size={17} />,
+    ],
+    ...(hasOrganizationNodes
+      ? [
+          [
+            'Owned nodes',
+            `${s?.healthyNodes} / ${s?.totalNodes}`,
+            'Organization-owned hardware',
+            <Server key="Server" size={17} />,
+          ],
+        ]
+      : []),
+    [
+      'Builds in progress',
+      s?.pendingBuilds,
+      `${s?.failedDeployments ?? '—'} failed deployments in 24h`,
+      <GitBranch key="GitBranch" size={17} />,
+    ],
+  ]
   return (
     <>
       <div className="page-heading">
@@ -34,32 +67,7 @@ export function Overview() {
         </p>
       )}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-7">
-        {[
-          [
-            'Projects',
-            s?.projects,
-            `${s?.services ?? '—'} services`,
-            <Layers3 key="Layers3" size={17} />,
-          ],
-          [
-            'Healthy instances',
-            s?.readyInstances,
-            'Fresh readiness reports',
-            <Activity key="Activity" size={17} />,
-          ],
-          [
-            'Workers online',
-            s ? `${s.healthyNodes} / ${s.totalNodes}` : undefined,
-            'One physical failure domain',
-            <Server key="Server" size={17} />,
-          ],
-          [
-            'Builds in progress',
-            s?.pendingBuilds,
-            `${s?.failedDeployments ?? '—'} failed deployments in 24h`,
-            <GitBranch key="GitBranch" size={17} />,
-          ],
-        ].map(([label, value, detail, icon]) => (
+        {metrics.map(([label, value, detail, icon]) => (
           <div className="metric" key={String(label)}>
             <div className="flex justify-between text-xs text-muted">
               {label}
@@ -74,16 +82,18 @@ export function Overview() {
         <RecentList items={query.data?.deployments ?? []} />
         <RecentList builds items={query.data?.builds ?? []} />
       </div>
-      <Link to="/hosts" className="panel mt-6 flex items-center gap-4 p-5 hover:border-zinc-600">
-        <Server size={20} className="text-accent" />
-        <div className="flex-1">
-          <h2>Infrastructure</h2>
-          <p className="mt-1 text-xs text-muted">
-            Controller host resource usage and worker capacity.
-          </p>
-        </div>
-        <ArrowUpRight size={17} />
-      </Link>
+      {hasOrganizationNodes && (
+        <Link to="/nodes" className="panel mt-6 flex items-center gap-4 p-5 hover:border-zinc-600">
+          <Server size={20} className="text-accent" />
+          <div className="flex-1">
+            <h2>Organization hardware</h2>
+            <p className="mt-1 text-xs text-muted">
+              Capacity and maintenance for nodes owned by this organization.
+            </p>
+          </div>
+          <ArrowUpRight size={17} />
+        </Link>
+      )}
     </>
   )
 }

@@ -6,6 +6,7 @@ import { cn } from 'cn'
 import { api } from './api-client'
 import { Button } from './components/button'
 import { Input } from './components/input'
+import { authClient } from './auth-client'
 
 type Node = {
   id: string
@@ -78,9 +79,10 @@ function Capacity({
 }
 export function Nodes() {
   const client = useQueryClient()
+  const activeOrganization = authClient.useActiveOrganization()
   const [filter, setFilter] = useState('')
   const query = useQuery({
-    queryKey: ['nodes'],
+    queryKey: ['nodes', activeOrganization.data?.id],
     queryFn: () => api<{ nodes: Node[]; instances: Instance[] }>('/nodes'),
     refetchInterval: 3000,
   })

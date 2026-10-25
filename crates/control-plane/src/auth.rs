@@ -295,6 +295,18 @@ async fn resource_belongs_to_organization(
         .fetch_one(pool)
         .await;
     }
+    if route.starts_with("/api/nodes/{id}") {
+        let Ok(id) = identifier.parse::<uuid::Uuid>() else {
+            return Ok(false);
+        };
+        return sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id=$1 AND organization_id=$2)",
+        )
+        .bind(id)
+        .bind(organization_id)
+        .fetch_one(pool)
+        .await;
+    }
     if route.starts_with("/api/builds/{id}") {
         let Ok(id) = identifier.parse::<uuid::Uuid>() else {
             return Ok(false);
