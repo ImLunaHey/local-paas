@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 test('choose app, database or storage before showing its scoped form', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/app')
   const project = `creation-${Date.now()}`
   await page.evaluate(async (project) => {
     const response = await fetch('/api/projects', {

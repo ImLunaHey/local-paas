@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 test('worker creation omits HTTP configuration and preserves shared forms', async ({ page }) => {
   const project = `workers-${Date.now()}`
-  await page.goto('/')
+  await page.goto('/app')
   await page.evaluate(async (name) => {
     const r = await fetch('/api/projects', {
       method: 'POST',

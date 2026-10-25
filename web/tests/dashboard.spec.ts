@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { newApp } from './fixtures'
 
 test('overview, command menu and project rename work together', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/app')
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Latest deployments' })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
@@ -16,7 +16,7 @@ test('overview, command menu and project rename work together', async ({ page })
   await expect(page.getByRole('alert')).toHaveCount(0)
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
-  await page.goto('/')
+  await page.goto('/app')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
   await page.screenshot({ path: '../.local/overview-mobile.png', fullPage: true })
   const name = `settings-${Date.now()}`
@@ -45,7 +45,7 @@ test('overview, command menu and project rename work together', async ({ page })
 test('service rows show live trends and green running status', async ({ page }) => {
   const serviceId = process.env.E2E_RUNNING_SERVICE_ID
   test.skip(!serviceId, 'Requires a live application with measurements')
-  await page.goto('/')
+  await page.goto('/app')
   const scope = await page.evaluate(async (id) => {
     const service = await fetch('/api/services/' + id).then((r) => r.json())
     const projects = await fetch('/api/projects').then((r) => r.json())
