@@ -72,7 +72,8 @@ export function Trend({
       maxFocusDistance: Number.POSITIVE_INFINITY,
       tooltip: {
         use: tooltip,
-        className: 'metric-tooltip',
+        className:
+          'metric-tooltip [--ts-chart-tooltip-background:light-dark(#f4f4f5,_#1a1a1e)] [--ts-chart-tooltip-color:light-dark(#27272a,_#eeeef2)] [--ts-chart-tooltip-border:1px_solid_light-dark(#d4d4d8,_#3b3b43)] [--ts-chart-tooltip-border-radius:8px] [--ts-chart-tooltip-padding:10px_12px] [--ts-chart-tooltip-shadow:0_8px_28px_#0008] [--ts-chart-tooltip-font:400_12px/1.65_ui-sans-serif,_system-ui,_sans-serif] [color-scheme:dark]',
         format: (p) =>
           `${showDate ? new Date(p.datum.time).toLocaleString() : new Date(p.datum.time).toLocaleTimeString()}\n${label}: ${p.datum.value == null ? 'Unavailable' : p.datum.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' ' + unit}`,
       },

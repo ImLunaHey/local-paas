@@ -14,7 +14,7 @@ export function JobsPanel({ service }: { service: Service }) {
   const { supported, jobs, revisions, cancel, pause } = useServiceJobs({ service })
   if (!supported)
     return (
-      <section className="panel p-6">
+      <section className="panel p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
         <h2>Jobs</h2>
         <p className="mt-3 text-sm text-muted">
           One-off jobs use an application’s OCI image. Open an app to configure its jobs.
@@ -23,7 +23,10 @@ export function JobsPanel({ service }: { service: Service }) {
     )
   if (jobs.error || revisions.error)
     return (
-      <p role="alert" className="error-notice">
+      <p
+        role="alert"
+        className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+      >
         {(jobs.error ?? revisions.error)?.message}
       </p>
     )
@@ -32,7 +35,7 @@ export function JobsPanel({ service }: { service: Service }) {
   const schedule = jobs.data.schedule
   return (
     <div className="space-y-6">
-      <section className="panel space-y-6 p-5 sm:p-6">
+      <section className="panel space-y-6 p-5 sm:p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
         <div>
           <h2 className="flex items-center gap-2">
             <Terminal size={16} /> Run a job

@@ -7,7 +7,7 @@ import { ArrowUpRight, Box, GitBranch } from 'lucide-react'
 
 export function RecentList({ items, builds = false }: { items: Recent[]; builds?: boolean }) {
   return (
-    <section className="panel overflow-hidden">
+    <section className="panel overflow-hidden [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
       <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
         <h2>{builds ? 'Recent builds' : 'Latest deployments'}</h2>
         <span className="text-xs text-muted">

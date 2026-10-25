@@ -28,7 +28,7 @@ export function StoragePanel({ service }: { service: Service }) {
     save,
   } = useVolumeAttachment({ service })
   return (
-    <section className="panel space-y-5 p-6 mt-6">
+    <section className="panel space-y-5 p-6 mt-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
       <div className="flex items-center gap-3">
         <HardDrive size={20} className="text-accent" />
         <h2>Persistent storage</h2>
@@ -163,7 +163,10 @@ export function StoragePanel({ service }: { service: Service }) {
         </p>
       </details>
       {(volumes.error || save.error || create.error) && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {(volumes.error || save.error || create.error)?.message}
         </p>
       )}

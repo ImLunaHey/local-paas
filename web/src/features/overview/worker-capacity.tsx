@@ -5,7 +5,7 @@ import { Status } from '../../components/status'
 
 export function WorkerCapacity({ query }: { query: UseQueryResult<HostsData, Error> }) {
   return (
-    <section className="panel mt-7 overflow-hidden">
+    <section className="panel mt-7 overflow-hidden [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
       <div className="border-b border-zinc-800 p-5">
         <h2>Worker capacity</h2>
         <p className="mt-2 text-xs text-muted">

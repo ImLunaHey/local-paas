@@ -38,14 +38,14 @@ export function CreationScope({ children }: { children: ReactNode }) {
     return <>{children}</>
   return (
     <>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
           <h1>Add a service</h1>
           <p>Choose where this service will live.</p>
         </div>
       </div>
       <form
-        className="panel max-w-xl space-y-5 p-6"
+        className="panel max-w-xl space-y-5 p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
         onSubmit={(e) => {
           e.preventDefault()
           void navigate({
@@ -87,7 +87,10 @@ export function CreationScope({ children }: { children: ReactNode }) {
           </Select>
         </Field>
         {(projects.error || project.error) && (
-          <p role="alert" className="error-notice">
+          <p
+            role="alert"
+            className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          >
             {(projects.error || project.error)?.message}
           </p>
         )}

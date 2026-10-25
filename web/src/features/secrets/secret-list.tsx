@@ -17,7 +17,10 @@ export function SecretList({
     <div className="space-y-2">
       {[...new Set([...(secrets.data?.names ?? []), ...(secrets.data?.references ?? [])])].map(
         (name) => (
-          <div className="revision-row flex justify-between items-center gap-3" key={name}>
+          <div
+            className="revision-row flex justify-between items-center gap-3 [border:1px_solid_light-dark(#d4d4d8,_#2c2c30)] [border-radius:6px] [padding:14px] [background:light-dark(#f4f4f5,_#19191b)] [&_code]:[color:light-dark(#27272a,_#d5d5dc)]"
+            key={name}
+          >
             <div>
               <code className="text-sm">{name}</code>
               <p className="text-xs text-muted mt-1">

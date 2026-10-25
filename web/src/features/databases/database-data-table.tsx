@@ -50,7 +50,7 @@ export function DataTable({
   )
   const table = useTable({ key: title, features, data, columns })
   return (
-    <section className="panel min-w-0 overflow-hidden">
+    <section className="panel min-w-0 overflow-hidden [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]">
       <h3 className="border-b border-zinc-800 px-5 py-4 text-sm font-medium">{title}</h3>
       <div
         className="max-h-[32rem] overflow-auto"

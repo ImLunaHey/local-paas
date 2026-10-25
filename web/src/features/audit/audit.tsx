@@ -181,14 +181,19 @@ export function AuditLog() {
 
   return (
     <>
-      <div className="page-heading">
+      <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
         <div>
-          <div className="eyebrow">WORKSPACE</div>
+          <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+            WORKSPACE
+          </div>
           <h1>Audit log</h1>
           <p>Configuration changes, deployments and other platform actions.</p>
         </div>
       </div>
-      <section className="panel min-w-0 overflow-hidden" aria-label="Audit log">
+      <section
+        className="panel min-w-0 overflow-hidden [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+        aria-label="Audit log"
+      >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
           <p className="text-xs text-muted" role="status">
             {logs.isFetching ? 'Updating…' : `${data.length} entries loaded`} · newest first
@@ -206,7 +211,10 @@ export function AuditLog() {
           </Button>
         </div>
         {logs.error && (
-          <p role="alert" className="error-notice m-4">
+          <p
+            role="alert"
+            className="error-notice m-4 [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          >
             {logs.error.message}
           </p>
         )}

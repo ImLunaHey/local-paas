@@ -40,7 +40,10 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
         Open an instance’s retained logs, including stopped and replaced instances.
       </p>
       {history.error && (
-        <p role="alert" className="error-notice">
+        <p
+          role="alert"
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+        >
           {history.error.message}
         </p>
       )}
@@ -51,9 +54,16 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
       {history.data?.pages
         .flatMap((p) => p.deployments)
         .map((d) => (
-          <details key={d.id} className="history-deployment" open>
+          <details
+            key={d.id}
+            className="history-deployment [border:1px_solid_light-dark(#e4e4e7,_#29292d)] [border-radius:8px] [overflow:hidden] [&_>_summary]:[display:flex] [&_>_summary]:[flex-wrap:wrap] [&_>_summary]:[align-items:center] [&_>_summary]:[gap:12px] [&_>_summary]:[padding:12px] [&_>_summary]:[cursor:pointer] [&_>_summary]:[background:light-dark(#f4f4f5,_#19191c)] [&_>_summary]:[font-size:12px] [&_time]:[color:light-dark(#52525b,_#9999a4)] [&_time]:[margin-left:auto]"
+            open
+          >
             <summary>
-              <span className="chip" data-state={d.status === 'active' ? 'succeeded' : d.status}>
+              <span
+                className="chip [&[data-state=succeeded]]:[color:#9bd2a8] [&[data-state=succeeded]]:[background:light-dark(#e4e4e7,_#18271d)] [&[data-state=succeeded]]:[border-color:#2d4a35] [&[data-state=failed]]:[color:#ffaaa1] [&[data-state=failed]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=failed]]:[border-color:#4b2a2a] [&[data-state=interrupted]]:[color:#ffaaa1] [&[data-state=interrupted]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=interrupted]]:[border-color:#4b2a2a] [&[data-state=running]]:[color:#ffb282] [&[data-state=running]]:[background:#2c1c12] [&[data-state=running]]:[border-color:#4e3120] [&[data-state=queued]]:[color:#ffb282] [&[data-state=queued]]:[background:#2c1c12] [&[data-state=queued]]:[border-color:#4e3120] [display:inline-flex] [align-items:center] [gap:6px] [border:1px_solid_light-dark(#d4d4d8,_#38383c)] [background:light-dark(#e4e4e7,_#1b1b1e)] [color:light-dark(#27272a,_#c3c3ca)] [font-size:10px] [padding:5px_8px] [border-radius:5px] [white-space:nowrap]"
+                data-state={d.status === 'active' ? 'succeeded' : d.status}
+              >
                 {d.status === 'releasing' ? 'Pre-deploy' : d.status}
               </span>
               <code>{d.id.slice(0, 8)}</code>
@@ -78,7 +88,7 @@ export function DeploymentHistory({ serviceId }: { serviceId: string }) {
                     <span className="text-muted">{i.state}</span>
                   </div>
                   <Link
-                    className="button secondary shrink-0"
+                    className="button secondary shrink-0 [display:inline-flex] [align-items:center] [justify-content:center] [gap:8px] [font-size:11px] [font-weight:600] [line-height:1] [white-space:nowrap] [border:1px_solid_transparent] [border-radius:6px] [padding:12px_15px] [&.primary]:[background:#ff8a4c] [&.primary]:[color:#1b100a] [&.primary]:[border-color:#ff8a4c] [&.primary:hover]:[background:#ffa36c] [&.secondary]:[background:light-dark(#e4e4e7,_#1b1b1e)] [&.secondary]:[border-color:light-dark(#d4d4d8,_#38383c)] [&.secondary]:[color:light-dark(#27272a,_#e7e7eb)] [&.secondary:hover]:[background:light-dark(#e4e4e7,_#1b1b1e)]"
                     to="/services/$serviceId/logs"
                     params={{ serviceId }}
                     search={{ instance: i.id }}

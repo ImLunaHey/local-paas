@@ -45,24 +45,27 @@ export function LogWorkspace({ service, instance }: { service: Service; instance
     if (['level', 'stream', 'instanceId'].includes(key)) setFilters({ ...filters, [key]: value })
   }
   return (
-    <section className="panel p-5 space-y-4" aria-label="Runtime logs">
-      <div className="section-heading">
+    <section
+      className="panel p-5 space-y-4 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+      aria-label="Runtime logs"
+    >
+      <div className="section-heading [display:flex] [justify-content:space-between] [align-items:center] [margin-bottom:15px] [gap:12px] max-[720px]:[&_.tiny-label]:[font-size:8px] max-[720px]:[&_.tiny-label]:[letter-spacing:0.6px]">
         <div>
           <h2>Runtime logs</h2>
         </div>
-        <span className="chip">
+        <span className="chip [&[data-state=succeeded]]:[color:#9bd2a8] [&[data-state=succeeded]]:[background:light-dark(#e4e4e7,_#18271d)] [&[data-state=succeeded]]:[border-color:#2d4a35] [&[data-state=failed]]:[color:#ffaaa1] [&[data-state=failed]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=failed]]:[border-color:#4b2a2a] [&[data-state=interrupted]]:[color:#ffaaa1] [&[data-state=interrupted]]:[background:light-dark(#e4e4e7,_#2a1919)] [&[data-state=interrupted]]:[border-color:#4b2a2a] [&[data-state=running]]:[color:#ffb282] [&[data-state=running]]:[background:#2c1c12] [&[data-state=running]]:[border-color:#4e3120] [&[data-state=queued]]:[color:#ffb282] [&[data-state=queued]]:[background:#2c1c12] [&[data-state=queued]]:[border-color:#4e3120] [display:inline-flex] [align-items:center] [gap:6px] [border:1px_solid_light-dark(#d4d4d8,_#38383c)] [background:light-dark(#e4e4e7,_#1b1b1e)] [color:light-dark(#27272a,_#c3c3ca)] [font-size:10px] [padding:5px_8px] [border-radius:5px] [white-space:nowrap]">
           {storage.data?.available ? 'ClickHouse connected' : 'Archive unavailable'}
         </span>
       </div>
       <form
-        className="log-filters space-y-3"
+        className="log-filters space-y-3 [&_input]:[min-width:0] [&_input]:[width:100%] [&_select]:[min-width:0] [&_select]:[width:100%]"
         onSubmit={(e) => {
           e.preventDefault()
           setFilters({ ...draft })
         }}
       >
-        <div className="log-toolbar">
-          <label className="field log-search">
+        <div className="log-toolbar [display:flex] [gap:8px] [align-items:center] [flex-wrap:wrap] [&_.field]:[margin:0]">
+          <label className="field log-search [display:block] [min-width:0] [&_>_span]:[display:block] [&_>_span]:[color:light-dark(#27272a,_#c3c3ca)] [&_>_span]:[font-size:11px] [&_>_span]:[margin-bottom:8px] [&_>_label]:[display:block] [&_>_label]:[color:light-dark(#27272a,_#c3c3ca)] [&_>_label]:[font-size:11px] [&_>_label]:[margin-bottom:8px] [&_input]:[width:100%] [&_input]:[background:light-dark(#f4f4f5,_#171719)] [&_input]:[border:1px_solid_light-dark(#d4d4d8,_#38383c)] [&_input]:[border-radius:5px] [&_input]:[padding:12px_13px] [&_input]:[font-size:12px] [&_input]:[color:light-dark(#27272a,_#e7e7eb)] [&_input::placeholder]:[color:light-dark(#52525b,_#8d8d95)] [&_small]:[display:block] [&_small]:[font-size:10px] [&_small]:[line-height:1.7] [&_small]:[color:light-dark(#52525b,_#8d8d95)] [&_small]:[margin-top:7px] [flex:1] [min-width:180px]">
             <span className="sr-only">Search logs</span>
             <Input
               aria-label="Search logs"
@@ -72,7 +75,7 @@ export function LogWorkspace({ service, instance }: { service: Service; instance
               maxLength={512}
             />
           </label>
-          <label className="field">
+          <label className="field [display:block] [min-width:0] [&_>_span]:[display:block] [&_>_span]:[color:light-dark(#27272a,_#c3c3ca)] [&_>_span]:[font-size:11px] [&_>_span]:[margin-bottom:8px] [&_>_label]:[display:block] [&_>_label]:[color:light-dark(#27272a,_#c3c3ca)] [&_>_label]:[font-size:11px] [&_>_label]:[margin-bottom:8px] [&_input]:[width:100%] [&_input]:[background:light-dark(#f4f4f5,_#171719)] [&_input]:[border:1px_solid_light-dark(#d4d4d8,_#38383c)] [&_input]:[border-radius:5px] [&_input]:[padding:12px_13px] [&_input]:[font-size:12px] [&_input]:[color:light-dark(#27272a,_#e7e7eb)] [&_input::placeholder]:[color:light-dark(#52525b,_#8d8d95)] [&_small]:[display:block] [&_small]:[font-size:10px] [&_small]:[line-height:1.7] [&_small]:[color:light-dark(#52525b,_#8d8d95)] [&_small]:[margin-top:7px]">
             <span className="sr-only">Level</span>
             <Select
               aria-label="Level"
@@ -85,7 +88,7 @@ export function LogWorkspace({ service, instance }: { service: Service; instance
               ))}
             </Select>
           </label>
-          <label className="field">
+          <label className="field [display:block] [min-width:0] [&_>_span]:[display:block] [&_>_span]:[color:light-dark(#27272a,_#c3c3ca)] [&_>_span]:[font-size:11px] [&_>_span]:[margin-bottom:8px] [&_>_label]:[display:block] [&_>_label]:[color:light-dark(#27272a,_#c3c3ca)] [&_>_label]:[font-size:11px] [&_>_label]:[margin-bottom:8px] [&_input]:[width:100%] [&_input]:[background:light-dark(#f4f4f5,_#171719)] [&_input]:[border:1px_solid_light-dark(#d4d4d8,_#38383c)] [&_input]:[border-radius:5px] [&_input]:[padding:12px_13px] [&_input]:[font-size:12px] [&_input]:[color:light-dark(#27272a,_#e7e7eb)] [&_input::placeholder]:[color:light-dark(#52525b,_#8d8d95)] [&_small]:[display:block] [&_small]:[font-size:10px] [&_small]:[line-height:1.7] [&_small]:[color:light-dark(#52525b,_#8d8d95)] [&_small]:[margin-top:7px]">
             <span className="sr-only">Stream</span>
             <Select
               aria-label="Stream"
@@ -114,7 +117,7 @@ export function LogWorkspace({ service, instance }: { service: Service; instance
             Showing instance <code>{filters.instanceId}</code>
           </div>
         )}
-        <details className="log-advanced">
+        <details className="log-advanced [&_summary]:[cursor:pointer] [&_summary]:[color:var(--color-muted)] [&_summary]:[font-size:12px]">
           <summary>
             More filters
             {[filters.instanceId, filters.field, filters.from, filters.until].filter(Boolean).length
@@ -199,7 +202,7 @@ export function LogWorkspace({ service, instance }: { service: Service; instance
 
       {!runtime.data?.instances.length && (
         <Link
-          className="back-link"
+          className="back-link [display:inline-flex] [gap:7px] [align-items:center] [font-size:11px] [color:light-dark(#52525b,_#a0a0a8)] [margin-bottom:25px] [&:hover]:[color:light-dark(#27272a,_#e7e7eb)]"
           to="/services/$serviceId/builds"
           params={{ serviceId: service.id }}
         >

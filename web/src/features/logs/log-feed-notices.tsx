@@ -7,12 +7,18 @@ export function LogFeedNotices({
   return (
     <>
       {(logs.error || older.error) && (
-        <p className="error-notice" role="alert">
+        <p
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          role="alert"
+        >
           {(logs.error || older.error)?.message}
         </p>
       )}
       {logs.data?.archiveWarning && (
-        <p className="error-notice" role="status">
+        <p
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          role="status"
+        >
           {logs.data.archiveWarning}
         </p>
       )}

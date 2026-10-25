@@ -53,16 +53,18 @@ export function ServiceForm({ service }: { service?: Service }) {
       {!baseline && (
         <>
           <ProjectBackLink project={scope.project} environment={scope.environment} />
-          <div className="page-heading">
+          <div className="page-heading [display:flex] [justify-content:space-between] [align-items:center] [gap:24px] [margin-bottom:30px] [&_p]:[color:light-dark(#52525b,_#a0a0a8)] [&_p]:[font-size:12px] [&_p]:[margin-top:12px] max-[720px]:[align-items:start] max-[720px]:[flex-direction:column] max-[720px]:[gap:20px]">
             <div>
-              <div className="eyebrow">NEW SERVICE</div>
+              <div className="eyebrow [font-size:9px] [letter-spacing:1.7px] [color:light-dark(#52525b,_#8d8d95)] [font-weight:600] [text-transform:uppercase] [margin-bottom:13px]">
+                NEW SERVICE
+              </div>
               <h1>Give your application a home.</h1>
               <p>Start with its source and the resources it will need.</p>
             </div>
           </div>
         </>
       )}
-      <div className="form-layout">
+      <div className="form-layout [display:grid] [grid-template-columns:minmax(0,_1fr)_235px] [gap:32px] max-[1100px]:[grid-template-columns:minmax(0,_1fr)]">
         <form
           key={formVersion}
           onSubmit={submit}

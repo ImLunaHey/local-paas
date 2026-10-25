@@ -29,7 +29,10 @@ export function SourceAutomation({ service }: { service: Service }) {
   const connection = connections.data?.find((item) => item.serviceId === service.id)
 
   return (
-    <section className="panel mb-7 space-y-5 p-6" aria-label="GitHub automation">
+    <section
+      className="panel mb-7 space-y-5 p-6 [background:light-dark(#f4f4f5,_#131315)] [border:1px_solid_light-dark(#e4e4e7,_#28282c)] [border-radius:8px] [box-shadow:0_1px_0_#ffffff04_inset,_0_8px_24px_#0000000d]"
+      aria-label="GitHub automation"
+    >
       <div>
         <h2 className="flex items-center gap-2">
           <Webhook size={17} /> GitHub automation
@@ -42,7 +45,10 @@ export function SourceAutomation({ service }: { service: Service }) {
       {connections.isPending ? (
         <p className="text-xs text-muted">Loading source connections…</p>
       ) : connections.error ? (
-        <p className="error-notice" role="alert">
+        <p
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          role="alert"
+        >
           Source connections are unavailable.
         </p>
       ) : connection ? (
@@ -118,7 +124,10 @@ function ConnectionDetails({ connection }: { connection: SourceConnection }) {
         </div>
       </div>
       {connection.authenticationError && (
-        <p className="error-notice" role="alert">
+        <p
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          role="alert"
+        >
           {connection.authenticationError}
         </p>
       )}
@@ -147,7 +156,10 @@ function ConnectionDetails({ connection }: { connection: SourceConnection }) {
             />
           </Field>
           {rotate.error && (
-            <p className="error-notice" role="alert">
+            <p
+              className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+              role="alert"
+            >
               {rotate.error.message}
             </p>
           )}
@@ -333,7 +345,10 @@ function ConnectionForm({ service }: { service: Service }) {
         ))}
       </fieldset>
       {create.error && (
-        <p className="error-notice" role="alert">
+        <p
+          className="error-notice [border:1px_solid_#4d2b2d] [background:light-dark(#f4f4f5,_#231719)] [border-radius:7px] [padding:18px] [font-size:12px] [color:#ffb4ae] [line-height:1.8] [overflow-wrap:anywhere] [&_p]:[margin-top:5px]"
+          role="alert"
+        >
           {create.error.message}
         </p>
       )}
