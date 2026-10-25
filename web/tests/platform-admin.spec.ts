@@ -27,6 +27,14 @@ test('root receives the installation-wide dashboard', async ({ page }) => {
   await expect(page.getByText('Global role: admin', { exact: true })).toBeVisible()
 
   await page.setViewportSize({ width: 390, height: 844 })
+  const navigationLinks = page
+    .getByRole('navigation', { name: 'Workspace navigation' })
+    .getByRole('link')
+  const firstLinkBox = await navigationLinks.first().boundingBox()
+  const lastLinkBox = await navigationLinks.last().boundingBox()
+  expect(firstLinkBox).not.toBeNull()
+  expect(lastLinkBox).not.toBeNull()
+  expect(lastLinkBox?.y).toBe(firstLinkBox?.y)
   await page.getByRole('link', { name: 'Billing', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Billing', exact: true })).toBeVisible()
   await expect(page.getByText('Billing is not configured', { exact: true })).toBeVisible()

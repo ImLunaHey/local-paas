@@ -96,7 +96,7 @@ function Shell() {
   })
   return (
     <div className="min-h-screen">
-      <aside className="sidebar">
+      <aside className="sidebar max-[720px]:!grid max-[720px]:grid-cols-1 max-[720px]:gap-3">
         <Link to="/" className="brand">
           <span className="brand-mark">
             <Layers3 size={21} />
@@ -123,7 +123,7 @@ function Shell() {
         <div className="nav-label">{isPlatformAdmin ? 'PLATFORM' : 'WORKSPACE'}</div>
         <nav
           aria-label="Workspace navigation"
-          className="flex gap-2 py-2 max-[720px]:flex-1 max-[720px]:flex-nowrap max-[720px]:overflow-x-auto max-[720px]:pb-2 min-[721px]:flex-col"
+          className="flex gap-2 py-2 max-[720px]:w-full max-[720px]:flex-1 max-[720px]:!flex-nowrap max-[720px]:overflow-x-auto max-[720px]:pb-2 min-[721px]:flex-col"
         >
           {isPlatformAdmin ? (
             <>
