@@ -1,6 +1,6 @@
 use crate::ApiError;
 use axum::{
-    Json,
+    Extension, Json,
     body::Bytes,
     extract::{Query, Request, State},
     http::{HeaderMap, header},
@@ -30,6 +30,7 @@ pub struct Scope {
 }
 pub async fn upload(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Query(scope): Query<Scope>,
     headers: HeaderMap,
     body: Bytes,
@@ -41,11 +42,14 @@ pub async fn upload(
     {
         return Err(ApiError::Conflict("upload an application/zip archive"));
     }
-    let project: Uuid = sqlx::query_scalar("SELECT id FROM projects WHERE name=$1")
-        .bind(&scope.project)
-        .fetch_optional(&pool)
-        .await?
-        .ok_or(ApiError::NotFound)?;
+    let organization = crate::auth::required_organization(&context)?;
+    let project: Uuid =
+        sqlx::query_scalar("SELECT id FROM projects WHERE organization_id=$1 AND name=$2")
+            .bind(organization)
+            .bind(&scope.project)
+            .fetch_optional(&pool)
+            .await?
+            .ok_or(ApiError::NotFound)?;
     let size = body.len();
     let data = body.clone();
     let permit = VALIDATORS
@@ -134,9 +138,10 @@ pub async fn upload(
 pub async fn validate_scope(
     tx: &mut Transaction<'_, Postgres>,
     spec: &platform_domain::ServiceSpec,
+    organization_id: &str,
 ) -> Result<(), ApiError> {
     if let Some(digest) = &spec.source.upload {
-        let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM source_uploads u JOIN projects p ON p.id=u.project_id WHERE p.name=$1 AND u.digest=$2)").bind(&spec.project).bind(digest).fetch_one(&mut **tx).await?;
+        let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM source_uploads u JOIN projects p ON p.id=u.project_id WHERE p.organization_id=$1 AND p.name=$2 AND u.digest=$3)").bind(organization_id).bind(&spec.project).bind(digest).fetch_one(&mut **tx).await?;
         if !exists {
             return Err(ApiError::Conflict(
                 "upload this source to the service's project first",

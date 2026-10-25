@@ -71,6 +71,7 @@ A saved platform.env takes precedence over exported variables.
 ```sh
 make setup-check
 make setup-install
+make bootstrap-auth
 ```
 
 The Rust installer checks configuration, host prerequisites and conflicts, builds
@@ -109,9 +110,12 @@ On the host open `http://localhost:5188`. From another computer:
 ssh -N -L 5188:127.0.0.1:5188 operator@your-host
 ```
 
-Then open `http://localhost:5188` locally. The dashboard has no application-level
-login: access to this tunnel grants administrative access. Never publicly expose
-5188 or 8080. All management listeners stay on loopback.
+Then open `http://localhost:5188` locally and sign in with the account created by
+the interactive bootstrap. Sessions and organization permissions are enforced by
+the API, but the service is still intended for private access. Never publicly
+expose 5188 or 8080. All management listeners stay on loopback. See
+[operator authentication](authentication.md) for recovery, secret rotation, trusted
+proxy guidance, and the threat model.
 
 Alternatively, after configuring `public_origin`, use private Tailscale Serve:
 

@@ -218,7 +218,7 @@ fn check(root: &Path, fresh: bool) -> Result<()> {
 }
 fn environment(root: &str, cfg: &Settings) -> String {
     let raw = format!(
-        "DATABASE_URL=postgresql:///local_paas?host={root}/.local/socket&port=55432\nPUBLIC_ORIGIN={}\nPREVIEW_HOST={}\nPREVIEW_PORTS={}\nCLICKHOUSE_URL=http://127.0.0.1:18123\nCLICKHOUSE_PASSWORD_FILE={root}/.local/platform-services/clickhouse.password\nOPENBAO_ADDR=https://127.0.0.1:18200\nOPENBAO_CA_FILE={root}/.local/platform-services/tls/ca.pem\nOPENBAO_TOKEN_FILE={root}/.local/platform-services/controller.token\n",
+        "DATABASE_URL=postgresql:///local_paas?host={root}/.local/socket&port=55432\nBETTER_AUTH_SECRET_FILE={root}/.local/auth.secret\nPUBLIC_ORIGIN={}\nPREVIEW_HOST={}\nPREVIEW_PORTS={}\nCLICKHOUSE_URL=http://127.0.0.1:18123\nCLICKHOUSE_PASSWORD_FILE={root}/.local/platform-services/clickhouse.password\nOPENBAO_ADDR=https://127.0.0.1:18200\nOPENBAO_CA_FILE={root}/.local/platform-services/tls/ca.pem\nOPENBAO_TOKEN_FILE={root}/.local/platform-services/controller.token\n",
         cfg.public_origin,
         cfg.preview_host,
         cfg.preview_ports

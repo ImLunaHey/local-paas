@@ -51,9 +51,12 @@ setup-install:
 unseal:
 	cargo run -p control-plane --bin initialize-openbao -- "$(CURDIR)/.local/platform-services"
 
-.PHONY: migrate api-schema
+.PHONY: migrate bootstrap-auth api-schema
 migrate:
 	cargo run -p control-plane --bin platform-migrate
+
+bootstrap-auth: migrate
+	bash infra/services/bootstrap-auth.sh
 
 api-schema:
 	cargo run -p control-plane --bin export-openapi > docs/api/openapi.json

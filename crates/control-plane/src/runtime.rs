@@ -104,7 +104,13 @@ pub(crate) async fn deploy(
             "database storage size and workload kind cannot change after volume allocation",
         ));
     }
-    crate::volumes::validate_scope(&mut tx, spec).await?;
+    let organization_id: String = sqlx::query_scalar(
+        "SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1",
+    )
+    .bind(service_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    crate::volumes::validate_scope(&mut tx, spec, &organization_id).await?;
     let shared: Option<(Option<Uuid>, i32)> = if let Some(v) = &spec.volume {
         Some(
             sqlx::query_as("SELECT node_id,size_gib FROM shared_volumes WHERE id=$1 FOR UPDATE")

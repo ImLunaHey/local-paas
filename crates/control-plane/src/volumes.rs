@@ -1,6 +1,6 @@
 use crate::ApiError;
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Query, State},
 };
 use serde::Deserialize;
@@ -16,9 +16,10 @@ pub struct Scope {
 }
 pub async fn list(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Query(scope): Query<Scope>,
 ) -> Result<Json<Value>, ApiError> {
-    let items: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',v.id,'name',v.name,'sizeGib',v.size_gib,'node',n.name,'services',coalesce((SELECT jsonb_agg(jsonb_build_object('id',s.id,'name',s.name,'mountPath',s.spec->'volume'->>'mountPath','readOnly',s.spec->'volume'->'readOnly')) FROM services s WHERE s.spec->'volume'->>'id'=v.id::text),'[]'::jsonb)) FROM shared_volumes v JOIN environments e ON e.id=v.environment_id JOIN projects p ON p.id=e.project_id LEFT JOIN nodes n ON n.id=v.node_id WHERE p.name=$1 AND e.name=$2 ORDER BY v.name").bind(scope.project).bind(scope.environment).fetch_all(&pool).await?;
+    let items: Vec<DbJson<Value>> = sqlx::query_scalar("SELECT jsonb_build_object('id',v.id,'name',v.name,'sizeGib',v.size_gib,'node',n.name,'services',coalesce((SELECT jsonb_agg(jsonb_build_object('id',s.id,'name',s.name,'mountPath',s.spec->'volume'->>'mountPath','readOnly',s.spec->'volume'->'readOnly')) FROM services s WHERE s.spec->'volume'->>'id'=v.id::text),'[]'::jsonb)) FROM shared_volumes v JOIN environments e ON e.id=v.environment_id JOIN projects p ON p.id=e.project_id LEFT JOIN nodes n ON n.id=v.node_id WHERE p.organization_id=$1 AND p.name=$2 AND e.name=$3 ORDER BY v.name").bind(crate::auth::required_organization(&context)?).bind(scope.project).bind(scope.environment).fetch_all(&pool).await?;
     Ok(Json(json!({"items":items})))
 }
 #[derive(Deserialize)]
@@ -33,6 +34,7 @@ pub struct Create {
 }
 pub async fn create(
     State(pool): State<PgPool>,
+    Extension(context): Extension<crate::auth::Context>,
     Json(input): Json<Create>,
 ) -> Result<Json<Value>, ApiError> {
     if input.name.is_empty()
@@ -55,7 +57,7 @@ pub async fn create(
         .bind(input.operation_id.to_string())
         .execute(&mut *tx)
         .await?;
-    let env:Uuid=sqlx::query_scalar("SELECT e.id FROM environments e JOIN projects p ON p.id=e.project_id WHERE p.name=$1 AND e.name=$2").bind(&input.project).bind(&input.environment).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
+    let env:Uuid=sqlx::query_scalar("SELECT e.id FROM environments e JOIN projects p ON p.id=e.project_id WHERE p.organization_id=$1 AND p.name=$2 AND e.name=$3").bind(crate::auth::required_organization(&context)?).bind(&input.project).bind(&input.environment).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
     if let Some((id, e, name, size)) = sqlx::query_as::<_, (Uuid, Uuid, String, i32)>(
         "SELECT id,environment_id,name,size_gib FROM shared_volumes WHERE operation_id=$1",
     )
@@ -76,9 +78,10 @@ pub async fn create(
 pub async fn validate_scope(
     tx: &mut Transaction<'_, Postgres>,
     spec: &platform_domain::ServiceSpec,
+    organization_id: &str,
 ) -> Result<(), ApiError> {
     if let Some(volume) = &spec.volume {
-        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM shared_volumes v JOIN environments e ON e.id=v.environment_id JOIN projects p ON p.id=e.project_id WHERE v.id=$1 AND p.name=$2 AND e.name=$3)").bind(volume.id).bind(&spec.project).bind(&spec.environment).fetch_one(&mut **tx).await?;
+        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM shared_volumes v JOIN environments e ON e.id=v.environment_id JOIN projects p ON p.id=e.project_id WHERE v.id=$1 AND p.organization_id=$2 AND p.name=$3 AND e.name=$4)").bind(volume.id).bind(organization_id).bind(&spec.project).bind(&spec.environment).fetch_one(&mut **tx).await?;
         if !valid {
             return Err(ApiError::Conflict(
                 "attach a volume from this project's environment",

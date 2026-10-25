@@ -96,7 +96,13 @@ pub(crate) async fn create(
         spec.source.tag = request.tag;
     }
     spec.validate().map_err(ApiError::Invalid)?;
-    crate::source_uploads::validate_scope(&mut tx, &spec).await?;
+    let organization_id: String = sqlx::query_scalar(
+        "SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1",
+    )
+    .bind(service_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    crate::source_uploads::validate_scope(&mut tx, &spec, &organization_id).await?;
     if !matches!(
         spec.workload,
         Workload::OciService { .. }

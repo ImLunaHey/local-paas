@@ -20,6 +20,10 @@ if [ "${1:-}" = --stop ]; then
 fi
 mkdir -p .local/socket
 chmod 700 .local .local/socket
+if [ ! -f .local/auth.secret ]; then
+  openssl rand -hex 32 > .local/auth.secret
+  chmod 600 .local/auth.secret
+fi
 if [ ! -f .local/postgres/PG_VERSION ]; then
   initdb -D .local/postgres --auth-local=trust --auth-host=reject --no-instructions
 fi

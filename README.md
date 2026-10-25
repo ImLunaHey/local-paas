@@ -60,8 +60,8 @@ Open **http://localhost:5188**. For another machine, forward it over SSH or use
 private HTTPS access as documented. The installed frontend serves built assets
 through Caddy; it does not run the Vite development server.
 
-This is a **private, single-operator alpha**, not a public multi-user PaaS. There
-is no application-level administrator login yet. Keep management listeners on
+This is a **private, multi-operator alpha**, not a public multi-tenant PaaS.
+Operator sessions, organizations, and RBAC do not replace private network access. Keep management listeners on
 loopback and restrict SSH/tailnet access to trusted operators. Three VMs on one
 host are three scheduling nodes, not three physical failure domains.
 
@@ -98,6 +98,7 @@ PostgreSQL 18 and Make/systemd are also needed.
 ```sh
 pnpm install --frozen-lockfile
 make db
+make bootstrap-auth
 make api
 make web
 ```
@@ -106,6 +107,11 @@ These targets supervise background development processes independently of the
 terminal. The API binds `127.0.0.1:8080`; Vite binds `127.0.0.1:5188` and proxies the
 API. Basic API/UI development works without OpenBao, ClickHouse or VMs; unavailable
 infrastructure does not become fake successful builds or deployments.
+
+The interactive bootstrap creates the first local administrator and organization
+operator without echoing or storing plaintext passwords. Authentication, organization,
+team, custom-role, recovery, and threat-model details are in
+[operator authentication](docs/authentication.md).
 
 For foreground processes use `make api-foreground` / `make web-foreground`.
 Checkout-specific operator configuration belongs in ignored `.local/platform.env`

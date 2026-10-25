@@ -21,6 +21,7 @@ async function mockLogs(page: Page, entries: () => Entry[]) {
   // Browser-only fixtures: no services, logs, or other records are written to the API.
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
+    if (url.pathname.startsWith('/api/auth/')) return route.continue()
     let json: unknown = { items: [] }
     if (url.pathname.endsWith('/health')) json = { status: 'ok' }
     if (url.pathname.endsWith(`/services/${id}`))

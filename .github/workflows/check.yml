@@ -19,7 +19,7 @@ jobs:
     name: Rust quality
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: 1.95.0
@@ -38,7 +38,7 @@ jobs:
         os: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: 1.95.0
@@ -77,7 +77,7 @@ jobs:
     env:
       DATABASE_URL: postgres://platform_test:local_test_only@localhost:5432/platform_test
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: 1.95.0
@@ -111,7 +111,7 @@ jobs:
     env:
       DATABASE_URL: postgres://platform_test:local_test_only@localhost:5432/platform_test
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: 1.95.0
@@ -136,7 +136,7 @@ jobs:
     name: Web quality
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir web check
@@ -165,7 +165,7 @@ jobs:
     env:
       DATABASE_URL: postgres://platform_test:local_test_only@localhost:5432/platform_test
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: 1.95.0
@@ -176,6 +176,11 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
+      - name: Prepare ephemeral authentication secret
+        run: |
+          umask 077
+          openssl rand -hex 32 > "$RUNNER_TEMP/better-auth.secret"
+          echo "BETTER_AUTH_SECRET_FILE=$RUNNER_TEMP/better-auth.secret" >> "$GITHUB_ENV"
       - run: cargo build -p control-plane --bins
       - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
         working-directory: web
@@ -195,7 +200,7 @@ jobs:
   audit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
@@ -203,7 +208,10 @@ jobs:
       - run: nix build .#quality-tools --out-link /tmp/quality-tools
       - run: echo /tmp/quality-tools/bin >> "$GITHUB_PATH"
       - run: pnpm install --frozen-lockfile
-      - run: cargo audit
+      # lucid-auth compiles jsonwebtoken's RustCrypto ECDSA backend, but local-paas only
+      # configures username/password auth. Remove this exception once jsonwebtoken moves
+      # from crypto-bigint 0.5 or lucid-auth makes that backend optional.
+      - run: cargo audit --ignore RUSTSEC-2026-0387
       - run: cargo deny check
       - run: pnpm audit --audit-level high
       - run: gitleaks git --redact --no-banner

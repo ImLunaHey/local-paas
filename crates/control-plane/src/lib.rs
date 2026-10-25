@@ -16,6 +16,7 @@ use sqlx::{PgPool, types::Json as DbJson};
 use uuid::Uuid;
 
 mod audit;
+pub mod auth;
 #[cfg(test)]
 mod backup_drills;
 pub mod backups;
@@ -47,7 +48,23 @@ mod volume_files;
 mod volumes;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
-    Router::new()
+    platform_router(pool, browser_origins, None)
+}
+
+pub fn authenticated_router(
+    pool: PgPool,
+    browser_origins: Vec<String>,
+    service: std::sync::Arc<lucid_auth::AuthService>,
+) -> Router {
+    platform_router(pool, browser_origins, Some(service))
+}
+
+fn platform_router(
+    pool: PgPool,
+    browser_origins: Vec<String>,
+    auth_service: Option<std::sync::Arc<lucid_auth::AuthService>>,
+) -> Router {
+    let mut app = Router::new()
         .route("/api/openapi.json", get(openapi::document))
         .route("/api/health", get(health))
         .route(
@@ -213,8 +230,26 @@ pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
         .layer(middleware::from_fn_with_state(
             pool.clone(),
             audit::record_action,
-        ))
-        .layer(middleware::from_fn(http_errors::normalize))
+        ));
+    if let Some(service) = auth_service {
+        app = app.merge(lucid_auth::axum::router(service.clone())).layer(
+            middleware::from_fn_with_state(
+                auth::GuardState {
+                    pool: pool.clone(),
+                    service,
+                },
+                auth::require_operator,
+            ),
+        );
+    } else {
+        app = app.layer(middleware::from_fn(
+            |mut request: Request, next: Next| async move {
+                request.extensions_mut().insert(auth::Context::testing());
+                next.run(request).await
+            },
+        ));
+    }
+    app.layer(middleware::from_fn(http_errors::normalize))
         .with_state(pool)
 }
 
@@ -361,12 +396,14 @@ struct Pagination {
 #[utoipa::path(get, path = "/api/services", params(("offset" = Option<u32>, Query), ("project" = Option<String>, Query), ("environment" = Option<String>, Query)), responses((status = 200, body = openapi::ServiceList)), operation_id = "listServices")]
 async fn list_services(
     State(pool): State<PgPool>,
+    axum::Extension(context): axum::Extension<auth::Context>,
     Query(page): Query<Pagination>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let items = sqlx::query_as!(Service, r#"SELECT id, operation_id, spec AS "spec: _", created_at, version FROM services WHERE ($2::text IS NULL OR spec->>'project'=$2) AND ($3::text IS NULL OR spec->>'environment'=$3) ORDER BY created_at DESC, id DESC LIMIT 50 OFFSET $1"#, i64::from(page.offset), page.project.as_deref(), page.environment.as_deref()).fetch_all(&pool).await?;
-    let total: i64 = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM services WHERE ($1::text IS NULL OR spec->>'project'=$1) AND ($2::text IS NULL OR spec->>'environment'=$2)"#, page.project.as_deref(), page.environment.as_deref())
-        .fetch_one(&pool)
-        .await?;
+    let organization = context.organization_id.as_deref();
+    let items = sqlx::query_as::<_, Service>("SELECT s.id,s.operation_id,s.spec,s.created_at,s.version FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) AND ($2::text IS NULL OR s.spec->>'project'=$2) AND ($3::text IS NULL OR s.spec->>'environment'=$3) ORDER BY s.created_at DESC,s.id DESC LIMIT 50 OFFSET $4")
+        .bind(organization).bind(page.project.as_deref()).bind(page.environment.as_deref()).bind(i64::from(page.offset)).fetch_all(&pool).await?;
+    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE ($1::text IS NULL OR p.organization_id=$1) AND ($2::text IS NULL OR s.spec->>'project'=$2) AND ($3::text IS NULL OR s.spec->>'environment'=$3)")
+        .bind(organization).bind(page.project.as_deref()).bind(page.environment.as_deref()).fetch_one(&pool).await?;
     Ok(Json(json!({"items":items,"total":total})))
 }
 
@@ -411,14 +448,16 @@ async fn list_events(
 #[utoipa::path(post, path = "/api/services", request_body = CreateService, responses((status = 201, body = Service), (status = 422, body = openapi::ErrorResponse)), operation_id = "createService")]
 async fn create_service(
     State(pool): State<PgPool>,
+    axum::Extension(context): axum::Extension<auth::Context>,
     Json(request): Json<CreateService>,
 ) -> Result<(StatusCode, Json<Service>), ApiError> {
     request.spec.validate().map_err(ApiError::Invalid)?;
+    let organization = auth::required_organization(&context)?;
     let mut tx = pool.begin().await?;
     domains::lock(&mut tx).await?;
-    volumes::validate_scope(&mut tx, &request.spec).await?;
+    volumes::validate_scope(&mut tx, &request.spec, organization).await?;
     discovery::validate(&mut tx, &request.spec).await?;
-    source_uploads::validate_scope(&mut tx, &request.spec).await?;
+    source_uploads::validate_scope(&mut tx, &request.spec, organization).await?;
     // Concurrent retries of the same operation must observe the first commit.
     // A hash collision only serializes two otherwise unrelated registrations.
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
@@ -445,8 +484,8 @@ async fn create_service(
         tx.commit().await?;
         return Ok((StatusCode::OK, Json(existing)));
     }
-    let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, name) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
-        .bind(Uuid::now_v7()).bind(&request.spec.project).fetch_one(&mut *tx).await?;
+    let project_id: Uuid = sqlx::query_scalar("INSERT INTO projects (id, organization_id, name) VALUES ($1, $2, $3) ON CONFLICT (organization_id,name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
+        .bind(Uuid::now_v7()).bind(organization).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
         .bind(Uuid::now_v7()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
     let service = sqlx::query_as::<_, Service>("INSERT INTO services (id, environment_id, name, kind, operation_id, spec, registered_spec) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, operation_id, spec, created_at, version")

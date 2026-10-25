@@ -40,9 +40,10 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
 - API remains a development service on loopback: no CORS, checked browser
   Origins and loopback Host, JSON-only writes. For private tailnet access, Tailscale Serve terminates HTTPS on port 5188 and forwards to loopback Vite,
   which proxies the API. An explicit PUBLIC_ORIGIN permits that hostname/origin
-  alongside localhost. No public Funnel endpoint. Tailnet rules provide the
-  current network access boundary; application-level administrator authentication
-  remains a release gate. Serve's existing port 443 routes are preserved.
+  alongside localhost. No public Funnel endpoint. Lucid-auth provides closed
+  registration, revocable operator sessions, organizations, teams, and custom RBAC;
+  the official Better Auth React client owns browser session state. Tailnet rules
+  remain an independent network boundary. Serve's existing port 443 routes are preserved.
 
 ## Infrastructure decisions and remaining proposals
 
