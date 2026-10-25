@@ -42,7 +42,8 @@ chmod 600 "$E2E_AUTH_PASSWORD_FILE"
 {
   sed -n '1p' "$E2E_AUTH_PASSWORD_FILE"
   sed -n '1p' "$E2E_AUTH_PASSWORD_FILE"
-} | ./target/debug/platform-auth-bootstrap
+} | LOCAL_PAAS_ROOT_USERNAME=root LOCAL_PAAS_ADMIN_USERNAME=admin \
+  ./target/debug/platform-auth-bootstrap
 ./target/debug/control-plane > "$root/api.log" 2>&1 &
 api_pid=$!
 for i in $(seq 1 100); do
