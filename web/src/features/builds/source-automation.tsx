@@ -6,6 +6,7 @@ import {
   useCreate as useCreateSourceConnection,
   useDeliveries,
   useList as useSourceConnections,
+  useRotateGithubKey,
 } from '../../generated/management'
 import type { Service } from '../../generated/model/service'
 import type { SourceConnection } from '../../generated/model/sourceConnection'
@@ -14,6 +15,7 @@ import { Button } from '../../components/button'
 import { Field } from '../../components/field'
 import { Input } from '../../components/input'
 import { Status } from '../../components/status'
+import { Textarea } from '../../components/textarea'
 
 const policies = [
   ['push', 'Branch pushes'],
@@ -51,8 +53,18 @@ export function SourceAutomation({ service }: { service: Service }) {
 }
 
 function ConnectionDetails({ connection }: { connection: SourceConnection }) {
+  const client = useQueryClient()
   const [copied, setCopied] = useState(false)
+  const [replacementKey, setReplacementKey] = useState('')
   const deliveries = useDeliveries(connection.id, { query: { refetchInterval: 10_000 } })
+  const rotate = useRotateGithubKey<ApiRequestError>({
+    mutation: {
+      onSuccess: async () => {
+        setReplacementKey('')
+        await client.invalidateQueries({ queryKey: getListQueryKey() })
+      },
+    },
+  })
   const webhookPath = `/api/webhooks/github/${connection.id}`
   const copyPath = async () => {
     await navigator.clipboard.writeText(webhookPath)
@@ -60,7 +72,7 @@ function ConnectionDetails({ connection }: { connection: SourceConnection }) {
   }
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 rounded-lg border border-zinc-800 bg-zinc-950/30 p-4 md:grid-cols-2">
+      <div className="grid gap-4 rounded-lg border border-zinc-800 bg-zinc-950/30 p-4 md:grid-cols-3">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-muted">Repository</div>
           <div className="mt-2 flex items-center gap-2 text-xs">
@@ -81,7 +93,69 @@ function ConnectionDetails({ connection }: { connection: SourceConnection }) {
             </Button>
           </div>
         </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-muted">Repository access</div>
+          <div className="mt-2">
+            <Status
+              value={
+                connection.githubAppId
+                  ? connection.authenticationStatus === 'active'
+                    ? 'authenticated'
+                    : connection.authenticationStatus
+                  : 'public'
+              }
+              tone={
+                connection.authenticationStatus === 'error'
+                  ? 'error'
+                  : connection.authenticationStatus === 'active'
+                    ? 'healthy'
+                    : 'neutral'
+              }
+            />
+          </div>
+        </div>
       </div>
+      {connection.authenticationError && (
+        <p className="error-notice" role="alert">
+          {connection.authenticationError}
+        </p>
+      )}
+      {connection.githubAppId && (
+        <form
+          className="grid gap-3 rounded-lg border border-zinc-800 p-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            rotate.mutate({
+              id: connection.id,
+              data: { githubPrivateKey: replacementKey },
+            })
+          }}
+        >
+          <Field
+            label="Rotate GitHub App private key"
+            hint={`App ${connection.githubAppId}; installation ${connection.githubInstallationId}. The old key is replaced in OpenBao and is never returned.`}
+          >
+            <Textarea
+              value={replacementKey}
+              onChange={(event) => setReplacementKey(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              minLength={512}
+              required
+            />
+          </Field>
+          {rotate.error && (
+            <p className="error-notice" role="alert">
+              {rotate.error.message}
+            </p>
+          )}
+          <div>
+            <Button variant="secondary" type="submit" disabled={rotate.isPending}>
+              {rotate.isPending ? 'Rotating…' : 'Rotate private key'}
+            </Button>
+          </div>
+        </form>
+      )}
       <div>
         <h3 className="text-xs font-medium text-zinc-200">Recent deliveries</h3>
         {deliveries.isPending ? (
@@ -134,10 +208,13 @@ function ConnectionForm({ service }: { service: Service }) {
   const client = useQueryClient()
   const [secret, setSecret] = useState('')
   const [events, setEvents] = useState<string[]>(['push'])
+  const [privateRepository, setPrivateRepository] = useState(false)
+  const [privateKey, setPrivateKey] = useState('')
   const create = useCreateSourceConnection<ApiRequestError>({
     mutation: {
       onSuccess: async () => {
         setSecret('')
+        setPrivateKey('')
         await client.invalidateQueries({ queryKey: getListQueryKey() })
       },
     },
@@ -146,8 +223,20 @@ function ConnectionForm({ service }: { service: Service }) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     const repository = String(data.get('repository') ?? '')
+    const githubAppId = privateRepository ? Number(data.get('githubAppId')) : undefined
+    const githubInstallationId = privateRepository
+      ? Number(data.get('githubInstallationId'))
+      : undefined
     create.mutate({
-      data: { serviceId: service.id, repository, webhookSecret: secret, events },
+      data: {
+        serviceId: service.id,
+        repository,
+        webhookSecret: secret,
+        events,
+        githubAppId,
+        githubInstallationId,
+        githubPrivateKey: privateRepository ? privateKey : undefined,
+      },
     })
   }
   const toggleEvent = (name: string, checked: boolean) => {
@@ -191,6 +280,42 @@ function ConnectionForm({ service }: { service: Service }) {
           Generate
         </Button>
       </div>
+      <label className="flex min-h-9 items-center gap-3 text-xs text-zinc-300">
+        <Input
+          type="checkbox"
+          checked={privateRepository}
+          onChange={(event) => setPrivateRepository(event.target.checked)}
+        />
+        Authenticate a private repository with a GitHub App
+      </label>
+      {privateRepository && (
+        <div className="grid gap-5 rounded-lg border border-zinc-800 p-4 sm:grid-cols-2">
+          <Field label="GitHub App ID" hint="The numeric App ID, not a client secret.">
+            <Input name="githubAppId" type="number" min="1" step="1" required />
+          </Field>
+          <Field
+            label="Installation ID"
+            hint="The installation that has read access to this repository."
+          >
+            <Input name="githubInstallationId" type="number" min="1" step="1" required />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field
+              label="GitHub App private key"
+              hint="PEM key material is sent once to OpenBao. It is never returned or stored in PostgreSQL."
+            >
+              <Textarea
+                value={privateKey}
+                onChange={(event) => setPrivateKey(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                minLength={512}
+                required
+              />
+            </Field>
+          </div>
+        </div>
+      )}
       <fieldset className="space-y-3">
         <legend className="text-xs text-zinc-300">Build events</legend>
         {policies.map(([name, label]) => (

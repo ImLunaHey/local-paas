@@ -36,6 +36,7 @@ pub struct Build {
     pub logs_truncated: bool,
     pub resolved_commit: Option<String>,
     pub build_plan: Option<DbJson<platform_build_runner::BuildPlan>>,
+    pub source_connection_id: Option<Uuid>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -59,6 +60,7 @@ pub(crate) async fn enqueue_pinned(
     service_id: Uuid,
     operation_id: Uuid,
     commit: &str,
+    source_connection_id: Uuid,
 ) -> Result<Build, ApiError> {
     if !commit_hash(commit) {
         return Err(ApiError::Conflict(
@@ -108,7 +110,7 @@ pub(crate) async fn enqueue_pinned(
     crate::source_uploads::validate_scope(tx, &spec, &organization_id).await?;
     let request_json = json!({"source":"github-webhook","commit":commit});
     let build = sqlx::query_as::<_, Build>(
-        "INSERT INTO builds (id,service_id,operation_id,spec,no_cache,resolved_commit,request_json) VALUES($1,$2,$3,$4,false,$5,$6) RETURNING *",
+        "INSERT INTO builds (id,service_id,operation_id,spec,no_cache,resolved_commit,request_json,source_connection_id) VALUES($1,$2,$3,$4,false,$5,$6,$7) RETURNING *",
     )
     .bind(Uuid::now_v7())
     .bind(service_id)
@@ -116,6 +118,7 @@ pub(crate) async fn enqueue_pinned(
     .bind(DbJson(spec))
     .bind(commit)
     .bind(request_json)
+    .bind(source_connection_id)
     .fetch_one(&mut **tx)
     .await?;
     event(tx, &build, "build.queued").await?;
@@ -194,8 +197,13 @@ pub(crate) async fn create(
         ));
     }
     let commit = spec.source.commit.clone();
-    let build = sqlx::query_as::<_, Build>("INSERT INTO builds (id, service_id, operation_id, spec, no_cache, resolved_commit, request_json) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *")
-        .bind(Uuid::now_v7()).bind(service_id).bind(request.operation_id).bind(DbJson(spec)).bind(request.no_cache).bind(commit).bind(request_json)
+    let source_connection_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM source_connections WHERE service_id=$1 AND enabled")
+            .bind(service_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let build = sqlx::query_as::<_, Build>("INSERT INTO builds (id, service_id, operation_id, spec, no_cache, resolved_commit, request_json, source_connection_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *")
+        .bind(Uuid::now_v7()).bind(service_id).bind(request.operation_id).bind(DbJson(spec)).bind(request.no_cache).bind(commit).bind(request_json).bind(source_connection_id)
         .fetch_one(&mut *tx).await?;
     event(&mut tx, &build, "build.queued").await?;
     tx.commit().await?;

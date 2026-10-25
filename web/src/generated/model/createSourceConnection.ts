@@ -9,6 +9,21 @@
 export interface CreateSourceConnection {
   /** Any combination of `push`, `tag`, and `pull_request`. */
   events: string[]
+  /**
+   * GitHub App ID. Supply all three GitHub App fields for private access.
+   * @nullable
+   */
+  githubAppId?: number | null
+  /**
+   * Repository installation ID for this app.
+   * @nullable
+   */
+  githubInstallationId?: number | null
+  /**
+   * PEM-encoded GitHub App private key. Stored only in OpenBao.
+   * @nullable
+   */
+  githubPrivateKey?: string | null
   /** GitHub `owner/repository` identity or its credential-free HTTPS URL. */
   repository: string
   serviceId: string

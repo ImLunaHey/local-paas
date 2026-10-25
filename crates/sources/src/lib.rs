@@ -97,6 +97,7 @@ fn safe_name(name: &str) -> Result<&str, Error> {
     }
     if p.split('/').any(|c| {
         c == ".git"
+            || c == ".gitmodules"
             || c == "node_modules"
             || c == ".env"
             || c.starts_with(".env.")
@@ -112,6 +113,23 @@ fn safe_name(name: &str) -> Result<&str, Error> {
     Ok(p)
 }
 pub fn inspect(bytes: &[u8], destination: Option<&Path>) -> Result<Summary, Error> {
+    inspect_archive(bytes, destination, false)
+}
+
+/// Inspect a provider-generated ZIP whose entries live below one synthetic root.
+/// The root is removed while every normal upload invariant remains enforced.
+pub fn inspect_repository_archive(
+    bytes: &[u8],
+    destination: Option<&Path>,
+) -> Result<Summary, Error> {
+    inspect_archive(bytes, destination, true)
+}
+
+fn inspect_archive(
+    bytes: &[u8],
+    destination: Option<&Path>,
+    strip_root: bool,
+) -> Result<Summary, Error> {
     let began = Instant::now();
     let (declared, directory_start) = preflight(bytes)?;
     let mut archive =
@@ -148,6 +166,7 @@ pub fn inspect(bytes: &[u8], destination: Option<&Path>) -> Result<Summary, Erro
     let mut directories = HashSet::new();
     let mut expanded = 0u64;
     let mut files = 0;
+    let mut archive_root: Option<String> = None;
     for i in 0..archive.len() {
         if began.elapsed() > Duration::from_secs(5) {
             return Err(Error("ZIP inspection exceeded five seconds"));
@@ -159,7 +178,26 @@ pub fn inspect(bytes: &[u8], destination: Option<&Path>) -> Result<Summary, Erro
             .name()
             .map_err(|_| Error("invalid ZIP filename encoding"))?
             .into_owned();
-        let name = safe_name(&name)?.to_string();
+        let name = safe_name(&name)?;
+        let name = if strip_root {
+            let mut parts = name.splitn(2, '/');
+            let root = parts.next().ok_or(Error("repository ZIP has no root"))?;
+            if archive_root
+                .as_deref()
+                .is_some_and(|expected| expected != root)
+            {
+                return Err(Error("repository ZIP has multiple roots"));
+            }
+            archive_root.get_or_insert_with(|| root.to_owned());
+            match parts.next() {
+                Some(name) => name.to_owned(),
+                None if entry.is_dir() => continue,
+                None => return Err(Error("repository ZIP file is outside its root")),
+            }
+        } else {
+            name.to_owned()
+        };
+        safe_name(&name)?;
         if !names.insert(name.clone()) {
             return Err(Error("duplicate ZIP paths are forbidden"));
         }
@@ -294,6 +332,7 @@ mod tests {
             "folder/../../escape",
             ".env",
             "a/.git/config",
+            "a/.gitmodules",
             "a/node_modules/pkg/index.js",
         ] {
             assert!(inspect(&zip(&[(name, b"x")]), None).is_err(), "{name}");
@@ -332,5 +371,35 @@ mod tests {
             std::fs::read(dir.path().join("src/main.rs")).unwrap(),
             b"fn main() {}"
         );
+    }
+
+    #[test]
+    fn repository_archives_strip_one_root_and_keep_safety_checks() {
+        let bytes = zip(&[("owner-repo-a1b2/src/main.rs", b"fn main() {}")]);
+        let destination = tempfile::tempdir().unwrap();
+        let summary = inspect_repository_archive(&bytes, Some(destination.path())).unwrap();
+        assert_eq!(summary.files, 1);
+        assert!(destination.path().join("src/main.rs").is_file());
+        assert!(!destination.path().join("owner-repo-a1b2").exists());
+
+        for entries in [
+            vec![("root/../escape", b"x".as_slice())],
+            vec![
+                ("root/link", b"x".as_slice()),
+                ("other/file", b"x".as_slice()),
+            ],
+        ] {
+            assert!(inspect_repository_archive(&zip(&entries), None).is_err());
+        }
+
+        let mut links = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        links
+            .add_symlink(
+                "root/escape",
+                "../../etc/passwd",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        assert!(inspect_repository_archive(&links.finish().unwrap().into_inner(), None).is_err());
     }
 }

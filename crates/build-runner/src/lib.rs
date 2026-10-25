@@ -4,6 +4,8 @@
 use platform_domain::{ImageDigest, ServiceSpec, Workload};
 use std::{
     env,
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -17,7 +19,10 @@ use uuid::Uuid;
 mod detect;
 pub use detect::{BuildPlan, plan};
 mod refs;
-pub use refs::resolve_commit;
+pub use refs::{resolve_commit, resolve_commit_authenticated};
+mod repository_archive;
+pub use repository_archive::verified_github_context;
+use zeroize::Zeroize;
 
 #[derive(Clone)]
 pub struct Config {
@@ -61,6 +66,12 @@ pub enum Error {
     ReferenceLookup,
     #[error("the requested branch or tag does not exist")]
     ReferenceMissing,
+    #[error("source provider credentials were rejected or revoked")]
+    SourceAuthentication,
+    #[error("source provider credential exchange is unavailable")]
+    SourceAuthenticationUnavailable,
+    #[error("repository archive failed bounded safety validation")]
+    SourceArchive,
     #[error("build lost its claim before source resolution was recorded")]
     Lease,
 }
@@ -79,6 +90,9 @@ impl Error {
             Self::Metadata => "invalid_image_metadata",
             Self::ReferenceLookup => "source_resolution_failed",
             Self::ReferenceMissing => "source_ref_not_found",
+            Self::SourceAuthentication => "source_authentication_failed",
+            Self::SourceAuthenticationUnavailable => "source_authentication_unavailable",
+            Self::SourceArchive => "source_archive_rejected",
             Self::Lease => "worker_lease_lost",
         }
     }
@@ -320,6 +334,33 @@ pub struct Request {
     pub spec: ServiceSpec,
     pub no_cache: bool,
     pub local_context: Option<PathBuf>,
+    /// Validated source used only for host-side build-plan inspection. BuildKit
+    /// still fetches the immutable remote context inside its isolated VM.
+    pub inspection_context: Option<PathBuf>,
+    pub git_auth_token: Option<GitAuthToken>,
+}
+
+/// Short-lived provider token. It is deliberately non-Debug and zeroized when
+/// the request is dropped; callers can only construct a bounded opaque value.
+pub struct GitAuthToken(String);
+
+impl GitAuthToken {
+    pub fn new(value: String) -> Result<Self, Error> {
+        if value.is_empty() || value.len() > 4096 || value.contains(['\0', '\n', '\r']) {
+            return Err(Error::SourceAuthentication);
+        }
+        Ok(Self(value))
+    }
+
+    pub(crate) fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for GitAuthToken {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
 }
 
 pub async fn uploaded_context(digest: &str) -> Result<tempfile::TempDir, Error> {
@@ -359,6 +400,22 @@ pub async fn run(
     let temp = tempfile::tempdir_in("/dev/shm").map_err(|_| Error::Client)?;
     let metadata = temp.path().join("metadata.json");
     let mut args = config.arguments(&request, &metadata)?;
+    if let Some(token) = &request.git_auth_token {
+        let path = temp.path().join("git-auth-token");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|_| Error::Client)?;
+        file.write_all(token.expose().as_bytes())
+            .map_err(|_| Error::Client)?;
+        file.sync_all().map_err(|_| Error::Client)?;
+        args.extend([
+            "--secret".into(),
+            format!("id=GIT_AUTH_TOKEN,src={}", path.display()),
+        ]);
+    }
     prepare_recipe(plan, temp.path(), &mut args).await?;
     if request.spec.workload.is_managed() {
         // A database template has no repository: send only an empty build context.
@@ -552,6 +609,8 @@ mod tests {
             spec: serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap(),
             no_cache: true,
             local_context: None,
+            inspection_context: None,
+            git_auth_token: None,
         }
     }
     #[test]
