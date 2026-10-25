@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { cn } from 'cn'
 import { Layers3, LogOut } from 'lucide-react'
-import { authClient } from './auth-client'
+import { authClient, isPlatformAdministrator } from './auth-client'
 import { Button } from './components/button'
 import { Field } from './components/field'
 import { Input } from './components/input'
@@ -11,20 +11,34 @@ export function AuthShell({ children }: { children: ReactNode }) {
   const organizations = authClient.useListOrganizations()
   const activeOrganization = authClient.useActiveOrganization()
   const [activationError, setActivationError] = useState('')
+  const isPlatformAdmin = isPlatformAdministrator(session.data?.user.role)
 
   useEffect(() => {
     const organization = organizations.data?.[0]
-    if (!session.data || activeOrganization.isPending || activeOrganization.data || !organization)
+    if (
+      !session.data ||
+      isPlatformAdmin ||
+      activeOrganization.isPending ||
+      activeOrganization.data ||
+      !organization
+    )
       return
     void authClient.organization
       .setActive({ organizationId: organization.id })
       .then(({ error }) => {
         if (error) setActivationError(error.message || 'Could not select the organization')
       })
-  }, [activeOrganization.data, activeOrganization.isPending, organizations.data, session.data])
+  }, [
+    activeOrganization.data,
+    activeOrganization.isPending,
+    isPlatformAdmin,
+    organizations.data,
+    session.data,
+  ])
 
   if (session.isPending) return <CenteredMessage>Checking your session…</CenteredMessage>
   if (!session.data) return <Login />
+  if (isPlatformAdmin) return children
   if (organizations.isPending || activeOrganization.isPending)
     return <CenteredMessage>Loading your organization…</CenteredMessage>
   if (activationError) return <CenteredMessage>{activationError}</CenteredMessage>
@@ -118,6 +132,7 @@ function CenteredMessage({ children }: { children: ReactNode }) {
 export function AccountMenu({ compact = false }: { compact?: boolean }) {
   const session = authClient.useSession()
   const activeOrganization = authClient.useActiveOrganization()
+  const isPlatformAdmin = isPlatformAdministrator(session.data?.user.role)
   return (
     <div
       className={cn({
@@ -127,7 +142,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
     >
       {!compact && (
         <span className="text-[9px] font-semibold tracking-[1.1px] text-muted">
-          {activeOrganization.data?.name || 'ORGANIZATION'}
+          {isPlatformAdmin ? 'PLATFORM ADMIN' : activeOrganization.data?.name || 'ORGANIZATION'}
         </span>
       )}
       <span

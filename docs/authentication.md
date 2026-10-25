@@ -11,7 +11,7 @@ make db
 make bootstrap-auth
 ```
 
-The command accepts only a local PostgreSQL connection, reads two passwords without terminal echo, creates or updates `root`, creates the `imlunahey` organization and user, and assigns that user the `operator` organization role. It is idempotent and can be rerun to recover or rotate those two password credentials. It does not ship a default credential. Existing unscoped local projects and domains are adopted by that organization during the first bootstrap.
+The command accepts only a local PostgreSQL connection, reads two passwords without terminal echo, creates or updates `root`, creates the `imlunahey` organization and user, and assigns that user the `admin` organization role. It is idempotent and can be rerun to recover or rotate those two password credentials. It does not ship a default credential. Existing unscoped local projects and domains are adopted by that organization during the first bootstrap.
 
 The authentication signing secret is generated with mode `0600` at `.local/auth.secret`; installed services receive only its path. Back it up separately from the database. Replacing it and restarting the API invalidates signed browser state. After a suspected operator or session compromise, rotate the secret, rerun bootstrap from the trusted host, and review the audit log before restoring access.
 

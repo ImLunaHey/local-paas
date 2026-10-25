@@ -48,7 +48,19 @@ import {
   useSearch,
   useRouterState,
 } from '@tanstack/react-router'
-import { AlertCircle, Box, Globe, Check, Circle, Layers3, Server, ShieldCheck } from 'lucide-react'
+import {
+  AlertCircle,
+  Box,
+  Building2,
+  Check,
+  Circle,
+  CreditCard,
+  Globe,
+  Layers3,
+  Server,
+  ShieldCheck,
+  Users,
+} from 'lucide-react'
 import { api } from './api-client'
 import { serviceQuery } from './api'
 import type { Event as AuditEvent } from './generated/model/event'
@@ -59,13 +71,16 @@ import { BuildPanel } from './features/builds/builds'
 import { DeploymentPanel } from './features/deployments/runtime'
 import { useRuntime, runtimeLabel } from './runtime-query'
 import { AccountMenu, AuthShell } from './auth-shell'
-import { authClient } from './auth-client'
+import { authClient, isPlatformAdministrator } from './auth-client'
 import { OrganizationSettings } from './organization'
+import { PlatformAdmin } from './platform-admin'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } })
 
 function Shell() {
+  const session = authClient.useSession()
   const activeOrganization = authClient.useActiveOrganization()
+  const isPlatformAdmin = isPlatformAdministrator(session.data?.user.role)
   const path = useRouterState({ select: (s) => s.location.pathname })
   const navClass = (active: boolean) =>
     cn(
@@ -91,48 +106,82 @@ function Shell() {
           </span>
         </Link>
         <div className="workspace">
-          <div className="workspace-icon">L</div>
+          <div className="workspace-icon">{isPlatformAdmin ? 'P' : 'L'}</div>
           <div>
-            <strong>{activeOrganization.data?.name || 'Organization'}</strong>
-            <span>{activeOrganization.data?.slug || 'Local development'}</span>
+            <strong>
+              {isPlatformAdmin
+                ? 'Platform administration'
+                : activeOrganization.data?.name || 'Organization'}
+            </strong>
+            <span>
+              {isPlatformAdmin
+                ? 'All organizations'
+                : activeOrganization.data?.slug || 'Local development'}
+            </span>
           </div>
         </div>
-        <div className="nav-label">WORKSPACE</div>
+        <div className="nav-label">{isPlatformAdmin ? 'PLATFORM' : 'WORKSPACE'}</div>
         <nav
           aria-label="Workspace navigation"
           className="flex gap-2 py-2 max-[720px]:flex-1 max-[720px]:flex-nowrap max-[720px]:overflow-x-auto max-[720px]:pb-2 min-[721px]:flex-col"
         >
-          <Link to="/" className={navClass(path === '/')}>
-            <Box size={17} />
-            <span>Overview</span>
-          </Link>
-          <Link
-            to="/projects"
-            className={navClass(path.startsWith('/projects') || path.startsWith('/services'))}
-          >
-            <Layers3 size={17} />
-            <span>Projects</span>
-          </Link>
-          <Link to="/hosts" className={navClass(path === '/hosts')}>
-            <Server size={17} />
-            <span>Hosts</span>
-          </Link>
-          <Link to="/nodes" className={navClass(path === '/nodes')}>
-            <Server size={17} />
-            <span>Nodes</span>
-          </Link>
-          <Link to="/domains" className={navClass(path === '/domains')}>
-            <Globe size={17} />
-            <span>Domains</span>
-          </Link>
-          <Link to="/audit" className={navClass(path === '/audit')}>
-            <ShieldCheck size={17} />
-            <span>Audit log</span>
-          </Link>
-          <Link to="/organization" className={navClass(path === '/organization')}>
-            <ShieldCheck size={17} />
-            <span>Organization</span>
-          </Link>
+          {isPlatformAdmin ? (
+            <>
+              <Link to="/" className={navClass(path === '/')}>
+                <Box size={17} />
+                <span>Overview</span>
+              </Link>
+              <Link
+                to="/platform/organizations"
+                className={navClass(path === '/platform/organizations')}
+              >
+                <Building2 size={17} />
+                <span>Organizations</span>
+              </Link>
+              <Link to="/platform/users" className={navClass(path === '/platform/users')}>
+                <Users size={17} />
+                <span>Users</span>
+              </Link>
+              <Link to="/platform/billing" className={navClass(path === '/platform/billing')}>
+                <CreditCard size={17} />
+                <span>Billing</span>
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link to="/" className={navClass(path === '/')}>
+                <Box size={17} />
+                <span>Overview</span>
+              </Link>
+              <Link
+                to="/projects"
+                className={navClass(path.startsWith('/projects') || path.startsWith('/services'))}
+              >
+                <Layers3 size={17} />
+                <span>Projects</span>
+              </Link>
+              <Link to="/hosts" className={navClass(path === '/hosts')}>
+                <Server size={17} />
+                <span>Hosts</span>
+              </Link>
+              <Link to="/nodes" className={navClass(path === '/nodes')}>
+                <Server size={17} />
+                <span>Nodes</span>
+              </Link>
+              <Link to="/domains" className={navClass(path === '/domains')}>
+                <Globe size={17} />
+                <span>Domains</span>
+              </Link>
+              <Link to="/audit" className={navClass(path === '/audit')}>
+                <ShieldCheck size={17} />
+                <span>Audit log</span>
+              </Link>
+              <Link to="/organization" className={navClass(path === '/organization')}>
+                <ShieldCheck size={17} />
+                <span>Organization</span>
+              </Link>
+            </>
+          )}
         </nav>
         <div className="sidebar-bottom mt-auto">
           <span className="tiny-label">CONTROL PLANE</span>
@@ -407,7 +456,33 @@ const rootRoute = createRootRoute({
     </div>
   ),
 })
-const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: Overview })
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  component: function Home() {
+    const session = authClient.useSession()
+    return isPlatformAdministrator(session.data?.user.role) ? (
+      <PlatformAdmin view="overview" />
+    ) : (
+      <Overview />
+    )
+  },
+})
+const platformOrganizationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/platform/organizations',
+  component: () => <PlatformAdmin view="organizations" />,
+})
+const platformUsersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/platform/users',
+  component: () => <PlatformAdmin view="users" />,
+})
+const platformBillingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/platform/billing',
+  component: () => <PlatformAdmin view="billing" />,
+})
 const projectsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/projects',
@@ -596,6 +671,9 @@ const router = createRouter({
   defaultErrorComponent: RouteError,
   routeTree: rootRoute.addChildren([
     indexRoute,
+    platformOrganizationsRoute,
+    platformUsersRoute,
+    platformBillingRoute,
     projectsRoute,
     hostsRoute,
     nodesRoute,
