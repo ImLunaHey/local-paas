@@ -52,6 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if control_plane::builds::expire(&upkeep_pool).await.is_err() {
                 tracing::error!("build lease reconciliation failed");
             }
+            if control_plane::pr_previews::reconcile(&upkeep_pool)
+                .await
+                .is_err()
+            {
+                tracing::error!("PR preview reconciliation failed");
+            }
             if control_plane::runtime::reconcile(&upkeep_pool)
                 .await
                 .is_err()

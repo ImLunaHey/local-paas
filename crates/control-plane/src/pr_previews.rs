@@ -1,0 +1,646 @@
+//! Opt-in, same-repository PR previews. All lifecycle work is durable and fenced
+//! by the scheduler lock; no provider event executes builds or runtime actions.
+use crate::{ApiError, auth, source_connections::SourceConnection};
+use axum::{
+    Extension, Json,
+    extract::{Path, State},
+};
+use chrono::{DateTime, Utc};
+use platform_domain::{Execution, Resources, ServiceSpec, Workload};
+use serde::{Deserialize, Serialize};
+use sqlx::{PgPool, Postgres, Row, Transaction, types::Json as DbJson};
+use utoipa::ToSchema;
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewPolicy {
+    pub enabled: bool,
+    pub max_active: i32,
+    pub max_builds: i32,
+    pub ttl_hours: i32,
+    pub resources: Resources,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestPreview {
+    pub id: Uuid,
+    pub source_connection_id: Uuid,
+    pub number: i64,
+    pub head_commit: String,
+    pub environment_id: Option<Uuid>,
+    pub service_id: Option<Uuid>,
+    pub build_id: Option<Uuid>,
+    pub deployment_id: Option<Uuid>,
+    pub status: String,
+    pub reason: String,
+    pub expires_at: DateTime<Utc>,
+    pub preview_url: Option<String>,
+}
+
+async fn connection(
+    pool: &PgPool,
+    id: Uuid,
+    context: &auth::Context,
+) -> Result<SourceConnection, ApiError> {
+    sqlx::query_as(
+        "SELECT * FROM source_connections WHERE id=$1 AND ($2::text IS NULL OR organization_id=$2)",
+    )
+    .bind(id)
+    .bind(context.organization_id.as_deref())
+    .fetch_optional(pool)
+    .await?
+    .ok_or(ApiError::NotFound)
+}
+
+#[utoipa::path(get, path="/api/source-connections/{id}/preview-policy", params(("id"=Uuid, Path)), responses((status=200, body=Option<PreviewPolicy>)), operation_id="getPreviewPolicy")]
+pub(crate) async fn get_policy(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<auth::Context>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Option<PreviewPolicy>>, ApiError> {
+    connection(&pool, id, &context).await?;
+    let row = sqlx::query("SELECT * FROM preview_policies WHERE source_connection_id=$1")
+        .bind(id)
+        .fetch_optional(&pool)
+        .await?;
+    Ok(Json(row.map(|r| PreviewPolicy {
+        enabled: r.get("enabled"),
+        max_active: r.get("max_active"),
+        max_builds: r.get("max_builds"),
+        ttl_hours: r.get("ttl_hours"),
+        resources: r.get::<DbJson<ServiceSpec>, _>("spec").resources,
+    })))
+}
+
+#[utoipa::path(put, path="/api/source-connections/{id}/preview-policy", params(("id"=Uuid, Path)), request_body=PreviewPolicy, responses((status=200, body=PreviewPolicy)), operation_id="configurePreviewPolicy")]
+pub(crate) async fn configure_policy(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<auth::Context>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<PreviewPolicy>,
+) -> Result<Json<PreviewPolicy>, ApiError> {
+    let source = connection(&pool, id, &context).await?;
+    if !(1..=10).contains(&input.max_active)
+        || !(1..=3).contains(&input.max_builds)
+        || !(1..=168).contains(&input.ttl_hours)
+        || !(100..=2000).contains(&input.resources.cpu_millis)
+        || !(64..=2048).contains(&input.resources.memory_mib)
+    {
+        return Err(ApiError::Conflict(
+            "preview limits: 1–10 active, 1–3 builds, 1–168 hours, 100–2000 CPU millis and 64–2048 MiB",
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    lock(&mut tx).await?;
+    sqlx::query("SELECT id FROM source_connections WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    let existing: Option<DbJson<ServiceSpec>> =
+        sqlx::query_scalar("SELECT spec FROM preview_policies WHERE source_connection_id=$1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let spec = if !input.enabled
+        && let Some(DbJson(mut spec)) = existing
+    {
+        spec.resources = input.resources;
+        spec
+    } else {
+        let DbJson(spec): DbJson<ServiceSpec> =
+            sqlx::query_scalar("SELECT spec FROM services WHERE id=$1 FOR UPDATE")
+                .bind(source.service_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if crate::source_connections::canonical_repository(&spec.source.repository)?.1
+            != source.repository_key
+        {
+            return Err(ApiError::Conflict(
+                "source repository changed; recreate the source connection",
+            ));
+        }
+        sanitized(spec, input.resources)?
+    };
+    sqlx::query("INSERT INTO preview_policies(source_connection_id,enabled,max_active,max_builds,ttl_hours,spec) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(source_connection_id) DO UPDATE SET enabled=$2,max_active=$3,max_builds=$4,ttl_hours=$5,spec=$6,updated_at=now()")
+        .bind(id).bind(input.enabled).bind(input.max_active).bind(input.max_builds).bind(input.ttl_hours).bind(DbJson(spec)).execute(&mut *tx).await?;
+    if !input.enabled {
+        sqlx::query("UPDATE pull_request_previews SET desired_open=false,suppressed=true,status='cleaning',reason='Preview policy disabled',updated_at=now() WHERE source_connection_id=$1 AND status<>'closed'").bind(id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(Json(input))
+}
+
+fn sanitized(mut spec: ServiceSpec, resources: Resources) -> Result<ServiceSpec, ApiError> {
+    let Workload::OciService {
+        execution: Execution::Http,
+        replicas,
+        pre_deploy,
+        private_connections,
+        build_args,
+        ..
+    } = &mut spec.workload
+    else {
+        return Err(ApiError::Conflict(
+            "previews support stateless HTTP OCI services only",
+        ));
+    };
+    *replicas = 1;
+    *pre_deploy = None;
+    private_connections.clear();
+    build_args.clear();
+    spec.secrets.clear();
+    spec.domains.clear();
+    spec.volume = None;
+    spec.resources = resources;
+    spec.distinct_nodes = false;
+    spec.validate().map_err(ApiError::Invalid)?;
+    Ok(spec)
+}
+
+#[utoipa::path(get, path="/api/source-connections/{id}/previews", params(("id"=Uuid, Path)), responses((status=200, body=[PullRequestPreview])), operation_id="listPreviews")]
+pub(crate) async fn list(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<auth::Context>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<PullRequestPreview>>, ApiError> {
+    connection(&pool, id, &context).await?;
+    Ok(Json(sqlx::query_as("SELECT p.*,CASE WHEN r.authority IS NOT NULL THEN 'https://' || r.authority END AS preview_url FROM pull_request_previews p LEFT JOIN preview_routes r ON r.service_id=p.service_id WHERE p.source_connection_id=$1 ORDER BY p.updated_at DESC,p.id DESC LIMIT 100").bind(id).fetch_all(&pool).await?))
+}
+
+#[utoipa::path(delete, path="/api/source-connections/{id}/previews/{preview_id}", params(("id"=Uuid, Path),("preview_id"=Uuid, Path)), responses((status=200)), operation_id="deletePreview")]
+pub(crate) async fn delete(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<auth::Context>,
+    Path((id, preview)): Path<(Uuid, Uuid)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    connection(&pool, id, &context).await?;
+    let mut tx = pool.begin().await?;
+    lock(&mut tx).await?;
+    let changed=sqlx::query("UPDATE pull_request_previews SET desired_open=false,suppressed=true,status=CASE WHEN status='closed' THEN status ELSE 'cleaning' END,reason='Cleanup requested by operator',updated_at=now() WHERE id=$1 AND source_connection_id=$2").bind(preview).bind(id).execute(&mut *tx).await?;
+    if changed.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    tx.commit().await?;
+    Ok(Json(serde_json::json!({"accepted":true})))
+}
+
+pub(crate) async fn lock(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Called only after signature and delivery-ID validation, in the delivery transaction.
+pub(crate) async fn receive(
+    tx: &mut Transaction<'_, Postgres>,
+    source: &SourceConnection,
+    payload: &serde_json::Value,
+) -> Result<Option<(&'static str, &'static str)>, ApiError> {
+    let policy =
+        sqlx::query("SELECT enabled,ttl_hours FROM preview_policies WHERE source_connection_id=$1")
+            .bind(source.id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let Some(policy) = policy else {
+        return Ok(None);
+    };
+    // Configured previews own PR events, even when disabled. Never fall back to production builds.
+    if !policy.get::<bool, _>("enabled") {
+        return Ok(Some(("ignored", "preview policy is disabled")));
+    }
+    let pr = &payload["pull_request"];
+    let action = payload["action"].as_str().unwrap_or_default();
+    if !matches!(action, "opened" | "reopened" | "synchronize" | "closed") {
+        return Ok(Some((
+            "ignored",
+            "pull request action does not change previews",
+        )));
+    }
+    for repository in [
+        &payload["repository"]["full_name"],
+        &pr["base"]["repo"]["full_name"],
+        &pr["head"]["repo"]["full_name"],
+    ] {
+        if repository
+            .as_str()
+            .and_then(|s| crate::source_connections::canonical_repository(s).ok())
+            .is_none_or(|(_, key)| key != source.repository_key)
+        {
+            return Ok(Some((
+                "ignored",
+                "fork or mismatched pull request repository is denied",
+            )));
+        }
+    }
+    let number = payload["number"]
+        .as_i64()
+        .filter(|n| *n > 0)
+        .ok_or(ApiError::Conflict("pull request number is required"))?;
+    let event_at = pr["updated_at"]
+        .as_str()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&Utc))
+        .ok_or(ApiError::Conflict(
+            "pull request updated_at is required for event ordering",
+        ))?;
+    let commit = pr["head"]["sha"]
+        .as_str()
+        .filter(|s| platform_domain::commit_hash(s))
+        .ok_or(ApiError::Conflict("pull request head commit is required"))?;
+    let open = action != "closed";
+    let existing=sqlx::query("SELECT id,event_at,desired_open,suppressed FROM pull_request_previews WHERE source_connection_id=$1 AND number=$2 FOR UPDATE").bind(source.id).bind(number).fetch_optional(&mut **tx).await?;
+    if let Some(row) = existing {
+        let previous: DateTime<Utc> = row.get("event_at");
+        // Equal timestamps are ambiguous: close wins; other updates fail closed.
+        if event_at < previous
+            || (event_at == previous && (open || !row.get::<bool, _>("desired_open")))
+        {
+            return Ok(Some(("ignored", "stale or ambiguous pull request event")));
+        }
+        if open
+            && (!row.get::<bool, _>("desired_open") || row.get::<bool, _>("suppressed"))
+            && action != "reopened"
+        {
+            return Ok(Some((
+                "ignored",
+                "closed or expired preview requires an explicit reopen",
+            )));
+        }
+        sqlx::query("UPDATE pull_request_previews SET event_at=$2,head_commit=$3,desired_open=$4,suppressed=false,expires_at=now()+make_interval(hours=>$5),status=CASE WHEN NOT $4 THEN 'cleaning' WHEN status IN ('closed','blocked','failed') THEN 'pending' ELSE status END,updated_at=now() WHERE id=$1")
+            .bind(row.get::<Uuid,_>("id")).bind(event_at).bind(commit).bind(open).bind(policy.get::<i32,_>("ttl_hours")).execute(&mut **tx).await?;
+    } else {
+        sqlx::query("INSERT INTO pull_request_previews(id,source_connection_id,number,event_at,desired_open,head_commit,status,reason,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(hours=>$9))")
+            .bind(Uuid::now_v7()).bind(source.id).bind(number).bind(event_at).bind(open).bind(commit).bind(if open {"pending"} else {"closed"}).bind(if open {"Preview requested"} else {"Pull request closed"}).bind(policy.get::<i32,_>("ttl_hours")).execute(&mut **tx).await?;
+    }
+    Ok(Some((
+        "accepted",
+        if open {
+            "preview intent recorded"
+        } else {
+            "preview cleanup requested"
+        },
+    )))
+}
+
+async fn state(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    status: &str,
+    reason: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE pull_request_previews SET status=$2,reason=$3,updated_at=now() WHERE id=$1 AND (status,reason) IS DISTINCT FROM ($2,$3)").bind(id).bind(status).bind(reason).execute(&mut **tx).await?;
+    Ok(())
+}
+
+/// Each item commits independently. The scheduler lock prevents close/update,
+/// capacity allocation, and promotion from racing the preview's pinned intent.
+pub async fn reconcile(pool: &PgPool) -> Result<(), ApiError> {
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM pull_request_previews WHERE status<>'closed' OR desired_open ORDER BY last_checked_at,id LIMIT 100").fetch_all(pool).await?;
+    for id in ids {
+        let mut tx = pool.begin().await?;
+        lock(&mut tx).await?;
+        reconcile_one(pool, &mut tx, id).await?;
+        sqlx::query("UPDATE pull_request_previews SET last_checked_at=now() WHERE id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+    }
+    Ok(())
+}
+
+async fn reconcile_one(
+    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<(), ApiError> {
+    let row=sqlx::query("SELECT p.*,c.service_id AS source_service,c.enabled AS connection_enabled,c.repository_key,pp.enabled AS policy_enabled,pp.max_active,pp.max_builds,pp.spec AS template FROM pull_request_previews p JOIN source_connections c ON c.id=p.source_connection_id JOIN preview_policies pp ON pp.source_connection_id=c.id WHERE p.id=$1 FOR UPDATE OF p").bind(id).fetch_one(&mut **tx).await?;
+    let source: Uuid = row.get("source_connection_id");
+    let mut service: Option<Uuid> = row.get("service_id");
+    let desired: bool = row.get("desired_open");
+    let expired: bool = row.get::<DateTime<Utc>, _>("expires_at") <= Utc::now();
+    if !desired
+        || expired
+        || !row.get::<bool, _>("policy_enabled")
+        || !row.get::<bool, _>("connection_enabled")
+        || row.get::<String, _>("status") == "cleaning"
+    {
+        if expired
+            || !row.get::<bool, _>("policy_enabled")
+            || !row.get::<bool, _>("connection_enabled")
+        {
+            sqlx::query("UPDATE pull_request_previews SET desired_open=false,suppressed=true WHERE id=$1 AND desired_open").bind(id).execute(&mut **tx).await?;
+        }
+        if let Some(service) = service {
+            // Withdraw routes immediately; retain instances and reservations until agents confirm shutdown.
+            sqlx::query("DELETE FROM preview_routes WHERE service_id=$1")
+                .bind(service)
+                .execute(&mut **tx)
+                .await?;
+            sqlx::query("UPDATE builds SET cancel_requested=true,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END,finished_at=CASE WHEN status='queued' THEN now() ELSE finished_at END WHERE service_id=$1 AND status IN ('queued','running') AND NOT cancel_requested").bind(service).execute(&mut **tx).await?;
+            sqlx::query("UPDATE deployments SET status=CASE WHEN job_options IS NULL THEN 'stopped' ELSE 'cancelled' END WHERE service_id=$1 AND status NOT IN ('stopped','cancelled','succeeded','failed','superseded')").bind(service).execute(&mut **tx).await?;
+            sqlx::query("UPDATE instances SET desired_state='stopped',generation=generation+1 WHERE deployment_id IN(SELECT id FROM deployments WHERE service_id=$1) AND desired_state<>'stopped'").bind(service).execute(&mut **tx).await?;
+            let busy:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM builds WHERE service_id=$1 AND status IN ('queued','running') UNION ALL SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND (i.state<>'stopped' OR EXISTS(SELECT 1 FROM ingress_route_leases l WHERE l.instance_id=i.id AND l.expires_at+interval '5 seconds'>clock_timestamp()) OR EXISTS(SELECT 1 FROM private_route_leases l WHERE l.instance_id=i.id AND l.expires_at+interval '5 seconds'>clock_timestamp())))").bind(service).fetch_one(&mut **tx).await?;
+            if busy {
+                return Ok(state(
+                    tx,
+                    id,
+                    "cleaning",
+                    "Waiting for build cancellation, confirmed shutdown and route lease expiry",
+                )
+                .await?);
+            }
+        }
+        sqlx::query("UPDATE pull_request_previews SET build_id=NULL,deployment_id=NULL,admitted=false WHERE id=$1 AND (build_id IS NOT NULL OR deployment_id IS NOT NULL OR admitted)").bind(id).execute(&mut **tx).await?;
+        let reopened = desired
+            && !expired
+            && row.get::<bool, _>("policy_enabled")
+            && row.get::<bool, _>("connection_enabled");
+        state(
+            tx,
+            id,
+            if reopened { "pending" } else { "closed" },
+            if reopened {
+                "Cleanup complete; reopening preview"
+            } else {
+                "Cleanup confirmed; history retained"
+            },
+        )
+        .await?;
+        return Ok(());
+    }
+    let active:i64=sqlx::query_scalar("SELECT count(*) FROM pull_request_previews WHERE source_connection_id=$1 AND id<>$2 AND admitted").bind(source).bind(id).fetch_one(&mut **tx).await?;
+    if active >= i64::from(row.get::<i32, _>("max_active")) && !row.get::<bool, _>("admitted") {
+        return Ok(state(tx, id, "blocked", "Active preview quota exhausted").await?);
+    }
+    sqlx::query("UPDATE pull_request_previews SET admitted=true WHERE id=$1 AND NOT admitted")
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+    let DbJson(mut spec): DbJson<ServiceSpec> = row.get("template");
+    let head: String = row.get("head_commit");
+    spec.source.pin(head.clone());
+    if service.is_none() {
+        let project:Uuid=sqlx::query_scalar("SELECT e.project_id FROM services s JOIN environments e ON e.id=s.environment_id WHERE s.id=$1").bind(row.get::<Uuid,_>("source_service")).fetch_one(&mut **tx).await?;
+        spec.project = sqlx::query_scalar("SELECT name FROM projects WHERE id=$1")
+            .bind(project)
+            .fetch_one(&mut **tx)
+            .await?;
+        let environment = Uuid::now_v7();
+        spec.environment = format!("pr-{}", environment.simple());
+        let new_service = Uuid::now_v7();
+        sqlx::query("INSERT INTO environments(id,project_id,name) VALUES($1,$2,$3)")
+            .bind(environment)
+            .bind(project)
+            .bind(&spec.environment)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("INSERT INTO services(id,environment_id,name,kind,operation_id,spec,registered_spec) VALUES($1,$2,$3,'oci-service',$4,$5,$5)").bind(new_service).bind(environment).bind(&spec.name).bind(Uuid::now_v7()).bind(DbJson(&spec)).execute(&mut **tx).await?;
+        sqlx::query("UPDATE pull_request_previews SET environment_id=$2,service_id=$3 WHERE id=$1")
+            .bind(id)
+            .bind(environment)
+            .bind(new_service)
+            .execute(&mut **tx)
+            .await?;
+        service = Some(new_service);
+    }
+    let service = service.expect("preview service created");
+    // Keep immutable per-preview configuration; policy edits only affect new previews.
+    let current: DbJson<ServiceSpec> = sqlx::query_scalar("SELECT spec FROM services WHERE id=$1")
+        .bind(service)
+        .fetch_one(&mut **tx)
+        .await?;
+    if crate::source_connections::canonical_repository(&current.source.repository)?.1
+        != row.get::<String, _>("repository_key")
+    {
+        return Ok(state(
+            tx,
+            id,
+            "failed",
+            "Preview repository no longer matches its source connection",
+        )
+        .await?);
+    }
+    sqlx::query("SELECT pg_advisory_xact_lock(72401952)")
+        .execute(&mut **tx)
+        .await?;
+    let route: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM preview_routes WHERE service_id=$1)")
+            .bind(service)
+            .fetch_one(&mut **tx)
+            .await?;
+    if !route {
+        let used: Vec<String> = sqlx::query_scalar("SELECT authority FROM preview_routes")
+            .fetch_all(&mut **tx)
+            .await?;
+        let Some(authority) = crate::networking::endpoints()
+            .into_iter()
+            .find(|s| !used.contains(s))
+        else {
+            return Ok(state(
+                tx,
+                id,
+                "blocked",
+                "No configured private preview URL is available",
+            )
+            .await?);
+        };
+        sqlx::query("INSERT INTO preview_routes(authority,service_id) VALUES($1,$2)")
+            .bind(authority)
+            .bind(service)
+            .execute(&mut **tx)
+            .await?;
+    }
+    let build = if let Some(build_id) = row.get::<Option<Uuid>, _>("build_id") {
+        Some(
+            sqlx::query_as::<_, crate::builds::Build>("SELECT * FROM builds WHERE id=$1")
+                .bind(build_id)
+                .fetch_one(&mut **tx)
+                .await?,
+        )
+    } else {
+        None
+    };
+    if build
+        .as_ref()
+        .is_none_or(|b| b.resolved_commit.as_deref() != Some(head.as_str()))
+    {
+        if build
+            .as_ref()
+            .is_some_and(|b| matches!(b.status.as_str(), "queued" | "running"))
+        {
+            return Ok(state(
+                tx,
+                id,
+                "building",
+                "Waiting for the previous build before building the latest commit",
+            )
+            .await?);
+        }
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM builds b JOIN pull_request_previews p ON p.service_id=b.service_id WHERE p.source_connection_id=$1 AND b.status IN ('queued','running')").bind(source).fetch_one(&mut **tx).await?;
+        if count >= i64::from(row.get::<i32, _>("max_builds")) {
+            return Ok(state(tx, id, "pending", "Waiting for preview build capacity").await?);
+        }
+        let mut updated = current.0;
+        updated.source.pin(head.clone());
+        sqlx::query("UPDATE services SET spec=$2,version=version+1 WHERE id=$1")
+            .bind(service)
+            .bind(DbJson(updated))
+            .execute(&mut **tx)
+            .await?;
+        let build =
+            crate::builds::enqueue_pinned(tx, service, Uuid::now_v7(), &head, source).await?;
+        sqlx::query("UPDATE pull_request_previews SET build_id=$2,deployment_id=NULL WHERE id=$1")
+            .bind(id)
+            .bind(build.id)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(state(tx, id, "building", "Building the pinned PR commit").await?);
+    }
+    let build = build.expect("current build exists");
+    match build.status.as_str() {
+        "queued" | "running" => {
+            return Ok(state(tx, id, "building", "Building the pinned PR commit").await?);
+        }
+        "succeeded" => {}
+        _ => {
+            return Ok(state(
+                tx,
+                id,
+                "failed",
+                "Preview build failed or was cancelled; send a newer PR update to retry",
+            )
+            .await?);
+        }
+    }
+    let deployment = if let Some(deployment) = row.get::<Option<Uuid>, _>("deployment_id") {
+        deployment
+    } else {
+        let revision: Uuid = sqlx::query_scalar("SELECT id FROM revisions WHERE build_id=$1")
+            .bind(build.id)
+            .fetch_one(&mut **tx)
+            .await?;
+        match crate::runtime::deploy_in_transaction(
+            pool,
+            tx,
+            service,
+            crate::runtime::DeployRequest {
+                operation_id: build.id,
+                revision_id: revision,
+            },
+        )
+        .await
+        {
+            Ok(Json(result)) => {
+                let deployment: Uuid = result["id"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok())
+                    .ok_or(ApiError::Database)?;
+                sqlx::query("UPDATE pull_request_previews SET deployment_id=$2 WHERE id=$1")
+                    .bind(id)
+                    .bind(deployment)
+                    .execute(&mut **tx)
+                    .await?;
+                deployment
+            }
+            Err(ApiError::Conflict(reason)) => return Ok(state(tx, id, "deploying", reason).await?),
+            Err(error) => return Err(error),
+        }
+    };
+    let status: String = sqlx::query_scalar("SELECT status FROM deployments WHERE id=$1")
+        .bind(deployment)
+        .fetch_one(&mut **tx)
+        .await?;
+    match status.as_str() {
+        "active" => {
+            let healthy:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances WHERE deployment_id=$1) AND NOT EXISTS(SELECT 1 FROM instances i JOIN nodes n ON n.id=i.node_id WHERE i.deployment_id=$1 AND (i.state<>'ready' OR i.desired_state<>'running' OR i.observed_at IS NULL OR i.observed_at<=now()-interval '15 seconds' OR n.last_seen IS NULL OR n.last_seen<=now()-interval '30 seconds'))").bind(deployment).fetch_one(&mut **tx).await?;
+            state(
+                tx,
+                id,
+                if healthy { "ready" } else { "degraded" },
+                if healthy {
+                    "Preview deployment is ready"
+                } else {
+                    "Preview has no fresh healthy replica observation"
+                },
+            )
+            .await?;
+        }
+        "preparing" | "waiting" | "releasing" => {
+            state(tx, id, "deploying", "Waiting for deployment readiness").await?
+        }
+        _ => state(
+            tx,
+            id,
+            "failed",
+            "Preview deployment failed or stopped; the prior healthy revision may still be serving",
+        )
+        .await?,
+    }
+    Ok(())
+}
+
+pub(crate) async fn ensure_environment_writable(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<(), ApiError> {
+    let managed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pull_request_previews WHERE environment_id=$1)",
+    )
+    .bind(id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if managed {
+        return Err(ApiError::Conflict(
+            "PR preview environments are managed by their source policy",
+        ));
+    }
+    Ok(())
+}
+
+/// Preview services are immutable through ordinary service mutations. This also
+/// protects secrets, bindings, jobs, scaling and manual builds from bypassing policy.
+pub(crate) async fn guard(
+    State(pool): State<PgPool>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if !matches!(
+        *request.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    ) {
+        let parts: Vec<_> = request.uri().path().split('/').collect();
+        if let (Some(kind), Some(id)) = (
+            parts.get(2),
+            parts.get(3).and_then(|v| v.parse::<Uuid>().ok()),
+        ) {
+            let query = match *kind {
+                "services" => {
+                    Some("SELECT EXISTS(SELECT 1 FROM pull_request_previews WHERE service_id=$1)")
+                }
+                "builds" => Some(
+                    "SELECT EXISTS(SELECT 1 FROM pull_request_previews p JOIN builds b ON b.service_id=p.service_id WHERE b.id=$1)",
+                ),
+                "deployments" => Some(
+                    "SELECT EXISTS(SELECT 1 FROM pull_request_previews p JOIN deployments d ON d.service_id=p.service_id WHERE d.id=$1)",
+                ),
+                _ => None,
+            };
+            if let Some(query) = query {
+                match sqlx::query_scalar::<_,bool>(query).bind(id).fetch_one(&pool).await {
+                    Ok(true)=>return ApiError::Conflict("PR previews are managed by their source policy; use preview cleanup to remove them").into_response(),
+                    Err(_)=>return ApiError::Database.into_response(),
+                    Ok(false)=>{},
+                }
+            }
+        }
+    }
+    next.run(request).await
+}
+
+#[cfg(test)]
+mod tests;

@@ -123,8 +123,103 @@ token.
 - Automatic production deployment is deliberately not implied by source events.
 - Blocked deliveries require an operator to request a later build; they are not
   silently retried.
-- Pull-request preview environment creation belongs to the separate preview
-  lifecycle work and is not implied by accepting a pull-request build event.
+- PR preview creation requires the explicit policy described below; accepting a
+  build-only pull-request event does not create an environment.
 
 These limits keep provider automation from bypassing the existing isolated
 builder, immutable revision, secret-reference, and truthful-state boundaries.
+
+## Pull-request preview environments
+
+A source connection can opt into isolated previews from its service's Builds page.
+The preview policy owns PR events once configured (including when disabled); it
+never falls back to building the production service. Push/tag policies are
+unchanged. Enable GitHub's `pull_request` webhook deliveries, including `closed`.
+The GitHub App still needs only repository Contents read permission; this first
+increment reports status and links in the dashboard, not GitHub Checks/comments.
+
+`PUT /api/source-connections/{id}/preview-policy` accepts:
+
+```json
+{
+  "enabled": true,
+  "maxActive": 3,
+  "maxBuilds": 1,
+  "ttlHours": 24,
+  "resources": { "cpuMillis": 250, "memoryMib": 256 }
+}
+```
+
+Policy management requires source management plus project/service creation,
+build execution, and deployment execution/stop permissions. Manual cleanup also
+requires deployment stop permission. The policy API and preview listing are
+organization-scoped. GET on the policy endpoint returns `null` until configured.
+
+The policy snapshots the service's HTTP OCI build and readiness settings. Each
+preview gets a distinct service UUID and an environment with **no parent**.
+Production secret references, variables, domains, volumes, private connections,
+database/object-storage bindings, build arguments, pre-deploy commands, jobs,
+schedules and scaling policies are not copied. One desired replica uses the
+policy's resource limits. The normal rolling deployment can temporarily reserve
+a second replica. Build/start commands remain part of the reviewed source
+configuration: preview code can make external requests, so applications must
+avoid production side effects and require no production credentials. No
+production seed data or persistent preview storage is supplied.
+
+The first version supports one stateless HTTP service per connection/PR identity.
+Multiple source connections to the same repository have independent policies and
+quotas. Limits are 1–10 admitted previews, 1–3 concurrent queued/running builds,
+1–168 hours after the latest accepted event, 100–2000 CPU millis and 64–2048 MiB
+per replica. Limits include previews waiting for cleanup; lowering a quota does
+not evict existing previews. Resource/build template edits apply to newly created
+previews. Admission and build concurrency limits apply on the next reconciliation;
+TTL is recorded on each accepted event. No worker, database, volume, celld fleet,
+or public route is created by this workflow.
+
+### Events, progress and cleanup
+
+- Signed `opened`, `synchronize`, and `reopened` events record the full head SHA.
+  Both head and base repository identities must match the source connection.
+  Forks fail closed. `closed` requests cleanup, including merged PRs.
+- Delivery-ID retries return their original observation. PR `updated_at` orders
+  different deliveries; older events are ignored. Equal timestamps are ambiguous:
+  close wins, and other updates are ignored with a visible reason. This is an
+  ordering signal in an authenticated payload, not a signed freshness guarantee.
+  Send a later synchronize/reopen event if GitHub changes shared a timestamp.
+- Events received while building coalesce to the newest accepted commit. A
+  superseded build may finish, but its result does not start a new deployment.
+  Builds reuse the source connection's private-repository authentication and the
+  isolated BuildKit path. Traffic changes use normal readiness-gated deployment.
+- Missing URL capacity, build capacity or worker capacity remains visible as
+  blocked/pending/deploying state. Build or candidate failures remain visible;
+  a failed candidate preserves the previous healthy preview revision. A fresh
+  healthy observation is required for `ready`; stale observations are degraded.
+- `GET /api/source-connections/{id}/previews` returns the latest 100 records with
+  commit, service/environment/build/deployment IDs, expiry, state, reason and URL.
+  A link can exist while a preview is building; it does not imply readiness.
+- `DELETE /api/source-connections/{id}/previews/{previewId}`, disabling the policy,
+  or expiry requests cleanup. Routes are withdrawn, queued builds cancelled,
+  running builds asked to cancel, and instances told to stop. Cleanup waits for
+  terminal builds, authenticated stopped observations, and ingress/private route
+  lease expiry. Unknown instance state never counts as confirmed shutdown.
+- History (including environment/service identities, builds, revisions, stopped
+  instances and audit records) is retained after closure; no active routes,
+  workloads or reservations are retained once cleanup is confirmed. Image
+  garbage collection belongs to the production registry retention work. A newer
+  explicit `reopened` event is required after manual cleanup/expiry. Reopening
+  during cleanup waits for completion and reuses the environment identity.
+
+Private URLs come only from the operator-configured `PREVIEW_HOST` /
+`PREVIEW_PORTS` pool; no DNS, proxy, tailnet or infrastructure provisioning occurs.
+Exhaustion is reported before building. Released URLs may later serve another
+preview. Configure forwarding as described in [private networking](environments-networking.md).
+Ordinary mutation controls cannot edit a managed preview service, attach secrets,
+run jobs, start manual builds, add services/volumes to its environment, shadow it,
+or attach public domains; use the parent connection's policy and cleanup controls.
+
+Database tests cover event ordering/replays, isolation, quotas, build coalescing,
+capacity waits, deployment failure preservation, restart reconciliation, expiry
+and shutdown barriers. The disposable browser fixture exercises signed webhook
+acceptance, policy persistence, blocked state, manual cleanup, API failures, and
+desktop/mobile layouts. These tests do not claim a real VM deployment, public
+preview qualification, GitHub status publishing, or multi-service previews.

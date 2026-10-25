@@ -27,3 +27,9 @@ Validated with database tests for environment filtering, immovable service
 identity, port updates, optimistic concurrency and rejecting unconfigured URLs.
 Browser checks cover header links, Networking routes/reloads and environment
 navigation/filtering against the isolated browser-test API.
+
+Opt-in [PR previews](git-automation.md#pull-request-preview-environments) allocate
+from this same private endpoint pool. Their environments have no parent and do
+not inherit production configuration. The parent service’s Builds page owns the
+preview policy and cleanup; ordinary mutations to preview services are rejected.
+Closed environment/service records remain as history after runtime cleanup.

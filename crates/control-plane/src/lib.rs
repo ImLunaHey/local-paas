@@ -38,6 +38,7 @@ mod nodes;
 mod object_storage;
 mod overview;
 mod platform_admin;
+pub mod pr_previews;
 pub mod preview;
 mod projects;
 mod releases;
@@ -79,6 +80,18 @@ fn platform_router(
         .route(
             "/api/source-connections",
             get(source_connections::list).post(source_connections::create),
+        )
+        .route(
+            "/api/source-connections/{id}/preview-policy",
+            get(pr_previews::get_policy).put(pr_previews::configure_policy),
+        )
+        .route(
+            "/api/source-connections/{id}/previews",
+            get(pr_previews::list),
+        )
+        .route(
+            "/api/source-connections/{id}/previews/{preview_id}",
+            axum::routing::delete(pr_previews::delete),
         )
         .route(
             "/api/source-connections/{id}/deliveries",
@@ -277,6 +290,10 @@ fn platform_router(
             pool.clone(),
             audit::record_action,
         ));
+    app = app.layer(middleware::from_fn_with_state(
+        pool.clone(),
+        pr_previews::guard,
+    ));
     if let Some(service) = auth_service {
         app = app.merge(lucid_auth::axum::router(service.clone())).layer(
             middleware::from_fn_with_state(
@@ -544,6 +561,7 @@ async fn create_service(
         .bind(Uuid::now_v7()).bind(organization).bind(&request.spec.project).fetch_one(&mut *tx).await?;
     let environment_id: Uuid = sqlx::query_scalar("INSERT INTO environments (id, project_id, name) VALUES ($1, $2, $3) ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id")
         .bind(Uuid::now_v7()).bind(project_id).bind(&request.spec.environment).fetch_one(&mut *tx).await?;
+    pr_previews::ensure_environment_writable(&mut tx, environment_id).await?;
     let service = sqlx::query_as::<_, Service>("INSERT INTO services (id, environment_id, name, kind, operation_id, spec, registered_spec) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, operation_id, spec, created_at, version")
         .bind(Uuid::now_v7()).bind(environment_id).bind(&request.spec.name).bind(request.spec.kind())
         .bind(request.operation_id).bind(DbJson(&request.spec)).fetch_one(&mut *tx).await?;

@@ -204,7 +204,18 @@ pub async fn require_operator(
             );
         };
         if let Some((resource, action)) = required_permission(&request) {
-            let permissions = BTreeMap::from([(resource.into(), vec![action.into()])]);
+            let mut permissions = BTreeMap::from([(resource.into(), vec![action.into()])]);
+            // Managing source credentials alone must not grant automated deployment rights.
+            if matched_path.ends_with("/preview-policy") && request.method() == Method::PUT {
+                permissions.insert("project".into(), vec!["create".into()]);
+                permissions.insert("service".into(), vec!["create".into()]);
+                permissions.insert("build".into(), vec!["execute".into()]);
+                permissions.insert("deployment".into(), vec!["execute".into(), "stop".into()]);
+            } else if matched_path.ends_with("/previews/{preview_id}")
+                && request.method() == Method::DELETE
+            {
+                permissions.insert("deployment".into(), vec!["stop".into()]);
+            }
             match service
                 .has_organization_permission(&session, Some(organization_id.clone()), permissions)
                 .await

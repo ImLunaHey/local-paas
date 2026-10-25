@@ -40,6 +40,7 @@ pub(crate) async fn create(
     let organization = crate::auth::required_organization(&context)?;
     let project:Uuid=sqlx::query_scalar("INSERT INTO projects(id,organization_id,name) VALUES($1,$2,$3) ON CONFLICT(organization_id,name) DO UPDATE SET name=excluded.name RETURNING id").bind(Uuid::now_v7()).bind(organization).bind(&input.project).fetch_one(&mut *tx).await?;
     if let Some(parent) = input.parent_id {
+        crate::pr_previews::ensure_environment_writable(&mut tx, parent).await?;
         let valid: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM environments WHERE id=$1 AND project_id=$2 AND name<>$3)",
         )
