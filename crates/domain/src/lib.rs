@@ -1,4 +1,5 @@
 //! Runtime-independent desired state. Contains references, never secret values.
+pub mod scaling;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 

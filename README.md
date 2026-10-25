@@ -74,6 +74,7 @@ host are three scheduling nodes, not three physical failure domains.
 - DNS-verified public OCI domains, Caddy API route updates, observed TLS and
   acknowledged promotion/rollback; explicit edge installation is required.
 - Singleton workers, one-off jobs, interval schedules and pre-deployment commands.
+- Opt-in CPU autoscaling and HTTP sleep/wake for eligible stateless services.
 - OpenBao-backed workload secrets; dedicated ClickHouse runtime log retention.
 - Structured log columns/search, retained instance logs, metrics and audit events.
 - Managed PostgreSQL, Redis and RustFS; shared node-pinned volumes and file browsing.

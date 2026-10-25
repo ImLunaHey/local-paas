@@ -43,11 +43,13 @@ mod projects;
 mod releases;
 pub mod runtime;
 mod s3;
+pub mod scaling;
 pub mod secrets;
 mod source_uploads;
 mod storage_files;
 mod volume_files;
 mod volumes;
+pub mod waking;
 
 pub fn router(pool: PgPool, browser_origins: Vec<String>) -> Router {
     platform_router(pool, browser_origins, None)
@@ -164,6 +166,16 @@ fn platform_router(
         .route("/api/deployments/{id}/stop", post(runtime::stop))
         .route("/api/deployments/{id}/rollback", post(edge::rollback))
         .route("/api/services/{id}/runtime", get(runtime::status))
+        .route(
+            "/api/services/{id}/scaling",
+            get(scaling::get).put(scaling::configure),
+        )
+        .route(
+            "/api/services/{id}/waking-page",
+            get(waking::get)
+                .put(waking::configure)
+                .layer(DefaultBodyLimit::max(1024 * 1024)),
+        )
         .route("/api/services/{id}/jobs", get(jobs::list).post(jobs::run))
         .route(
             "/api/services/{id}/job-schedule",
@@ -468,6 +480,9 @@ async fn create_service(
     request.spec.validate().map_err(ApiError::Invalid)?;
     let organization = auth::required_organization(&context)?;
     let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
+        .execute(&mut *tx)
+        .await?;
     domains::lock(&mut tx).await?;
     volumes::validate_scope(&mut tx, &request.spec, organization).await?;
     discovery::validate(&mut tx, &request.spec).await?;

@@ -3,7 +3,7 @@ use axum::{
     Router,
     body::Body,
     extract::{Request, State},
-    http::{HeaderMap, HeaderName, StatusCode},
+    http::{HeaderMap, HeaderName, Method, StatusCode},
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
@@ -20,6 +20,10 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 #[derive(Clone)]
 struct Proxy {
+    pool: PgPool,
+    sleepers: Arc<RwLock<HashMap<String, Arc<crate::waking::Page>>>>,
+    activity: Activity,
+    recent_demand: Arc<std::sync::Mutex<HashMap<Uuid, std::time::Instant>>>,
     routes: Arc<RwLock<HashMap<String, Vec<Backend>>>>,
     client: reqwest::Client,
     next: Arc<AtomicUsize>,
@@ -31,6 +35,32 @@ struct Backend {
     expires: DateTime<Utc>,
     authority: String,
     generation: Option<i64>,
+}
+type Activity = Arc<std::sync::Mutex<HashMap<Uuid, usize>>>;
+struct RequestPermit {
+    _connection: OwnedSemaphorePermit,
+    activity: Option<(Activity, Uuid)>,
+}
+impl From<OwnedSemaphorePermit> for RequestPermit {
+    fn from(connection: OwnedSemaphorePermit) -> Self {
+        Self {
+            _connection: connection,
+            activity: None,
+        }
+    }
+}
+impl Drop for RequestPermit {
+    fn drop(&mut self) {
+        if let Some((activity, id)) = &self.activity {
+            let mut counts = activity.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(count) = counts.get_mut(id) {
+                *count -= 1;
+                if *count == 0 {
+                    counts.remove(id);
+                }
+            }
+        }
+    }
 }
 struct RefreshGuard(tokio::task::JoinHandle<()>);
 impl Drop for RefreshGuard {
@@ -99,12 +129,32 @@ pub async fn serve(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(2))
         .build()?;
+    let sleepers = Arc::new(RwLock::new(HashMap::new()));
+    let activity: Activity = Arc::default();
+    let refresh_sleepers = sleepers.clone();
+    let refresh_activity = activity.clone();
+    let refresh_pool = pool.clone();
     let refresh_routes = routes.clone();
     let updater = RefreshGuard(tokio::spawn(async move {
+        let pool = refresh_pool;
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
+            let busy: Vec<Uuid> = refresh_activity
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .keys()
+                .copied()
+                .collect();
+            if let Ok(Ok(mapping)) = tokio::time::timeout(
+                Duration::from_secs(2),
+                crate::scaling::ingress_heartbeat(&pool, &busy),
+            )
+            .await
+            {
+                *refresh_sleepers.write().await = mapping;
+            }
             match tokio::time::timeout(Duration::from_secs(5), refresh(&pool, &health)).await {
                 Ok(Ok(snapshot)) => *refresh_routes.write().await = snapshot,
                 _ => tracing::warn!(
@@ -116,6 +166,10 @@ pub async fn serve(
     let result = axum::serve(
         listener,
         Router::new().fallback(proxy).with_state(Proxy {
+            pool,
+            sleepers,
+            activity,
+            recent_demand: Arc::default(),
             routes,
             client: client()?,
             next: Arc::new(AtomicUsize::new(0)),
@@ -161,6 +215,47 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_lowercase();
+    let mut permit = RequestPermit::from(permit);
+    let sleeper = p
+        .sleepers
+        .read()
+        .await
+        .get(&authority)
+        .filter(|page| page.expires.is_none_or(|expires| expires > Utc::now()))
+        .cloned();
+    let edge_probe = request.uri().path() == "/.well-known/local-paas/route";
+    if let Some(page) = &sleeper
+        && !edge_probe
+    {
+        let id = page.service_id;
+        *p.activity
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(id)
+            .or_default() += 1;
+        permit.activity = Some((p.activity.clone(), id));
+        let recently_recorded = p
+            .recent_demand
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .is_some_and(|time| time.elapsed() < Duration::from_secs(5));
+        if page.enabled && !recently_recorded {
+            if !matches!(
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    crate::scaling::request_wake(&p.pool, id)
+                )
+                .await,
+                Ok(Ok(()))
+            ) {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            let mut recent = p.recent_demand.lock().unwrap_or_else(|e| e.into_inner());
+            recent.retain(|_, time| time.elapsed() < Duration::from_secs(5));
+            recent.insert(id, std::time::Instant::now());
+        }
+    }
     let backend = {
         let routes = p.routes.read().await;
         let ready: Vec<_> = routes
@@ -170,16 +265,50 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
             .filter(|b| b.expires > Utc::now())
             .collect();
         if ready.is_empty() {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "No healthy application instances are ready.\n",
-            )
-                .into_response();
+            None
+        } else {
+            Some(ready[p.next.fetch_add(1, Ordering::Relaxed) % ready.len()].clone())
         }
-        ready[p.next.fetch_add(1, Ordering::Relaxed) % ready.len()].clone()
     };
-    if request.uri().path() == "/.well-known/local-paas/route" {
-        return match backend.generation {
+    // Reserved ingress probe: never call the application, even if its policy
+    // changes while a browser is waiting. Only registered authorities qualify.
+    if sleeper.is_some()
+        && request.method() == Method::HEAD
+        && request
+            .headers()
+            .get("x-local-paas-wake-check")
+            .is_some_and(|v| v == "1")
+    {
+        return (
+            if backend.is_some() {
+                StatusCode::NO_CONTENT
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            },
+            [
+                ("cache-control", "no-store"),
+                ("retry-after", "5"),
+                (
+                    "x-local-paas-wake-status",
+                    if backend.is_some() {
+                        "ready"
+                    } else {
+                        "waiting"
+                    },
+                ),
+            ],
+        )
+            .into_response();
+    }
+    if edge_probe {
+        // An active deployment intentionally at zero still has a live wake route.
+        // Candidate revisions require a healthy backend before edge acknowledgement.
+        // Edge probes are not user demand and must never wake a sleeping service.
+        let generation = backend
+            .as_ref()
+            .and_then(|b| b.generation)
+            .or_else(|| sleeper.as_ref().and_then(|page| page.sleeping_generation));
+        return match generation {
             Some(generation) => (
                 StatusCode::NO_CONTENT,
                 [
@@ -188,9 +317,13 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
                 ],
             )
                 .into_response(),
-            None => StatusCode::NOT_FOUND.into_response(),
+            None if backend.is_some() => StatusCode::NOT_FOUND.into_response(),
+            None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         };
     }
+    let Some(backend) = backend else {
+        return unavailable(&request, sleeper.as_deref());
+    };
     forward(
         &p.client,
         request,
@@ -200,6 +333,51 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         Some(backend.expires),
     )
     .await
+}
+
+fn unavailable(request: &Request, page: Option<&crate::waking::Page>) -> Response {
+    let navigation = request.method() == Method::GET
+        && !websocket(request.headers())
+        && request
+            .headers()
+            .get("sec-fetch-mode")
+            .is_none_or(|v| v == "navigate")
+        && request
+            .headers()
+            .get_all("accept")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .any(|v| {
+                v.split(',').any(|media| {
+                    let mut parts = media.trim().split(';');
+                    parts
+                        .next()
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("text/html"))
+                        && !parts.any(|p| {
+                            p.trim()
+                                .strip_prefix("q=")
+                                .is_some_and(|q| q.parse::<f32>().map_or(true, |q| q <= 0.0))
+                        })
+                })
+            });
+    if let Some(page) = page.filter(|page| page.enabled && navigation) {
+        let nonce = Uuid::new_v4().simple().to_string();
+        let html = crate::waking::render(page.html.as_deref(), &page.service_name, &nonce);
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [("content-type", "text/html; charset=utf-8".to_owned()),
+             ("cache-control", "no-store".to_owned()),
+             ("retry-after", "5".to_owned()),
+             ("x-content-type-options", "nosniff".to_owned()),
+             ("content-security-policy", format!("default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"))],
+            html,
+        ).into_response();
+    }
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [("retry-after", "5"), ("cache-control", "no-store")],
+        "No healthy application instances are ready. Retry after five seconds; requests are not queued.\n",
+    ).into_response()
 }
 fn connection_tokens(headers: &HeaderMap) -> Vec<HeaderName> {
     headers
@@ -232,9 +410,10 @@ async fn forward(
     mut request: Request,
     port: i32,
     authority: String,
-    permit: OwnedSemaphorePermit,
+    permit: impl Into<RequestPermit>,
     expires: Option<DateTime<Utc>>,
 ) -> Response {
+    let permit = permit.into();
     let upgrade = websocket(request.headers()) && request.method() == axum::http::Method::GET;
     let downstream = upgrade.then(|| hyper::upgrade::on(&mut request));
     let path = request
@@ -390,6 +569,198 @@ mod tests {
         }))
         .await
     }
+    #[test]
+    fn waking_page_is_only_for_safe_html_navigation_to_sleeping_services() {
+        for (method, accept, mode, enabled, html) in [
+            ("GET", "text/html,application/xhtml+xml", None, true, true),
+            ("GET", "text/html", Some("navigate"), true, true),
+            ("POST", "text/html", Some("navigate"), true, false),
+            ("HEAD", "text/html", None, true, false),
+            ("GET", "application/json", None, true, false),
+            ("GET", "*/*", None, true, false),
+            ("GET", "text/html;q=0.0", None, true, false),
+            ("GET", "text/html", Some("cors"), true, false),
+            ("GET", "text/html", None, false, false),
+        ] {
+            let mut builder = Request::builder().method(method).header("accept", accept);
+            if let Some(mode) = mode {
+                builder = builder.header("sec-fetch-mode", mode);
+            }
+            let page = crate::waking::Page {
+                service_id: Uuid::new_v4(),
+                enabled,
+                service_name: "test".into(),
+                html: None,
+                expires: None,
+                sleeping_generation: None,
+            };
+            let response = unavailable(&builder.body(Body::empty()).unwrap(), Some(&page));
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.headers()["retry-after"], "5");
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            assert_eq!(
+                response.headers()["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("text/html"),
+                html,
+                "{method} {accept} {mode:?} {enabled}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn wake_checks_require_fresh_routes_and_never_reach_the_app() {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = requests.clone();
+        let (port, server) = serve(Router::new().fallback(move |request: Request| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            async move { request.uri().to_string() }
+        }))
+        .await;
+        let id = Uuid::new_v4();
+        let state = Proxy {
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/unused")
+                .unwrap(),
+            sleepers: Arc::new(RwLock::new(HashMap::from([(
+                "sleep.test".into(),
+                Arc::new(crate::waking::Page {
+                    service_id: id,
+                    enabled: true,
+                    service_name: "test".into(),
+                    html: None,
+                    expires: None,
+                    sleeping_generation: None,
+                }),
+            )]))),
+            activity: Arc::default(),
+            recent_demand: Arc::new(std::sync::Mutex::new(HashMap::from([(
+                id,
+                std::time::Instant::now(),
+            )]))),
+            routes: Arc::default(),
+            client: client().unwrap(),
+            next: Arc::new(AtomicUsize::new(0)),
+            connections: Arc::new(Semaphore::new(256)),
+        };
+        let request = |method| {
+            Request::builder()
+                .method(method)
+                .uri("/account?tab=billing")
+                .header("host", "sleep.test")
+                .header("accept", "text/html")
+                .body(Body::empty())
+                .unwrap()
+        };
+        let response = proxy(State(state.clone()), request("GET")).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let csp = response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let body = axum::body::to_bytes(response.into_body(), 16384)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert!(html.contains("Waking up service"));
+        assert!(!html.contains("{{NONCE}}"));
+        let nonce = csp
+            .split("'nonce-")
+            .nth(1)
+            .unwrap()
+            .split('\'')
+            .next()
+            .unwrap();
+        assert!(html.contains(&format!("<script nonce=\"{nonce}\">")));
+        for fresh in [false, true] {
+            state.routes.write().await.insert(
+                "sleep.test".into(),
+                vec![Backend {
+                    port,
+                    expires: Utc::now() + chrono::Duration::seconds(if fresh { 30 } else { -1 }),
+                    authority: "sleep.test".into(),
+                    generation: None,
+                }],
+            );
+            let mut probe = request("HEAD");
+            probe
+                .headers_mut()
+                .insert("x-local-paas-wake-check", "1".parse().unwrap());
+            let response = proxy(State(state.clone()), probe).await;
+            assert_eq!(
+                response.status(),
+                if fresh {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            );
+            assert_eq!(
+                response.headers()["x-local-paas-wake-status"],
+                if fresh { "ready" } else { "waiting" }
+            );
+            assert_eq!(requests.load(Ordering::Relaxed), 0);
+        }
+        let response = proxy(State(state.clone()), request("GET")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap(),
+            "/account?tab=billing"
+        );
+        assert_eq!(requests.load(Ordering::Relaxed), 1);
+        assert!(state.activity.lock().unwrap().is_empty());
+        state.routes.write().await.clear();
+        // The database is deliberately unavailable: route probes must not attempt
+        // request_wake, and an expired edge lease must not serve a waking page.
+        state.recent_demand.lock().unwrap().clear();
+        for fresh in [true, false] {
+            state.sleepers.write().await.insert(
+                "sleep.test".into(),
+                Arc::new(crate::waking::Page {
+                    service_id: id,
+                    enabled: true,
+                    service_name: "test".into(),
+                    html: None,
+                    expires: Some(
+                        Utc::now() + chrono::Duration::seconds(if fresh { 30 } else { -1 }),
+                    ),
+                    sleeping_generation: Some(7),
+                }),
+            );
+            let probe = Request::builder()
+                .uri("/.well-known/local-paas/route")
+                .header("host", "sleep.test")
+                .body(Body::empty())
+                .unwrap();
+            let response = proxy(State(state.clone()), probe).await;
+            assert_eq!(
+                response.status(),
+                if fresh {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            );
+            if fresh {
+                assert_eq!(response.headers()["x-local-paas-generation"], "7");
+            }
+            assert!(state.recent_demand.lock().unwrap().is_empty());
+            assert!(state.activity.lock().unwrap().is_empty());
+        }
+        let response = proxy(State(state.clone()), request("GET")).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            !response.headers()["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        server.abort();
+    }
+
     #[test]
     fn removes_all_case_insensitive_connection_nominations() {
         let mut headers = HeaderMap::new();

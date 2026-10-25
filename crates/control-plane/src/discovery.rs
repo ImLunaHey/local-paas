@@ -16,6 +16,14 @@ pub async fn validate(
     spec: &ServiceSpec,
 ) -> Result<(), ApiError> {
     for c in spec.workload.private_connections() {
+        if crate::scaling::policy(tx, c.service_id)
+            .await?
+            .is_some_and(|p| p.min_replicas == 0)
+        {
+            return Err(ApiError::Conflict(
+                "private connections cannot target a scale-to-zero service",
+            ));
+        }
         if spec.secrets.contains(&c.env) {
             return Err(ApiError::Conflict(
                 "private connection variable conflicts with a secret",

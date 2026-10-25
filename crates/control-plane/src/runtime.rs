@@ -72,6 +72,34 @@ pub(crate) async fn deploy(
     let mut resolved_spec = service.spec.0.clone();
     resolved_spec.secrets = crate::secrets::references(&pool, service_id).await?;
     crate::discovery::validate(&mut tx, &resolved_spec).await?;
+    let scaling_pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped' AND (i.scaling_deadline IS NOT NULL OR i.scale_down_after IS NOT NULL))").bind(service_id).fetch_one(&mut *tx).await?;
+    if scaling_pending {
+        return Err(ApiError::Conflict(
+            "wait for committed scaling actions and cleanup before a rollout",
+        ));
+    }
+    if let Some(policy) = crate::scaling::policy(&mut tx, service_id).await? {
+        crate::scaling::validate_eligibility(&mut tx, service_id, &resolved_spec, &policy).await?;
+        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances i JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND i.state<>'stopped' AND (d.status<>'active' OR i.desired_state='stopped' OR i.scaling_deadline IS NOT NULL OR i.scale_down_after IS NOT NULL) UNION ALL SELECT 1 FROM relocations r JOIN instances i ON i.id=r.old_instance JOIN deployments d ON d.id=i.deployment_id WHERE d.service_id=$1 AND r.state IN ('preparing','draining'))").bind(service_id).fetch_one(&mut *tx).await?;
+        if pending || crate::jobs::occupied(&mut tx, service_id).await? {
+            return Err(ApiError::Conflict(
+                "wait for scaling, relocation and job cleanup before a rollout",
+            ));
+        }
+        let desired: i32 =
+            sqlx::query_scalar("SELECT desired_replicas FROM scaling_policies WHERE service_id=$1")
+                .bind(service_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let count = (desired as u16).clamp(policy.min_replicas.max(1), policy.max_replicas);
+        crate::scaling::set_replicas(&mut resolved_spec, count);
+        if crate::scaling::budget(&mut tx, &resolved_spec).await? < count {
+            return Err(ApiError::Conflict(
+                "rollout would exceed the operator scaling budget",
+            ));
+        }
+        sqlx::query("UPDATE scaling_policies SET failure_latched=false,direction=0,stable_since=now() WHERE service_id=$1").bind(service_id).execute(&mut *tx).await?;
+    }
     let spec = &resolved_spec;
     let (replicas, database_size) = match spec.workload {
         Workload::OciService { replicas, .. } => (replicas, None),
@@ -264,12 +292,44 @@ pub(crate) async fn place_excluding(
     .bind(service_id)
     .fetch_one(&mut **tx)
     .await?;
-    let nodes = sqlx::query("SELECT * FROM nodes WHERE (organization_id IS NULL OR organization_id=$1) AND NOT cordoned AND last_seen>now()-interval '30 seconds' ORDER BY organization_id NULLS LAST,name FOR UPDATE")
+    let mut nodes = sqlx::query("SELECT * FROM nodes WHERE (organization_id IS NULL OR organization_id=$1) AND NOT cordoned AND NOT draining AND last_seen>now()-interval '30 seconds' ORDER BY organization_id NULLS LAST,name FOR UPDATE")
         .bind(&organization_id)
         .fetch_all(&mut **tx)
         .await?;
+    let policy = crate::scaling::policy(tx, service_id).await?;
+    let mut domains: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    if policy
+        .as_ref()
+        .is_some_and(|p| p.prefer_failure_domain_spread)
+    {
+        let existing: Vec<String> = sqlx::query_scalar("SELECT n.failure_domain FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN nodes n ON n.id=i.node_id WHERE d.service_id=$1 AND i.desired_state='running'").bind(service_id).fetch_all(&mut **tx).await?;
+        for domain in existing {
+            *domains.entry(domain).or_default() += 1;
+        }
+    }
     let mut placements = Vec::new();
-    for node in nodes {
+    while !nodes.is_empty() && placements.len() < replicas as usize {
+        if policy
+            .as_ref()
+            .is_some_and(|p| p.prefer_failure_domain_spread)
+        {
+            nodes.sort_by_key(|n| {
+                *domains
+                    .get(&n.get::<String, _>("failure_domain"))
+                    .unwrap_or(&0)
+            });
+        }
+        let node = nodes.remove(0);
+        if let Some(p) = &policy
+            && ((!p.node_names.is_empty()
+                && !p.node_names.contains(&node.get::<String, _>("name")))
+                || (!p.failure_domains.is_empty()
+                    && !p
+                        .failure_domains
+                        .contains(&node.get::<String, _>("failure_domain"))))
+        {
+            continue;
+        }
         let id: Uuid = node.get("id");
         if excluded.contains(&id) {
             continue;
@@ -354,6 +414,14 @@ pub(crate) async fn place_excluding(
             memory += s.resources.memory_mib as i32;
             slots.push(row.get::<i32, _>("slot"));
         }
+        for &(placed_node, placed_slot) in &placements {
+            if placed_node == id {
+                slots.push(placed_slot);
+                cpu += spec.resources.cpu_millis as i32;
+                memory += spec.resources.memory_mib as i32;
+            }
+        }
+        let before = placements.len();
         for slot in 0..node.get::<i32, _>("slots") {
             if placements.len() == replicas as usize {
                 break;
@@ -365,12 +433,27 @@ pub(crate) async fn place_excluding(
                 && memory + spec.resources.memory_mib as i32 <= node.get::<i32, _>("memory_mib")
             {
                 placements.push((id, slot));
+                *domains
+                    .entry(node.get::<String, _>("failure_domain"))
+                    .or_default() += 1;
                 cpu += spec.resources.cpu_millis as i32;
                 memory += spec.resources.memory_mib as i32;
-                if spec.distinct_nodes {
+                if spec.distinct_nodes
+                    || policy
+                        .as_ref()
+                        .is_some_and(|p| p.prefer_failure_domain_spread)
+                {
                     break;
                 }
             }
+        }
+        if !spec.distinct_nodes
+            && placements.len() > before
+            && policy
+                .as_ref()
+                .is_some_and(|p| p.prefer_failure_domain_spread)
+        {
+            nodes.push(node);
         }
     }
     Ok(placements)
@@ -517,6 +600,7 @@ pub async fn reconcile(pool: &PgPool) -> Result<(), sqlx::Error> {
             sqlx::query("INSERT INTO events(id,service_id,operation_id,kind) VALUES($1,$2,$3,$4) ON CONFLICT(operation_id,kind) DO NOTHING").bind(Uuid::now_v7()).bind(service).bind(id).bind(if failed {"deployment.failed"} else {"deployment.active"}).execute(&mut *tx).await?;
         }
     }
+    crate::scaling::reconcile(&mut tx).await?;
     crate::nodes::reconcile(&mut tx).await?;
     sqlx::query("DELETE FROM runtime_metrics WHERE timestamp<now()-interval '1 hour'")
         .execute(&mut *tx)
@@ -672,7 +756,7 @@ async fn sync_inner(
             sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line,level,message,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).bind(level).bind(message).bind(fields.map(DbJson)).execute(&mut *tx).await.map_err(db_error)?;
         }
     }
-    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state='preparing') AS recovery_eligible,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.status AS deployment_status,d.job_options,d.deadline,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
+    let rows=sqlx::query("SELECT i.id,i.generation,i.desired_state,i.slot,(i.scaling_deadline IS NULL AND NOT EXISTS(SELECT 1 FROM relocations r WHERE r.new_instance=i.id AND r.state='preparing')) AS recovery_eligible,d.id AS deployment_id,d.service_id,d.revision_id,d.spec,d.status AS deployment_status,d.job_options,d.deadline,d.database_ports,d.volume_size_gib,r.image_repository,r.image_digest FROM instances i JOIN deployments d ON d.id=i.deployment_id JOIN revisions r ON r.id=d.revision_id WHERE i.node_id=$1 AND i.state<>'stopped'").bind(input.node_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut assignments = Vec::new();
     for r in rows {
         let mut spec = r.get::<DbJson<ServiceSpec>, _>("spec").0;

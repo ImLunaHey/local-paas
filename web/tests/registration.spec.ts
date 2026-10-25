@@ -57,7 +57,9 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
   await page.getByLabel('Build command (optional)').fill('npm run build -- --mode production')
   await page.getByLabel('Start command (optional)').fill('node dist/server.js')
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(page.getByRole('status')).toHaveText('Configuration saved.')
+  await expect(
+    page.getByRole('form', { name: 'Service configuration' }).getByRole('status'),
+  ).toHaveText('Configuration saved.')
   await stale.getByLabel('Memory per instance (MiB)').fill('2048')
   await stale.getByRole('button', { name: 'Save changes' }).click()
   await expect(stale.getByRole('alert')).toContainText('configuration changed')

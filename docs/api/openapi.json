@@ -531,6 +531,142 @@
         }
       }
     },
+    "/api/services/{id}/scaling": {
+      "get": {
+        "tags": [
+          "crate::scaling"
+        ],
+        "operationId": "getServiceScaling",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::scaling"
+        ],
+        "operationId": "configureServiceScaling",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Configure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/services/{id}/waking-page": {
+      "get": {
+        "tags": [
+          "crate::waking"
+        ],
+        "operationId": "getServiceWakingPage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WakingPageState"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::waking"
+        ],
+        "operationId": "configureServiceWakingPage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureWakingPage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WakingPageState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/specs/validate": {
       "post": {
         "tags": [
@@ -601,6 +737,53 @@
           "dockerfile",
           "generated"
         ]
+      },
+      "Configure": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "expectedVersion",
+          "policy"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ScalingPolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConfigureWakingPage": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "expectedVersion"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "html": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A complete UTF-8 HTML template, or null to restore the platform default."
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
       },
       "CreateService": {
         "type": "object",
@@ -1106,6 +1289,82 @@
         },
         "additionalProperties": false
       },
+      "ScalingPolicy": {
+        "type": "object",
+        "properties": {
+          "cooldownSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 60,
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "failureDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "idleSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 600,
+            "minimum": 0
+          },
+          "maxReplicas": {
+            "type": "integer",
+            "format": "int32",
+            "default": 3,
+            "minimum": 0
+          },
+          "maxStep": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1,
+            "minimum": 0
+          },
+          "minReplicas": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1,
+            "minimum": 0
+          },
+          "nodeNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "preferFailureDomainSpread": {
+            "type": "boolean",
+            "default": true
+          },
+          "scaleDownWindowSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 300,
+            "minimum": 0
+          },
+          "scaleUpWindowSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 30,
+            "minimum": 0
+          },
+          "targetCpuPercent": {
+            "type": "integer",
+            "format": "int32",
+            "default": 70,
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "Service": {
         "type": "object",
         "required": [
@@ -1278,6 +1537,28 @@
           }
         },
         "additionalProperties": false
+      },
+      "WakingPageState": {
+        "type": "object",
+        "required": [
+          "version",
+          "starterTemplate"
+        ],
+        "properties": {
+          "html": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "starterTemplate": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "Workload": {
         "oneOf": [

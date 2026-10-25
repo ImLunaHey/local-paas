@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{service_name}} · Waking up service</title>
+    <style nonce="{{csp_nonce}}">
+      /* Mirror the dashboard palette in web/src/styles.css without requiring
+         application assets while the service is asleep. */
+      :root {
+        color-scheme: light dark;
+        font-family: 'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-synthesis: none;
+        background: light-dark(#fafafa, #0a0a0b);
+        color: light-dark(#27272a, #f2f2f3);
+        --line: light-dark(#e4e4e7, #28282c);
+        --muted: light-dark(#52525b, #a0a0a8);
+        --accent: light-dark(#9a3412, #ff8a4c);
+      }
+      * { box-sizing: border-box; }
+      body { min-height: 100svh; margin: 0; display: grid; place-items: center; padding: 24px; font-size: 14px; -webkit-font-smoothing: antialiased; }
+      main { width: 100%; max-width: 520px; }
+      .brand { display: flex; align-items: center; gap: 11px; margin-bottom: 24px; font-size: 18px; font-weight: 650; letter-spacing: -0.9px; }
+      .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid light-dark(#d4d4d8, #38383c); border-radius: 9px; background: linear-gradient(145deg, light-dark(#d4d4d8, #2b2b2f), light-dark(#f4f4f5, #18181b)); }
+      svg { display: block; }
+      .panel { overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: light-dark(#f4f4f5, #131315); box-shadow: 0 1px 0 #ffffff04 inset, 0 8px 24px #0000000d; }
+      .content { padding: 36px; }
+      .service-icon { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 30px; border: 1px solid light-dark(#fed7aa, #482719); border-radius: 12px; color: var(--accent); background: light-dark(#fff7ed, #24160f); }
+      .eyebrow { margin-bottom: 12px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 1.7px; text-transform: uppercase; }
+      h1 { margin: 0 0 14px; font-size: clamp(26px, 5vw, 30px); font-weight: 500; letter-spacing: -1.15px; line-height: 1.2; }
+      p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.8; }
+      .status-row { display: flex; align-items: center; gap: 12px; padding: 18px 36px; border-top: 1px solid var(--line); background: light-dark(#fafafa, #101012); }
+      .indicator { flex: 0 0 auto; width: 14px; height: 14px; border: 1.5px solid light-dark(#fed7aa, #482719); border-top-color: var(--accent); border-radius: 50%; animation: spin 1.2s linear infinite; }
+      .status { color: var(--accent); font-size: 11px; line-height: 1.7; }
+      footer { margin-top: 22px; color: var(--muted); font-size: 10px; text-align: center; }
+      noscript p { padding: 0 36px 20px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .indicator { animation: none; } }
+      @media (max-width: 480px) { .content { padding: 28px 24px; } .status-row { padding: 16px 24px; } noscript p { padding: 0 24px 20px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m12 3 10 5-10 5L2 8l10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/>
+          </svg>
+        </span>
+        local-paas
+      </div>
+      <section class="panel" aria-labelledby="heading">
+        <div class="content">
+          <div class="service-icon" aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m12 3 9 5v8l-9 5-9-5V8l9-5ZM3 8l9 5 9-5M12 13v8M7.5 5.5l9 5"/>
+            </svg>
+          </div>
+          <div class="eyebrow">Service startup</div>
+          <h1 id="heading">Waking up service</h1>
+          <p>This service is starting up. You’ll be taken to the app automatically when it’s ready.</p>
+        </div>
+        <div class="status-row">
+          <span class="indicator" aria-hidden="true"></span>
+          <p class="status" role="status" data-waking-status>Waiting for the app to be ready…</p>
+        </div>
+        <noscript><p>This page refreshes every {{retry_after_seconds}} seconds while you wait.</p></noscript>
+      </section>
+      <footer>Built for a smaller cloud.</footer>
+    </main>
+    {{readiness_script}}
+  </body>
+</html>

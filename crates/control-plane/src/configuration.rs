@@ -26,6 +26,9 @@ pub(crate) async fn update(
 ) -> Result<Json<Service>, ApiError> {
     request.spec.validate().map_err(ApiError::Invalid)?;
     let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
+        .execute(&mut *tx)
+        .await?;
     crate::domains::lock(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(request.operation_id.to_string())
@@ -51,6 +54,9 @@ pub(crate) async fn update(
         return Err(ApiError::Conflict(
             "configuration changed since you opened it; reload the configuration before saving",
         ));
+    }
+    if let Some(policy) = crate::scaling::policy(&mut tx, id).await? {
+        crate::scaling::validate_eligibility(&mut tx, id, &request.spec, &policy).await?;
     }
     let organization = crate::auth::required_organization(&context)?;
     crate::volumes::validate_scope(&mut tx, &request.spec, organization).await?;
