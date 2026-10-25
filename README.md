@@ -3,10 +3,11 @@
 An experimental, self-hosted application platform. Rust controller and node agents;
 React, Vite, Tailwind and TanStack frontend. Licensed under [MIT](LICENSE).
 
-Deploy Dockerfiles or supported Node/Bun projects from Git branches, tags, commits,
-or local uploads. Builds run in an isolated BuildKit VM and produce immutable OCI
-images. Three isolated worker VMs run applications through containerd. Management
-services run outside the cluster they control.
+Deploy Dockerfiles or supported Node, Bun, Python, Go, Rust, Ruby and PHP projects
+from Git branches, tags, commits, or local uploads. Builds run in an isolated
+BuildKit VM and produce immutable OCI images. Three isolated worker VMs run
+applications through containerd. Management services run outside the cluster they
+control.
 
 ## Install on Linux
 
@@ -68,7 +69,8 @@ host are three scheduling nodes, not three physical failure domains.
 ## What works
 
 - Projects, per-project environments, shadowed configuration and secrets.
-- Dockerfile builds, supported Node/Bun generated recipes, build/start overrides.
+- Dockerfile builds, versioned generated recipes for seven language ecosystems,
+  build/start overrides and persisted detection evidence.
 - Signed, replay-safe GitHub webhooks that pin public-repository events to commits.
 - Health-gated deployments, retained revisions, failed-candidate rollback,
   independent ingress, cordon/drain and opt-in stateless relocation.

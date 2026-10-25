@@ -16,7 +16,7 @@ export function BuildSettings({
     <>
       <Field
         label="Build method"
-        hint="Automatic uses your Dockerfile when present, otherwise generates one for a supported Node or Bun app with a lockfile and start script or custom start command."
+        hint="Automatic uses your Dockerfile when present, otherwise detects a standalone Node, Bun, Python, Go, Rust, Ruby or PHP app with its committed lockfile. Most non-JavaScript apps require a Start command."
       >
         <Select
           name="buildMode"
@@ -33,7 +33,7 @@ export function BuildSettings({
         <>
           <Field
             label="Build command (optional)"
-            hint="Blank uses scripts.build when present. A custom command selects a generated Dockerfile, even if the repository has one. Commands run inside the builder; use secret references for secrets."
+            hint="Blank uses the detected recipe default. A custom command selects a generated Dockerfile, even if the repository has one. Commands run inside the builder; use secret references for secrets."
           >
             <Input
               name="buildCommand"
@@ -44,7 +44,7 @@ export function BuildSettings({
           </Field>
           <Field
             label="Start command (optional)"
-            hint="Blank uses scripts.start. A custom command selects a generated Dockerfile and runs when an instance starts."
+            hint="Blank uses scripts.start for JavaScript or the compiled app for Go. Python, Rust, Ruby and PHP require an explicit command."
           >
             <Input
               name="startCommand"

@@ -2,8 +2,8 @@
 
 Choose **ZIP or local files** in service creation or configuration. One file picker
 accepts either a ZIP or multiple files; ZIP preserves nested directory structure.
-An existing registered project is required. The ordinary Dockerfile/automatic Node
-and Bun detection settings also apply to uploads. celld retains its separate contract.
+An existing registered project is required. The ordinary Dockerfile and automatic
+language-recipe settings also apply to uploads. celld retains its separate contract.
 
 The Rust API validates ZIPs before persisting a content-addressed archive on management
 NVMe (`.local/source-uploads`, or `PLATFORM_SOURCE_DIRECTORY`). The build worker checks
