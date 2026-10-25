@@ -8,7 +8,7 @@ test('register an OCI service, queue and cancel a build, and retain it on reload
 }) => {
   const name = `browser-oci-${Date.now()}`
   await page.goto('/')
-  await expect(page.getByText('Connected locally')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   await newApp(page)
   await page.getByLabel('Service name').fill(name)
   await page.getByLabel('Git repository').fill('https://github.com/example/web-canary.git')

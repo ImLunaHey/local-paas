@@ -21,6 +21,11 @@ For an installed service, `BETTER_AUTH_SECRET_FILE`, `PUBLIC_ORIGIN`, and truste
 
 Global `admin` is the installation superuser and is reserved for recovery and cross-organization administration. Organization members receive one or more organization roles:
 
+The platform administrator dashboard lists every account and exposes a user profile for updating
+identity fields and global roles, suspending access, and reviewing or revoking active sessions. It
+also shows controller-host and worker health. The active administrator cannot remove their own
+global administrator role, suspend themselves, or revoke their current session from that screen.
+
 - `owner` and `admin` manage members, invitations, teams, and custom roles.
 - `operator` manages projects, services, builds, deployments, jobs, domains, storage, and secret references.
 - `viewer` has read-only platform access.

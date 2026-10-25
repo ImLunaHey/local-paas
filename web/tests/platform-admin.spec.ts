@@ -16,7 +16,9 @@ test('root receives the installation-wide dashboard', async ({ page }) => {
   await expect(page.getByText('Platform administration', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Organizations', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Users', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Host', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Billing', exact: true })).toBeVisible()
+  await expect(page.getByText('CONTROL PLANE', { exact: true })).toHaveCount(0)
 
   await page.getByRole('link', { name: 'Organizations', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Organizations', exact: true })).toBeVisible()
@@ -25,6 +27,15 @@ test('root receives the installation-wide dashboard', async ({ page }) => {
   await page.getByRole('link', { name: 'Users', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
   await expect(page.getByText('Global role: admin', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: /imlunahey/ }).click()
+  await expect(page.getByRole('heading', { name: 'imlunahey', exact: true })).toBeVisible()
+  await page.getByLabel('Display name').fill('Luna Admin')
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('User profile updated.')
+  await expect(page.getByRole('heading', { name: 'Luna Admin', exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Host', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /resources/ })).toBeVisible()
 
   await page.setViewportSize({ width: 390, height: 844 })
   const navigationLinks = page

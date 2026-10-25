@@ -137,7 +137,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
     <div
       className={cn({
         'hidden items-center gap-1.5 max-[720px]:flex': compact,
-        'border-t border-line px-3 pt-[22px] max-[720px]:hidden': !compact,
+        'mt-auto border-t border-line px-3 pt-[22px] max-[720px]:hidden': !compact,
       })}
     >
       {!compact && (
