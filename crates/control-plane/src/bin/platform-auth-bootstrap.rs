@@ -94,14 +94,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_iter()
         .find(|organization_member| organization_member.user_id == member.id);
     if let Some(existing_member) = existing_member {
-        if existing_member.role != "operator" {
+        if existing_member.role != "admin" {
             runtime
                 .service
                 .update_organization_member_role(
                     &root.session,
                     Some(organization.id.clone()),
                     existing_member.id,
-                    "operator".into(),
+                    "admin".into(),
                 )
                 .await?;
         }
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &root.session,
                 NewOrganizationInvitation {
                     email: member.email.clone(),
-                    role: "operator".into(),
+                    role: "admin".into(),
                     organization_id: Some(organization.id.clone()),
                     team_ids: Vec::new(),
                     resend: false,

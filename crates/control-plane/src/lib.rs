@@ -36,6 +36,7 @@ mod networking;
 mod nodes;
 mod object_storage;
 mod overview;
+mod platform_admin;
 pub mod preview;
 mod projects;
 mod releases;
@@ -112,6 +113,10 @@ fn platform_router(
             axum::routing::put(domains::update),
         )
         .route("/api/overview", get(overview::get))
+        .route(
+            "/api/platform-admin/overview",
+            get(platform_admin::overview),
+        )
         .route("/api/hosts", get(overview::hosts))
         .route("/api/nodes", get(nodes::list))
         .route("/api/nodes/{id}/actions", post(nodes::action))
@@ -286,6 +291,8 @@ pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
 pub enum ApiError {
     #[error("valid workload identity required")]
     Unauthorized,
+    #[error("request is not permitted")]
+    Forbidden,
     #[error("invalid service specification")]
     Invalid(Vec<ValidationIssue>),
     #[error("{0}")]
@@ -317,6 +324,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let code = match &self {
             Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
             Self::Invalid(_) => "validation_failed",
             Self::Conflict(_) => "conflict",
             Self::NotFound => "not_found",
@@ -327,6 +335,10 @@ impl IntoResponse for ApiError {
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 json!({"error":"valid workload identity required"}),
+            ),
+            Self::Forbidden => (
+                StatusCode::FORBIDDEN,
+                json!({"error":"request is not permitted"}),
             ),
             Self::Unavailable(message) => {
                 (StatusCode::SERVICE_UNAVAILABLE, json!({"error":message}))

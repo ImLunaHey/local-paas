@@ -108,8 +108,8 @@ terminal. The API binds `127.0.0.1:8080`; Vite binds `127.0.0.1:5188` and proxie
 API. Basic API/UI development works without OpenBao, ClickHouse or VMs; unavailable
 infrastructure does not become fake successful builds or deployments.
 
-The interactive bootstrap creates the first local administrator and organization
-operator without echoing or storing plaintext passwords. Authentication, organization,
+The interactive bootstrap creates the first platform administrator and organization
+administrator without echoing or storing plaintext passwords. Authentication, organization,
 team, custom-role, recovery, and threat-model details are in
 [operator authentication](docs/authentication.md).
 

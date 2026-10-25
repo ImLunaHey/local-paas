@@ -35,3 +35,10 @@ export const authClient = createAuthClient({
     }),
   ],
 })
+
+export function isPlatformAdministrator(role: string | null | undefined) {
+  return role
+    ?.split(',')
+    .map((value) => value.trim())
+    .includes('admin')
+}
