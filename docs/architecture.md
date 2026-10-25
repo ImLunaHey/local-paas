@@ -23,10 +23,12 @@ See [build operations](builds.md) and [runtime operations](runtime.md).
   API. SQLx migrations and queries against PostgreSQL. Tokio async runtime.
 - TypeScript frontend: Vite, React, Tailwind's Vite plugin, TanStack Router for
   navigation, TanStack Query for server state. The API owns validation.
-- Dockerfile-first builds support a generated-Dockerfile fallback. Start with standalone Node/Bun package manifests and committed lockfiles.
-  Custom build/start commands select generation; other languages/workspaces retain
-  the explicit Dockerfile contract. Generated recipes are persisted with builds and
-  still execute only inside BuildKit in the isolated VM.
+- Dockerfile-first builds support a generated-Dockerfile fallback for standalone
+  Node, Bun, Python, Go, Rust, Ruby and PHP applications with committed lockfiles.
+  Custom build/start commands select generation; workspaces, ambiguous roots and
+  unsupported native dependencies retain the explicit Dockerfile contract. The
+  versioned detector evidence and complete generated recipes are persisted with
+  builds and still execute only inside BuildKit in the isolated VM.
 - Start with JSON as the machine-readable manifest format; explicit numeric
   units avoid ambiguous CPU/memory parsing. Dockerfile/context/port/readiness
   are explicit. Do not infer a safe readiness check from EXPOSE.

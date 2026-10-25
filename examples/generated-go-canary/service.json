@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "project": "sandbox",
+  "environment": "development",
+  "name": "generated-go-canary",
+  "source": {
+    "repository": "https://github.com/ImLunaHey/local-paas.git",
+    "branch": "main"
+  },
+  "resources": { "cpuMillis": 250, "memoryMib": 128 },
+  "distinctNodes": false,
+  "domains": [],
+  "secrets": [],
+  "workload": {
+    "kind": "oci-service",
+    "buildMode": "generated",
+    "dockerfile": "Dockerfile",
+    "context": "examples/generated-go-canary",
+    "replicas": 1,
+    "port": 3000,
+    "readiness": { "path": "/health", "intervalSeconds": 5, "stabilizationSeconds": 10 }
+  }
+}

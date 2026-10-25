@@ -4,15 +4,27 @@ import type { GitSource as Source } from './generated/model/gitSource'
 import { getGetServiceQueryOptions } from './generated/management'
 
 export type BuildPlan =
-  | { kind: 'dockerfile'; path: string }
+  | { kind: 'dockerfile'; path: string; detection?: RecipeDetection }
   | {
       kind: 'generated'
       generator: string
       runtime: string
       packageManager: string
+      detection?: RecipeDetection
       dockerfile: string
       dockerignore: string
     }
+
+export interface RecipeDetection {
+  detectorVersion: string
+  confidence: 'explicit' | 'high' | 'unknown'
+  reasons: string[]
+  requiredFiles: string[]
+  buildCommand: string | null
+  startCommand: string
+  port: number | null
+  unsupported: string[]
+}
 
 export interface Build {
   id: string

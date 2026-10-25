@@ -451,7 +451,7 @@ async fn prepare_recipe(
     args: &mut Vec<String>,
 ) -> Result<(), Error> {
     match plan {
-        BuildPlan::Dockerfile { path } => {
+        BuildPlan::Dockerfile { path, .. } => {
             for arg in args.iter_mut() {
                 if arg.starts_with("filename=") {
                     *arg = format!("filename={path}");

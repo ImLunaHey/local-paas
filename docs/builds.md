@@ -66,33 +66,43 @@ VM remains the resource/isolation boundary.
 OCI services now accept `workload.build_mode`: `auto` (the default),
 `dockerfile`, or `generated`. Automatic mode prefers the configured repository
 Dockerfile, including BuildKit's lowercase spelling, and generates a recipe if
-that file is absent. Generation is based on `package.json` in the build context,
-so a standalone app in a subdirectory works by setting `context` accordingly.
-An existing Dockerfile that fails to build is never replaced as a retry strategy.
+that file is absent. Detection considers only root manifests in the selected
+build context, so a standalone app in a subdirectory works by setting `context`
+accordingly. Multiple ecosystem manifests are ambiguous and fail closed. An
+existing Dockerfile that fails to build is never replaced as a retry strategy.
 
 The Configuration tab also accepts `buildCommand` and `startCommand`.
-Blank fields use `scripts.build` (if present) and `scripts.start` respectively.
-A custom start command allows an app without `scripts.start`. Custom commands
-select generation even in automatic mode; select `generated` to explicitly
-ignore a repository Dockerfile. Dockerfile-only mode rejects command overrides
-instead of silently ignoring them. Set a build command of `true` to explicitly
-skip an application's default build script. Commands execute through `/bin/sh -c`
-inside the builder/runtime and are JSON-encoded in the Dockerfile, never executed
-on the controller. Use `exec` in a custom start command when appropriate for
-signal forwarding. Commands are visible configuration: never put secret values
-in them. Runtime secret delivery uses OpenBao; build-time secrets are not supported.
+Blank fields use the selected recipe's defaults. JavaScript uses `scripts.build`
+and `scripts.start`; Go builds the root package to `/app/app`. Python, Rust, Ruby
+and PHP require an explicit start command because inferring a framework,
+entrypoint or binary name is unsafe. Custom commands select generation even in
+automatic mode; select `generated` to explicitly ignore a repository Dockerfile.
+Dockerfile-only mode rejects command overrides instead of silently ignoring them.
+Set a build command of `true` to explicitly skip an application's default build
+script. Commands execute through `/bin/sh -c` inside the builder/runtime and are
+JSON-encoded in the Dockerfile, never executed on the controller. Use `exec` in a
+custom start command when appropriate for signal forwarding. Commands are visible
+configuration: never put secret values in them. Runtime secret delivery uses
+OpenBao; build-time secrets are not supported.
 
-The initial generator supports standalone Node/Bun applications with one package
-manager's committed lockfile: npm (package-lock/shrinkwrap), pnpm, Yarn, or Bun
-(bun.lock/bun.lockb). It performs a frozen install including build dependencies,
-then the selected build command, then records the startup command in the image.
-It requires a start script or explicit start command; it never guesses a dev
-server, source entrypoint, or static-site serving command. Monorepo/workspace
-packages, unsupported languages, conflicting lockfiles and missing lockfiles
-receive actionable errors. Provide a repository Dockerfile for these cases.
+The versioned recipe interface supports these standalone application shapes:
 
-Runtime presets are digest-pinned Node 24.22.1/22.23.4 (Debian bookworm slim) and
-Bun 1.4.4. Node selection respects `engines.node`, `.node-version` and `.nvmrc`;
+| Ecosystem | Required root files | Default build | Start |
+| --- | --- | --- | --- |
+| Node/Bun | `package.json` and exactly one npm, pnpm, Yarn or Bun lockfile | `scripts.build`, if present | `scripts.start` |
+| Python | `pyproject.toml`, `uv.lock` | `uv sync --frozen` | explicit command |
+| Go | `go.mod`, `go.sum` | locked root-package binary at `/app/app` | `/app/app` |
+| Rust | `Cargo.toml`, `Cargo.lock` | `cargo build --locked --release` | explicit command |
+| Ruby | `Gemfile`, `Gemfile.lock` with an exact Bundler version | deployment-mode `bundle install` | explicit command |
+| PHP | `composer.json`, `composer.lock` | production Composer install | explicit command |
+
+Monorepos/workspaces, mixed-language roots, conflicting lockfiles, missing
+lockfiles and known native-system dependency cases receive actionable errors.
+Provide a repository Dockerfile for these cases.
+
+Runtime presets are digest-pinned Node 24.22.1/22.23.4, Bun 1.4.4, Python 3.13.9,
+Go 1.25.3, Rust 1.90.0, Ruby 3.4.7 and PHP 8.4.14 images. Node selection respects
+`engines.node`, `.node-version` and `.nvmrc`;
 unsupported or conflicting requirements fail rather than silently choosing a
 version. Exact `packageManager` versions are honored; pnpm defaults to 12.15.0,
 Yarn to 1.22.22, npm to the pinned image's bundled version. Bun's preset currently
@@ -111,14 +121,17 @@ Dockerfile-only mode. Only a definitive missing-file response permits fallback;
 network errors do not. Package scripts never run during inspection.
 
 The worker persists the exact `buildPlan` before invoking BuildKit, with lease
-fencing and an audit event. The build details show the saved generated Dockerfile,
-including after a failed build. Source checkout stays in the isolated VM. For a
+fencing and an audit event. The plan contains the detector version, confidence,
+reasons, required files, effective commands, port, unsupported conditions and the
+complete generated Dockerfile. Build details retain this evidence after failure.
+Source checkout stays in the isolated VM. For a
 generated build, buildctl shares only a fresh tmpfs directory containing the
 platform-authored Dockerfile and Dockerfile-specific ignore file; it never shares
 local source, HOME or credentials. The pinned frontend's `dockerfilekey` option
 overrides the remote Dockerfile while retaining the remote Git context. Repository
-ignore rules are followed by mandatory exclusions for dotenv files, .npmrc, .git,
-node_modules and .next, so repository negations cannot reinclude these files.
+ignore rules are followed by mandatory exclusions for dotenv files, `.npmrc`,
+`.git`, dependency directories and build outputs, so repository negations cannot
+reinclude these files.
 These rules are also emitted as `COPY --exclude` flags: this BuildKit frontend
 does not apply the local ignore file to an already-resolved remote Git context.
 A check before dependency installation rejects any copied dotenv or .npmrc file.
@@ -139,6 +152,11 @@ application's scripts:
 source .local/builder.env
 cargo test -p platform-build-runner --lib generated_recipe -- --ignored
 ```
+
+`examples/generated-go-canary/service.json` is the real non-JavaScript canary.
+Pin its source to the revision under test before registration; the checked-in
+branch is only a convenient template and is not an immutable qualification input.
+Recipe contributor and versioning rules are in [build-recipes.md](build-recipes.md).
 
 The worker runs build preparation in an independently scheduled task. Heartbeat
 queries must not block the only task that can finish a transaction on the same

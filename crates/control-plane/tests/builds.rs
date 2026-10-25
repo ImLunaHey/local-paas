@@ -508,6 +508,7 @@ async fn build_recipes_are_immutable_audited_and_fenced(pool: PgPool) {
         generator: "test-v1".into(),
         runtime: "Node".into(),
         package_manager: "npm".into(),
+        detection: Default::default(),
         dockerfile: "FROM scratch".into(),
         dockerignore: ".env".into(),
     };
@@ -515,6 +516,7 @@ async fn build_recipes_are_immutable_audited_and_fenced(pool: PgPool) {
     assert!(builds::record_plan(&pool, &build, &plan).await.unwrap());
     let changed = platform_build_runner::BuildPlan::Dockerfile {
         path: "Dockerfile".into(),
+        detection: Default::default(),
     };
     assert!(!builds::record_plan(&pool, &build, &changed).await.unwrap());
     let (_, stored) = call(
