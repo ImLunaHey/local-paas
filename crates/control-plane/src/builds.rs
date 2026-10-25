@@ -51,6 +51,78 @@ pub struct CreateBuild {
     pub tag: Option<String>,
 }
 
+/// Queue a provider-authenticated revision without allowing a mutable ref to
+/// enter the durable build. The caller owns the transaction so the webhook
+/// delivery and build intent commit together.
+pub(crate) async fn enqueue_pinned(
+    tx: &mut Transaction<'_, Postgres>,
+    service_id: Uuid,
+    operation_id: Uuid,
+    commit: &str,
+) -> Result<Build, ApiError> {
+    if !commit_hash(commit) {
+        return Err(ApiError::Conflict(
+            "provider event did not contain a full commit hash",
+        ));
+    }
+    let service = sqlx::query_as::<_, Service>(
+        "SELECT id, operation_id, spec, created_at, version FROM services WHERE id=$1 FOR UPDATE",
+    )
+    .bind(service_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let active: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM builds WHERE service_id=$1 AND status IN ('queued','running'))",
+    )
+    .bind(service_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if active {
+        return Err(ApiError::Conflict(
+            "this service already has a queued or running build",
+        ));
+    }
+    let mut spec = service.spec.0;
+    spec.source.commit = Some(commit.to_owned());
+    spec.source.branch = None;
+    spec.source.tag = None;
+    spec.validate().map_err(ApiError::Invalid)?;
+    if !matches!(
+        spec.workload,
+        Workload::OciService { .. }
+            | Workload::PostgresService { .. }
+            | Workload::RedisService { .. }
+            | Workload::RustfsService { .. }
+    ) {
+        return Err(ApiError::Conflict(
+            "celld applications use a separate fleet deployment path; OCI builds are not supported",
+        ));
+    }
+    let organization_id: String = sqlx::query_scalar(
+        "SELECT p.organization_id FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1",
+    )
+    .bind(service_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    crate::source_uploads::validate_scope(tx, &spec, &organization_id).await?;
+    let request_json = json!({"source":"github-webhook","commit":commit});
+    let build = sqlx::query_as::<_, Build>(
+        "INSERT INTO builds (id,service_id,operation_id,spec,no_cache,resolved_commit,request_json) VALUES($1,$2,$3,$4,false,$5,$6) RETURNING *",
+    )
+    .bind(Uuid::now_v7())
+    .bind(service_id)
+    .bind(operation_id)
+    .bind(DbJson(spec))
+    .bind(commit)
+    .bind(request_json)
+    .fetch_one(&mut **tx)
+    .await?;
+    event(tx, &build, "build.queued").await?;
+    event(tx, &build, "build.source_resolved").await?;
+    Ok(build)
+}
+
 pub(crate) async fn create(
     State(pool): State<PgPool>,
     Path(service_id): Path<Uuid>,

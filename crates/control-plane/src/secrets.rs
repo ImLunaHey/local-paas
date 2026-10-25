@@ -116,6 +116,50 @@ impl Bao {
             .map_err(|_| ApiError::Unavailable("invalid secret data"))?;
         Ok((version, values))
     }
+
+    pub(crate) async fn create_source_webhook_secret(
+        &self,
+        path: &str,
+        secret: &str,
+    ) -> Result<(), ApiError> {
+        let response = self
+            .call(
+                reqwest::Method::POST,
+                &format!("platform/data/{path}"),
+                Some(json!({"options":{"cas":0},"data":{"webhook":secret}})),
+                None,
+            )
+            .await?;
+        if response["data"]["version"].as_i64() == Some(1) {
+            Ok(())
+        } else {
+            Err(ApiError::Unavailable(
+                "OpenBao did not acknowledge the source credential write",
+            ))
+        }
+    }
+
+    pub(crate) async fn source_webhook_secret(&self, path: &str) -> Result<String, ApiError> {
+        let (_, values) = self.read(path, None, None).await?;
+        values.get("webhook").cloned().ok_or(ApiError::Unavailable(
+            "source connection webhook credential is unavailable",
+        ))
+    }
+
+    pub(crate) async fn delete_source_secret(&self, path: &str) {
+        if self
+            .call(
+                reqwest::Method::DELETE,
+                &format!("platform/metadata/{path}"),
+                None,
+                None,
+            )
+            .await
+            .is_err()
+        {
+            tracing::error!("could not remove an unreferenced source credential from OpenBao");
+        }
+    }
 }
 async fn identity(pool: &PgPool, id: Uuid) -> Result<(Uuid, String), ApiError> {
     let env: Uuid = sqlx::query_scalar("SELECT environment_id FROM services WHERE id=$1")

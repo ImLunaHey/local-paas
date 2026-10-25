@@ -71,6 +71,7 @@ host are three scheduling nodes, not three physical failure domains.
 - Projects, per-project environments, shadowed configuration and secrets.
 - Dockerfile builds, versioned generated recipes for seven language ecosystems,
   build/start overrides and persisted detection evidence.
+- Signed, replay-safe GitHub webhooks that pin public-repository events to commits.
 - Health-gated deployments, retained revisions, failed-candidate rollback,
   independent ingress, cordon/drain and opt-in stateless relocation.
 - DNS-verified public OCI domains, Caddy API route updates, observed TLS and
@@ -166,6 +167,9 @@ The API schema is exported to `docs/api/openapi.json`. Regenerate it and the Orv
 TanStack Query client with `make api-schema` after changing documented endpoints.
 This development release changes API fields to camelCase and agent protocol to v2;
 existing installations require a [clean contract reset](docs/upgrades.md).
+
+[Git provider automation](docs/git-automation.md) documents the current signed
+GitHub webhook slice and its explicit private-repository limitations.
 
 CI is configured for Ubuntu 22.04 and 24.04 on x86-64, and Ubuntu 24.04 on ARM64.
 A fresh Ubuntu 24.04 x86-64 installation, real two-replica deployment and host

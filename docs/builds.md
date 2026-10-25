@@ -47,6 +47,11 @@ The initial host allowlist is `github.com`. Dockerfile paths are repository-rela
 the context can independently select a subdirectory. No host checkout, local
 source directory, SSH agent, Docker socket, developer dotenv file or build secret is
 forwarded. Custom Dockerfile frontends and insecure entitlements are disabled.
+Signed GitHub push, tag and same-repository pull-request events can enqueue this
+same flow with an already pinned commit. Webhook credentials remain in OpenBao
+and delivery payloads are not retained. See
+[Git provider automation](git-automation.md). Private Git authentication is not
+yet supported.
 Cache mount namespaces are per service; **Bypass build cache** sends `--no-cache`.
 This bypasses instruction caching, not necessarily cache-mount contents or
 upstream package caches. Pin base images/dependencies in the application for

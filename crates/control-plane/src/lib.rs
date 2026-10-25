@@ -45,6 +45,7 @@ pub mod runtime;
 mod s3;
 pub mod scaling;
 pub mod secrets;
+mod source_connections;
 mod source_uploads;
 mod storage_files;
 mod volume_files;
@@ -71,6 +72,18 @@ fn platform_router(
     let mut app = Router::new()
         .route("/api/openapi.json", get(openapi::document))
         .route("/api/health", get(health))
+        .route(
+            "/api/webhooks/github/{id}",
+            post(source_connections::github_webhook).layer(DefaultBodyLimit::max(256 * 1024)),
+        )
+        .route(
+            "/api/source-connections",
+            get(source_connections::list).post(source_connections::create),
+        )
+        .route(
+            "/api/source-connections/{id}/deliveries",
+            get(source_connections::deliveries),
+        )
         .route(
             "/api/source-uploads",
             post(source_uploads::upload)
@@ -201,6 +214,7 @@ fn platform_router(
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let origins = browser_origins.clone();
+            let webhook_host = std::env::var("GITHUB_WEBHOOK_HOST").ok();
             async move {
                 // Reject rebinding hostnames even for reads. This local API is
                 // not an authenticated network service.
@@ -212,7 +226,16 @@ fn platform_router(
                     .is_some_and(|authority| {
                         matches!(authority.host(), "localhost" | "127.0.0.1" | "[::1]")
                     });
-                if !local_host {
+                let webhook_host_allowed =
+                    request.uri().path().starts_with("/api/webhooks/github/")
+                        && webhook_host.as_ref().is_some_and(|configured| {
+                            request
+                                .headers()
+                                .get(header::HOST)
+                                .and_then(|value| value.to_str().ok())
+                                == Some(configured.as_str())
+                        });
+                if !local_host && !webhook_host_allowed {
                     return (
                         StatusCode::FORBIDDEN,
                         Json(json!({"code":"forbidden","error":"local Host header required"})),
