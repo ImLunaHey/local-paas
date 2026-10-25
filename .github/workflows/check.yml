@@ -54,6 +54,7 @@ jobs:
       - run: cargo nextest run --workspace --all-features
       - run: cargo test --workspace --doc --all-features
       - run: cargo test -p platform-remote-worker -- --ignored
+      - run: cargo test -p control-plane --lib caddy_api_issues -- --ignored
 
   database-tests:
     name: Database tests (${{ matrix.partition }}/4)
@@ -91,6 +92,7 @@ jobs:
       - run: >-
           cargo nextest run -p control-plane --tests
           --run-ignored ignored-only
+          -E 'not test(caddy_api_issues)'
           --partition hash:${{ matrix.partition }}/4
 
   contracts:

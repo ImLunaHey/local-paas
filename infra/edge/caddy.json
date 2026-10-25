@@ -1,0 +1,21 @@
+{
+  "admin": { "listen": "unix//run/local-paas-edge/admin.sock" },
+  "storage": { "module": "file_system", "root": "/var/lib/local-paas-edge/caddy" },
+  "apps": {
+    "http": {
+      "servers": {
+        "platform": {
+          "listen": [":443"],
+          "tls_connection_policies": [{}],
+          "routes": [
+            {
+              "@id": "platform-deny-unregistered-hosts",
+              "handle": [{ "handler": "static_response", "status_code": 421 }],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}

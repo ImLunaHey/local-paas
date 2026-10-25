@@ -71,6 +71,8 @@ host are three scheduling nodes, not three physical failure domains.
 - Dockerfile builds, supported Node/Bun generated recipes, build/start overrides.
 - Health-gated deployments, retained revisions, failed-candidate rollback,
   independent ingress, cordon/drain and opt-in stateless relocation.
+- DNS-verified public OCI domains, Caddy API route updates, observed TLS and
+  acknowledged promotion/rollback; explicit edge installation is required.
 - Singleton workers, one-off jobs, interval schedules and pre-deployment commands.
 - OpenBao-backed workload secrets; dedicated ClickHouse runtime log retention.
 - Structured log columns/search, retained instance logs, metrics and audit events.
@@ -79,8 +81,8 @@ host are three scheduling nodes, not three physical failure domains.
 - Remote Linux worker VMs over authenticated private links; see
   [remote setup and validation limits](docs/remote-workers.md).
 
-Public VPS/NetBird integration has configuration templates but is not an automated
-installation feature. celld declarations are modeled separately, but fleet
+Public VPS/NetBird installation remains explicit. The edge worker manages routes
+on an operator-installed Caddy through its API. celld declarations are modeled separately, but fleet
 execution is not implemented. Storage remains node-pinned. See
 [architecture and release limits](docs/architecture.md), [runtime](docs/runtime.md),
 [storage](docs/storage.md), [ingress](docs/ingress.md) and [backups](docs/backups.md).

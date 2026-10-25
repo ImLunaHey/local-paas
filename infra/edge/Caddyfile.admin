@@ -1,0 +1,27 @@
+# Separate private management gateway, never a public listener.
+{
+	admin off
+	auto_https off
+}
+
+https://:18445 {
+	bind {$PLATFORM_EDGE_PRIVATE_ADDRESS}
+	tls {$PLATFORM_EDGE_ADMIN_CERT_FILE} {$PLATFORM_EDGE_ADMIN_KEY_FILE} {
+		client_auth {
+			mode require_and_verify
+			trust_pool file {$PLATFORM_EDGE_ADMIN_CA_FILE}
+		}
+	}
+	@routes {
+		path /config/apps/http/servers/platform/routes
+		method GET PATCH
+	}
+	handle @routes {
+		reverse_proxy unix//run/local-paas-edge/admin.sock {
+			header_up Host localhost
+		}
+	}
+	handle {
+		respond 403
+	}
+}

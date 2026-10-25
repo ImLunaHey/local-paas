@@ -29,6 +29,8 @@ struct Proxy {
 struct Backend {
     port: i32,
     expires: DateTime<Utc>,
+    authority: String,
+    generation: Option<i64>,
 }
 struct RefreshGuard(tokio::task::JoinHandle<()>);
 impl Drop for RefreshGuard {
@@ -48,7 +50,7 @@ async fn refresh(
     // Readiness is initially certified by the agent. Local probes keep checking it
     // while the controller is offline. Desired state, route membership and leases
     // remain authoritative; stale observations alone do not kill healthy traffic.
-    let rows=sqlx::query("SELECT r.authority,i.id,n.endpoint_base+i.slot AS port,coalesce(d.spec->'workload'->'readiness'->>'path','/') AS path,clock_timestamp()+interval '10 seconds' AS expires FROM (SELECT authority,service_id FROM preview_routes UNION SELECT hostname AS authority,service_id FROM domains WHERE service_id IS NOT NULL) r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE i.state='ready' AND i.routing_enabled AND i.desired_state='running' AND d.spec->'workload'->>'kind'='oci-service' AND coalesce(d.spec->'workload'->>'execution','http')='http' ORDER BY i.id").fetch_all(&mut *tx).await?;
+    let rows=sqlx::query("WITH routes AS (SELECT r.authority,r.authority AS hostname,d.id AS deployment_id,NULL::bigint AS generation,clock_timestamp()+interval '10 seconds' AS expires FROM preview_routes r JOIN deployments d ON d.service_id=r.service_id AND d.status='active' UNION ALL SELECT t.authority,t.hostname,t.deployment_id,t.generation,least(t.expires_at,clock_timestamp()+interval '10 seconds') FROM edge_targets t WHERE t.expires_at>clock_timestamp()) SELECT r.authority,r.hostname,r.generation,i.id,n.endpoint_base+i.slot AS port,coalesce(d.spec->'workload'->'readiness'->>'path','/') AS path,r.expires FROM routes r JOIN deployments d ON d.id=r.deployment_id JOIN instances i ON i.deployment_id=d.id JOIN nodes n ON n.id=i.node_id WHERE i.state='ready' AND i.routing_enabled AND i.desired_state='running' AND d.spec->'workload'->>'kind'='oci-service' AND coalesce(d.spec->'workload'->>'execution','http')='http' ORDER BY i.id").fetch_all(&mut *tx).await?;
     for r in &rows {
         sqlx::query("INSERT INTO ingress_route_leases(instance_id,expires_at) VALUES($1,$2) ON CONFLICT(instance_id) DO UPDATE SET expires_at=greatest(ingress_route_leases.expires_at,EXCLUDED.expires_at)").bind(r.get::<Uuid,_>("id")).bind(r.get::<DateTime<Utc>,_>("expires")).execute(&mut *tx).await?;
     }
@@ -61,7 +63,7 @@ async fn refresh(
             let path: String = r.get("path");
             let healthy = health
                 .get(format!("http://127.0.0.1:{port}{path}"))
-                .header("host", &authority)
+                .header("host", r.get::<String, _>("hostname"))
                 .send()
                 .await
                 .is_ok_and(|response| response.status().is_success());
@@ -70,6 +72,8 @@ async fn refresh(
                 Backend {
                     port,
                     expires: r.get("expires"),
+                    authority: r.get("hostname"),
+                    generation: r.get("generation"),
                 },
                 healthy,
             )
@@ -174,11 +178,24 @@ async fn proxy(State(p): State<Proxy>, request: Request) -> Response {
         }
         ready[p.next.fetch_add(1, Ordering::Relaxed) % ready.len()].clone()
     };
+    if request.uri().path() == "/.well-known/local-paas/route" {
+        return match backend.generation {
+            Some(generation) => (
+                StatusCode::NO_CONTENT,
+                [
+                    ("x-local-paas-generation", generation.to_string()),
+                    ("x-local-paas-route", authority),
+                ],
+            )
+                .into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        };
+    }
     forward(
         &p.client,
         request,
         backend.port,
-        authority,
+        backend.authority,
         permit,
         Some(backend.expires),
     )
@@ -245,12 +262,21 @@ async fn forward(
     strip_hop(&mut headers);
     let remove: Vec<_> = headers
         .keys()
-        .filter(|h| h.as_str().starts_with("x-forwarded-") || h.as_str() == "forwarded")
+        .filter(|h| {
+            h.as_str().starts_with("x-forwarded-")
+                || h.as_str().starts_with("x-local-paas-")
+                || h.as_str() == "forwarded"
+        })
         .cloned()
         .collect();
     for h in remove {
         headers.remove(h);
     }
+    let Ok(host) = authority.parse() else {
+        return StatusCode::BAD_GATEWAY.into_response();
+    };
+    // Replace the opaque gateway Host rather than appending a second Host value.
+    headers.insert("host", host);
     if upgrade {
         headers.insert("connection", "upgrade".parse().unwrap());
         headers.insert("upgrade", "websocket".parse().unwrap());
@@ -260,7 +286,6 @@ async fn forward(
         client
             .request(parts.method, format!("http://127.0.0.1:{port}{path}"))
             .headers(headers)
-            .header("host", &authority)
             .header("x-forwarded-host", authority)
             .header("x-forwarded-proto", "https")
             .body(body)

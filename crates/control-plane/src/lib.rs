@@ -26,6 +26,7 @@ mod database_inspection;
 mod databases;
 mod discovery;
 mod domains;
+pub mod edge;
 pub mod enrollment;
 mod environments;
 mod history;
@@ -161,6 +162,7 @@ fn platform_router(
             get(history::list).post(runtime::deploy),
         )
         .route("/api/deployments/{id}/stop", post(runtime::stop))
+        .route("/api/deployments/{id}/rollback", post(edge::rollback))
         .route("/api/services/{id}/runtime", get(runtime::status))
         .route("/api/services/{id}/jobs", get(jobs::list).post(jobs::run))
         .route(

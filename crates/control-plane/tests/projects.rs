@@ -451,9 +451,9 @@ async fn global_domains_normalize_reassign_and_audit_without_claiming_live_routi
         409
     );
     let (_, domains) = request(&pool, "GET", "/api/domains", Value::Null).await;
-    assert_eq!(domains["edgeReady"], false);
+    assert!(domains["items"][0]["acknowledgedGeneration"].is_null());
     assert_eq!(domains["items"][0]["serviceId"], json!(service));
-    assert_eq!(domains["items"][0]["status"], "pending-edge");
+    assert_eq!(domains["items"][0]["status"], "waiting-deployment");
     assert_eq!(
         request(
             &pool,

@@ -1109,6 +1109,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "garde",
+ "hickory-resolver",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -1134,6 +1135,7 @@ dependencies = [
  "tracing",
  "utoipa",
  "uuid",
+ "x509-parser 0.18.1",
 ]
 
 [[package]]
