@@ -422,3 +422,180 @@ async fn audit_failure_rolls_back_creation_and_root_keys_remain_scoped(pool: PgP
         401
     );
 }
+
+fn service_request(build_on_create: Option<bool>) -> Value {
+    let mut spec: Value =
+        serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap();
+    spec["name"] = json!(format!("service-{}", uuid::Uuid::new_v4()));
+    let mut input = json!({"operationId":uuid::Uuid::new_v4(),"spec":spec});
+    if let Some(build) = build_on_create {
+        input["buildOnCreate"] = json!(build);
+    }
+    input
+}
+
+async fn creation_counts(pool: &PgPool) -> (i64, i64, i64, i64, i64, i64) {
+    sqlx::query_as(
+        "SELECT (SELECT count(*) FROM projects), (SELECT count(*) FROM environments),
+         (SELECT count(*) FROM services), (SELECT count(*) FROM builds),
+         (SELECT count(*) FROM events),
+         (SELECT count(*) FROM audit_log WHERE target_type IN ('services','builds'))",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn assert_create_only(pool: &PgPool, runtime: &auth::Runtime, credential: &str) {
+    for build_on_create in [None, Some(true)] {
+        let before = creation_counts(pool).await;
+        let (status, body) = request(
+            pool,
+            runtime,
+            credential,
+            "POST",
+            "/api/services",
+            service_request(build_on_create),
+        )
+        .await;
+        assert_eq!(status, 403, "{body}");
+        assert_eq!(body["code"], "forbidden");
+        assert_eq!(creation_counts(pool).await, before);
+    }
+    let before = creation_counts(pool).await;
+    let (status, body) = request(
+        pool,
+        runtime,
+        credential,
+        "POST",
+        "/api/services",
+        service_request(Some(false)),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    let after = creation_counts(pool).await;
+    assert_eq!(after.2, before.2 + 1);
+    assert_eq!(after.3, before.3);
+    assert_eq!(after.4, before.4 + 1);
+    assert_eq!(
+        request(
+            pool,
+            runtime,
+            credential,
+            "POST",
+            &format!("/api/services/{}/builds", body["id"].as_str().unwrap()),
+            json!({"operationId":uuid::Uuid::new_v4()}),
+        )
+        .await
+        .0,
+        403
+    );
+}
+
+async fn assert_create_and_build(pool: &PgPool, runtime: &auth::Runtime, credential: &str) {
+    for build_on_create in [None, Some(true)] {
+        let (status, body) = request(
+            pool,
+            runtime,
+            credential,
+            "POST",
+            "/api/services",
+            service_request(build_on_create),
+        )
+        .await;
+        assert_eq!(status, 201, "{body}");
+        let queued: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM builds WHERE service_id=$1::uuid AND status='queued'",
+        )
+        .bind(body["id"].as_str().unwrap())
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(queued, 1);
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn service_creation_builds_require_api_key_scope(pool: PgPool) {
+    let (runtime, cookie, _, _) = fixture(&pool).await;
+    for can_build in [false, true] {
+        let mut permissions = json!({"service":["create"]});
+        if can_build {
+            permissions["build"] = json!(["execute"]);
+        }
+        let (status, created) = request(
+            &pool,
+            &runtime,
+            &cookie,
+            "POST",
+            "/api/api-keys",
+            key_request(permissions),
+        )
+        .await;
+        assert_eq!(status, 200);
+        let key = created["key"].as_str().unwrap();
+        if can_build {
+            assert_create_and_build(&pool, &runtime, key).await;
+        } else {
+            assert_create_only(&pool, &runtime, key).await;
+            // celld registration does not enqueue OCI builds, even by default.
+            let mut input = service_request(None);
+            input["spec"] =
+                serde_json::from_str(include_str!("../../../examples/celld-service.json")).unwrap();
+            let before = creation_counts(&pool).await;
+            let (status, body) =
+                request(&pool, &runtime, key, "POST", "/api/services", input).await;
+            assert_eq!(status, 201, "{body}");
+            assert_eq!(creation_counts(&pool).await.3, before.3);
+        }
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn service_creation_builds_require_current_custom_role_for_sessions_and_keys(pool: PgPool) {
+    let (runtime, cookie, user, org) = fixture(&pool).await;
+    let (status, created) = request(
+        &pool,
+        &runtime,
+        &cookie,
+        "POST",
+        "/api/api-keys",
+        key_request(json!({"service":["create"],"build":["execute"]})),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let key = created["key"].as_str().unwrap();
+    for (role, permission) in [
+        ("creator", json!({"service":["create"]})),
+        ("builder", json!({"service":["create"],"build":["execute"]})),
+    ] {
+        let (status, body) = request(
+            &pool,
+            &runtime,
+            &cookie,
+            "POST",
+            "/api/auth/organization/create-role",
+            json!({"role":role,"permission":permission}),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+    }
+    for role in ["creator", "builder"] {
+        sqlx::query("UPDATE member SET role=$1 WHERE \"userId\"=$2 AND \"organizationId\"=$3")
+            .bind(role)
+            .bind(&user)
+            .bind(&org)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for credential in [cookie.as_str(), key] {
+            if role == "creator" {
+                assert_create_only(&pool, &runtime, credential).await;
+            } else {
+                assert_create_and_build(&pool, &runtime, credential).await;
+            }
+        }
+    }
+}

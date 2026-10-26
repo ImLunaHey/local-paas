@@ -33,6 +33,12 @@ global administrator role, suspend themselves, or revoke their current session f
 
 Organizations can create custom roles from the Organization screen. Permissions cover projects, services, builds, deployments, secrets, nodes, jobs, backups, audit records, domains, and storage. API middleware checks the permission and the resource's organization before invoking a management handler. Better Auth independently authorizes organization, team, invitation, role, and global administrator endpoints.
 
+Creating an OCI service requires both `service:create` and `build:execute` when
+`buildOnCreate` is omitted or `true`. A caller with only `service:create` must set
+`buildOnCreate:false`. Build permission is checked before any service, build, or
+registration event is created, against both API key scopes and current organization
+roles. celld registration does not queue an OCI build and needs no build permission.
+
 ## Threat model
 
 Browser sessions are exposed to credential theft, CSRF, hostile origins, session fixation, and compromised operators. The API therefore denies anonymous management requests, validates the local Host header, rejects untrusted browser origins, requires JSON for mutations, and relies on Better Auth's same-site HTTP-only cookie, origin validation, expiry, rotation, logout, and server-side revocation. The frontend is only an affordance: every permission is enforced in the API.
