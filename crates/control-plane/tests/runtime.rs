@@ -1046,3 +1046,176 @@ async fn remote_nodes_require_admission_then_use_the_same_assignment_protocol(po
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn rejected_logs_preserve_heartbeats_health_and_valid_log_deduplication(pool: PgPool) {
+    let (service, revision, nodes) = fixture(&pool).await;
+    call(
+        &pool,
+        &format!("/api/services/{service}/deployments"),
+        json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
+        None,
+    )
+    .await;
+    let (instance, node): (Uuid, Uuid) = sqlx::query_as("SELECT id,node_id FROM instances LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE nodes SET last_seen=now()-interval '10 seconds' WHERE id=$1")
+        .bind(node)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let before: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT last_seen FROM nodes WHERE id=$1")
+            .bind(node)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let valid = json!({"key":"c".repeat(64),"timestamp":"2026-10-23T20:00:00Z","stream":"stdout","line":"é🦀 [REDACTED]"});
+    // The production redactor's 6,000-byte repeated-secret regression is covered
+    // in node-agent. Exercise its former 20,000-byte output at the HTTP boundary.
+    let mut oversized = valid.clone();
+    oversized["line"] = json!("[REDACTED]".repeat(2000));
+    let mut logs = vec![oversized];
+    for (field, value) in [
+        ("key", json!("short")),
+        ("key", json!("\0".repeat(64))),
+        ("timestamp", json!("invalid")),
+        ("timestamp", json!("-005000-01-01T00:00:00Z")),
+        ("stream", json!("invalid")),
+        ("line", json!("invalid\0text")),
+        ("line", json!(r#"{"message":"invalid\u0000text"}"#)),
+        ("line", json!(r#"{"nested":[{"\u0000":"invalid"}]}"#)),
+    ] {
+        let mut invalid = valid.clone();
+        invalid[field] = value;
+        logs.push(invalid);
+    }
+    logs.push(valid.clone());
+    let mut boundary = valid.clone();
+    boundary["key"] = json!("d".repeat(64));
+    boundary["line"] = json!("é".repeat(platform_protocol::MAX_LOG_LINE_BYTES / 2));
+    logs.push(boundary);
+    logs.resize(platform_protocol::MAX_LOG_ENTRIES, valid);
+    let mut excess = logs[0].clone();
+    excess["key"] = json!("e".repeat(64));
+    excess["line"] = json!("beyond the entry count limit");
+    logs.push(excess);
+    let observed = chrono::Utc::now().timestamp_millis() - 1000;
+    let observation = json!({
+        "observedUnixMs":observed,"instanceId":instance,"generation":1,"state":"ready",
+        "diagnostic":null,"metrics":{"cpuMillis":12.0,"memoryBytes":4096,"pids":3},
+        "health":{"process":"running","startup":"passing","readiness":"passing","liveness":"not_configured","recovery":{"phase":"stable","attempts":0}},
+        "logs":logs
+    });
+    let request =
+        json!({"version":platform_protocol::VERSION,"nodeId":node,"observations":[observation]});
+    assert_eq!(
+        call(
+            &pool,
+            "/api/agent/sync",
+            request.clone(),
+            Some(&"b".repeat(64))
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let unchanged: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT last_seen FROM nodes WHERE id=$1")
+            .bind(node)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(before, unchanged);
+    let mut stale = request.clone();
+    stale["observations"][0]["generation"] = json!(0);
+    let mut foreign = request.clone();
+    foreign["nodeId"] = json!(nodes.into_iter().find(|id| *id != node).unwrap());
+    for fenced in [stale, foreign] {
+        assert_eq!(
+            call(&pool, "/api/agent/sync", fenced, Some(&"a".repeat(64)))
+                .await
+                .0,
+            StatusCode::OK
+        );
+        let state: String = sqlx::query_scalar("SELECT state FROM instances WHERE id=$1")
+            .bind(instance)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(state, "assigned");
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM runtime_log_keys")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+    // A newer heartbeat with the same valid log keys exercises database-level
+    // deduplication, rather than just the observation timestamp fence.
+    for offset in [0, 1] {
+        let mut request = request.clone();
+        request["observations"][0]["observedUnixMs"] = json!(observed + offset);
+        sqlx::query("UPDATE nodes SET last_seen=$2 WHERE id=$1")
+            .bind(node)
+            .bind(before)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            call(&pool, "/api/agent/sync", request, Some(&"a".repeat(64)))
+                .await
+                .0,
+            StatusCode::OK
+        );
+        let after: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT last_seen FROM nodes WHERE id=$1")
+                .bind(node)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(after > before);
+        let state: String = sqlx::query_scalar("SELECT state FROM instances WHERE id=$1")
+            .bind(instance)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(state, "ready");
+        let lines: Vec<String> =
+            sqlx::query_scalar("SELECT line FROM runtime_logs ORDER BY entry_key")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            lines,
+            vec![
+                "é🦀 [REDACTED]".to_owned(),
+                "é".repeat(platform_protocol::MAX_LOG_LINE_BYTES / 2)
+            ]
+        );
+        let keys: i64 = sqlx::query_scalar("SELECT count(*) FROM runtime_log_keys")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            keys, 2,
+            "rejected entries must not reserve deduplication keys"
+        );
+    }
+    let health: (String, String) =
+        sqlx::query_as("SELECT process,readiness FROM instance_health_events WHERE instance_id=$1")
+            .bind(instance)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(health, ("running".into(), "passing".into()));
+    let metrics: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM runtime_metrics WHERE instance_id=$1")
+            .bind(instance)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(metrics, 2);
+}

@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const VERSION: u32 = 2;
+/// Maximum serialized synchronization request, including JSON escaping.
+pub const MAX_SYNC_BYTES: usize = 512 * 1024;
+/// Log limits apply to redacted UTF-8 bytes and entries per instance report.
+pub const MAX_LOG_LINE_BYTES: usize = 16 * 1024;
+pub const MAX_LOG_ENTRIES: usize = 256;
 /// Host-facing slots for the bounded seven-node topology. TLS links preserve
 /// these addresses across remote hosts without exposing arbitrary private ports.
 pub fn valid_node_port(port: u16) -> bool {
