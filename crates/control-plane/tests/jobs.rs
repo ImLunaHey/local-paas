@@ -30,6 +30,10 @@ async fn call(pool: &PgPool, path: &str, value: Value, token: Option<&str>) -> (
 async fn fixture(pool: &PgPool) -> (Uuid, Uuid, Vec<Uuid>) {
     let spec: Value =
         serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap();
+    fixture_with_spec(pool, spec).await
+}
+
+async fn fixture_with_spec(pool: &PgPool, spec: Value) -> (Uuid, Uuid, Vec<Uuid>) {
     let (_, s) = call(
         pool,
         "/api/services",
@@ -758,4 +762,231 @@ async fn private_routes_are_scoped_health_gated_and_quarantine_reused_slots(pool
         .unwrap();
     assert_eq!(env.to_string(), shadow["id"].as_str().unwrap());
     assert_eq!(nodes.len(), 3);
+}
+
+fn http_spec_with_release() -> Value {
+    let mut spec: Value =
+        serde_json::from_str(include_str!("../../../examples/oci-service.json")).unwrap();
+    spec["workload"]["liveness"] =
+        json!({"path":"/health","intervalSeconds":5,"failureThreshold":3});
+    spec["workload"]["preDeploy"] = json!({"command":["echo","migration"],"timeoutSeconds":60});
+    let spec: platform_domain::ServiceSpec = serde_json::from_value(spec).unwrap();
+    spec.validate().unwrap();
+    serde_json::to_value(spec).unwrap()
+}
+
+async fn stored_spec(pool: &PgPool, deployment: Uuid) -> platform_domain::ServiceSpec {
+    sqlx::query_scalar::<_, sqlx::types::Json<platform_domain::ServiceSpec>>(
+        "SELECT spec FROM deployments WHERE id=$1",
+    )
+    .bind(deployment)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+    .0
+}
+
+async fn job_assignment(
+    pool: &PgPool,
+    node: Uuid,
+    observations: Value,
+) -> platform_protocol::Assignment {
+    let (code, response) = call(
+        pool,
+        "/api/agent/sync",
+        json!({"version":platform_protocol::VERSION,"nodeId":node,
+            "capabilities":["workers-v1","jobs-v1","recovery-v1"],"observations":observations}),
+        Some(&"a".repeat(64)),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{response}");
+    let response: platform_protocol::SyncResponse = serde_json::from_value(response).unwrap();
+    assert_eq!(response.assignments.len(), 1);
+    let assignment = response.assignments.into_iter().next().unwrap();
+    // Both start and stop pass this same domain validation in the node agent.
+    assignment.spec.validate().unwrap();
+    assert!(assignment.spec.workload.is_worker());
+    assert!(!assignment.recovery_allowed);
+    assert!(assignment.recovery_policy.is_none());
+    assignment
+}
+
+async fn http_job_runs_and_cleans_up(pool: &PgPool, pre_deploy: bool) {
+    let original = http_spec_with_release();
+    let (service, revision, nodes) = fixture_with_spec(pool, original.clone()).await;
+    sqlx::query("UPDATE nodes SET capabilities=ARRAY['workers-v1','jobs-v1'] WHERE id=$1")
+        .bind(nodes[0])
+        .execute(pool)
+        .await
+        .unwrap();
+    let (path, request) = if pre_deploy {
+        (
+            format!("/api/services/{service}/deployments"),
+            json!({"operationId":Uuid::new_v4(),"revisionId":revision}),
+        )
+    } else {
+        (
+            format!("/api/services/{service}/jobs"),
+            json!({"operationId":Uuid::new_v4(),"revisionId":revision,
+                "options":{"command":["echo","job"],"timeoutSeconds":60}}),
+        )
+    };
+    let (code, response) = call(pool, &path, request.clone(), None).await;
+    assert_eq!(code, StatusCode::OK, "{response}");
+    let deployment: Uuid = response["id"].as_str().unwrap().parse().unwrap();
+    let job = if pre_deploy {
+        sqlx::query_scalar("SELECT id FROM deployments WHERE parent_deployment_id=$1")
+            .bind(deployment)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    } else {
+        deployment
+    };
+    let spec = stored_spec(pool, job).await;
+    spec.validate().unwrap();
+    assert!(spec.domains.is_empty());
+    assert!(!spec.distinct_nodes);
+    let platform_domain::Workload::OciService {
+        execution,
+        replicas,
+        port,
+        readiness,
+        liveness,
+        pre_deploy: release,
+        ..
+    } = &spec.workload
+    else {
+        panic!("expected OCI job");
+    };
+    assert_eq!(*execution, platform_domain::Execution::Worker);
+    assert_eq!(*replicas, 1);
+    assert!(port.is_none() && readiness.is_none() && liveness.is_none() && release.is_none());
+    let stored: Value = sqlx::query_scalar("SELECT spec FROM services WHERE id=$1")
+        .bind(service)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(stored["workload"], original["workload"]);
+    if pre_deploy {
+        assert_eq!(
+            serde_json::to_value(stored_spec(pool, deployment).await).unwrap()["workload"],
+            original["workload"]
+        );
+    }
+    control_plane::runtime::reconcile(pool).await.unwrap();
+    let start = job_assignment(pool, nodes[0], json!([])).await;
+    assert_eq!(start.deployment_id, job);
+    assert_eq!(start.desired_state, "running");
+    let command = if pre_deploy {
+        vec!["echo", "migration"]
+    } else {
+        vec!["echo", "job"]
+    };
+    assert_eq!(start.job.as_ref().unwrap().command, command);
+    let stop = job_assignment(
+        pool,
+        nodes[0],
+        json!([{
+            "instanceId":start.instance_id,"generation":start.generation,
+            "observedUnixMs":chrono::Utc::now().timestamp_millis(),"state":"failed",
+            "jobResult":{"outcome":"succeeded","exitCode":0},"logs":[]
+        }]),
+    )
+    .await;
+    assert_eq!(status(pool, job).await, "succeeded");
+    assert_eq!(stop.instance_id, start.instance_id);
+    assert_eq!(stop.desired_state, "stopped");
+    assert!(stop.generation > start.generation);
+    control_plane::runtime::reconcile(pool).await.unwrap();
+    if pre_deploy {
+        assert_eq!(status(pool, deployment).await, "releasing");
+    } else {
+        let mut next = request.clone();
+        next["operationId"] = json!(Uuid::new_v4());
+        assert_eq!(call(pool, &path, next, None).await.0, StatusCode::CONFLICT);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    let (code, _) = call(
+        pool,
+        "/api/agent/sync",
+        json!({
+            "version":platform_protocol::VERSION,"nodeId":nodes[0],
+            "capabilities":["workers-v1","jobs-v1"],"observations":[{
+                "instanceId":stop.instance_id,"generation":stop.generation,
+                "observedUnixMs":chrono::Utc::now().timestamp_millis(),"state":"stopped","logs":[]
+            }]
+        }),
+        Some(&"a".repeat(64)),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    control_plane::runtime::reconcile(pool).await.unwrap();
+    let cleaned: bool = sqlx::query_scalar("SELECT state='stopped' FROM instances WHERE id=$1")
+        .bind(stop.instance_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert!(cleaned);
+    if pre_deploy {
+        assert_eq!(status(pool, deployment).await, "preparing");
+    } else {
+        let mut next = request;
+        next["operationId"] = json!(Uuid::new_v4());
+        assert_eq!(call(pool, &path, next, None).await.0, StatusCode::OK);
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn one_off_http_job_clears_liveness_and_allows_cleanup(pool: PgPool) {
+    http_job_runs_and_cleans_up(&pool, false).await;
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn pre_deploy_http_job_clears_liveness_and_allows_cleanup(pool: PgPool) {
+    http_job_runs_and_cleans_up(&pool, true).await;
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn invalid_derived_job_specs_are_rejected_before_persistence(pool: PgPool) {
+    let (service, revision, _) = fixture_with_spec(&pool, http_spec_with_release()).await;
+    // Simulate a stored specification that no longer meets domain constraints.
+    sqlx::query("UPDATE services SET spec=jsonb_set(spec,'{resources,cpuMillis}','0') WHERE id=$1")
+        .bind(service)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for endpoint in ["jobs", "deployments"] {
+        let operation = Uuid::new_v4();
+        let mut request = json!({"operationId":operation,"revisionId":revision});
+        if endpoint == "jobs" {
+            request["options"] = json!({"command":["echo","job"],"timeoutSeconds":60});
+        }
+        let (code, response) = call(
+            &pool,
+            &format!("/api/services/{service}/{endpoint}"),
+            request,
+            None,
+        )
+        .await;
+        assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{response}");
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM deployments WHERE service_id=$1")
+            .bind(service)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "invalid jobs and their parent deployments must roll back"
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE operation_id=$1")
+            .bind(operation)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "rejected requests must not emit success events");
+    }
 }
