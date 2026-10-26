@@ -806,6 +806,7 @@ async fn reconcile_one(
     let children = sqlx::query("SELECT service_id,build_id,deployment_id,primary_route FROM pull_request_preview_services WHERE preview_id=$1 ORDER BY position")
         .bind(id).fetch_all(&mut **tx).await?;
     let mut all_healthy = true;
+    let mut any_pending = false;
     for child in children {
         let service: Uuid = child.get("service_id");
         let current: DbJson<ServiceSpec> =
@@ -944,22 +945,23 @@ async fn reconcile_one(
             all_healthy &= healthy;
         }
         "preparing" | "waiting" | "releasing" => {
-            state(tx, id, "deploying", "Waiting for deployment readiness").await?
+            any_pending = true;
         }
         _ => return Ok(state(tx,id,"failed","A preview service deployment failed or stopped; prior healthy revisions may still be serving").await?),
         }
     }
-    state(
-        tx,
-        id,
-        if all_healthy { "ready" } else { "degraded" },
-        if all_healthy {
-            "All preview services are ready"
-        } else {
-            "A preview service has no fresh healthy replica observation"
-        },
-    )
-    .await?;
+    // Pending children must not imply readiness or hide an unhealthy sibling.
+    let (status, reason) = if !all_healthy {
+        (
+            "degraded",
+            "A preview service has no fresh healthy replica observation",
+        )
+    } else if any_pending {
+        ("deploying", "Waiting for deployment readiness")
+    } else {
+        ("ready", "All preview services are ready")
+    };
+    state(tx, id, status, reason).await?;
     Ok(())
 }
 

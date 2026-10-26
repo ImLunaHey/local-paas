@@ -167,6 +167,7 @@ fn template_removes_production_resources_and_rejects_workers() {
 fn provider_checks_use_terminal_conclusions_only_for_terminal_states() {
     assert_eq!(provider_check_state("pending"), ("queued", None));
     assert_eq!(provider_check_state("building"), ("in_progress", None));
+    assert_eq!(provider_check_state("deploying"), ("in_progress", None));
     assert_eq!(
         provider_check_state("ready"),
         ("completed", Some("success"))
@@ -179,6 +180,159 @@ fn provider_checks_use_terminal_conclusions_only_for_terminal_states() {
         provider_check_state("failed"),
         ("completed", Some("failure"))
     );
+}
+
+// Build and schedule real preview children, leaving their runtime observations
+// under test control. No worker or provider credentials are needed.
+async fn deployment_fixture(pool: &PgPool, service_count: usize) -> Vec<Uuid> {
+    let source = fixture(pool).await;
+    if service_count == 2 {
+        let (environment, DbJson(mut spec)): (Uuid, DbJson<ServiceSpec>) =
+            sqlx::query_as("SELECT environment_id,spec FROM services WHERE id=$1")
+                .bind(source.service_id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        let dependency = Uuid::now_v7();
+        spec.name = "api".into();
+        spec.secrets.clear();
+        sqlx::query("INSERT INTO services(id,environment_id,name,kind,operation_id,spec,registered_spec) VALUES($1,$2,'api','oci-service',$3,$4,$4)")
+            .bind(dependency).bind(environment).bind(Uuid::now_v7()).bind(DbJson(spec)).execute(pool).await.unwrap();
+        let resources = json!({"cpuMillis":250,"memoryMib":256});
+        let (status, response) = api(
+            pool,
+            "PUT",
+            &format!("/api/source-connections/{}/preview-policy", source.id),
+            json!({
+                "enabled":true,"maxActive":1,"maxBuilds":2,"ttlHours":24,
+                "resources":resources,
+                "services":[
+                    {"sourceServiceId":source.service_id,"resources":resources},
+                    {"sourceServiceId":dependency,"resources":resources}
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{response}");
+    }
+    deliver(pool, &source, payload(1, "opened", 1, 'a')).await;
+    reconcile(pool).await.unwrap();
+    route(pool, 1).await;
+    sqlx::query("INSERT INTO nodes(id,name,token_hash,cpu_millis,memory_mib,slots,endpoint_base,last_seen) VALUES($1,'preview-node',$2,2000,4096,4,21000,now())")
+        .bind(Uuid::new_v4()).bind(crate::runtime::token_hash(&"a".repeat(64))).execute(pool).await.unwrap();
+    for _ in 0..service_count {
+        reconcile(pool).await.unwrap();
+        finish(pool).await;
+    }
+    reconcile(pool).await.unwrap();
+    let deployments = sqlx::query_scalar(
+        "SELECT deployment_id FROM pull_request_preview_services ORDER BY position",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(deployments.len(), service_count);
+    deployments
+}
+
+async fn assert_readiness(pool: &PgPool, expected: &str) {
+    reconcile(pool).await.unwrap();
+    let status: String = preview(pool, 1).await.get("status");
+    assert_eq!(status, expected);
+    let check = provider_check_state(&status);
+    let expected_check = match expected {
+        "deploying" => ("in_progress", None),
+        "degraded" => ("completed", Some("neutral")),
+        "failed" => ("completed", Some("failure")),
+        "ready" => ("completed", Some("success")),
+        _ => panic!("unexpected readiness state: {expected}"),
+    };
+    assert_eq!(check, expected_check);
+}
+
+async fn set_deployment_status(pool: &PgPool, deployment: Uuid, status: &str) {
+    sqlx::query("UPDATE deployments SET status=$2 WHERE id=$1")
+        .bind(deployment)
+        .bind(status)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn fresh_observations(pool: &PgPool) {
+    sqlx::query("UPDATE instances SET state='ready',desired_state='running',observed_at=now()")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE nodes SET last_seen=now()")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn single_service_readiness_waits_for_active_fresh_healthy_deployment(pool: PgPool) {
+    let deployment = deployment_fixture(&pool, 1).await[0];
+    assert_readiness(&pool, "deploying").await;
+    for pending in ["preparing", "waiting", "releasing"] {
+        set_deployment_status(&pool, deployment, pending).await;
+        // Even fresh ready instances cannot bypass the deployment's lifecycle.
+        fresh_observations(&pool).await;
+        assert_readiness(&pool, "deploying").await;
+    }
+    set_deployment_status(&pool, deployment, "active").await;
+    fresh_observations(&pool).await;
+    assert_readiness(&pool, "ready").await;
+    for unhealthy in [
+        "UPDATE instances SET state='starting'",
+        "UPDATE instances SET desired_state='stopped'",
+        "UPDATE instances SET observed_at=NULL",
+        "UPDATE instances SET observed_at=now()-interval '16 seconds'",
+        "UPDATE nodes SET last_seen=NULL",
+        "UPDATE nodes SET last_seen=now()-interval '31 seconds'",
+        "DELETE FROM instances",
+    ] {
+        fresh_observations(&pool).await;
+        sqlx::query(unhealthy).execute(&pool).await.unwrap();
+        assert_readiness(&pool, "degraded").await;
+    }
+    for failed in ["failed", "stopped", "superseded"] {
+        set_deployment_status(&pool, deployment, failed).await;
+        assert_readiness(&pool, "failed").await;
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires disposable PostgreSQL"]
+async fn multi_service_readiness_checks_every_child_before_reporting_success(pool: PgPool) {
+    let deployments = deployment_fixture(&pool, 2).await;
+    assert_readiness(&pool, "deploying").await;
+    for pending in ["preparing", "waiting", "releasing"] {
+        // Exercise both child orders: a pending child must neither hide a later
+        // failure nor be overwritten by a later healthy child.
+        for index in 0..deployments.len() {
+            let pending_child = deployments[index];
+            let other_child = deployments[1 - index];
+            set_deployment_status(&pool, pending_child, pending).await;
+            set_deployment_status(&pool, other_child, pending).await;
+            fresh_observations(&pool).await;
+            assert_readiness(&pool, "deploying").await;
+            set_deployment_status(&pool, other_child, "active").await;
+            assert_readiness(&pool, "deploying").await;
+            sqlx::query("UPDATE instances SET observed_at=now()-interval '16 seconds' WHERE deployment_id=$1")
+                .bind(other_child).execute(&pool).await.unwrap();
+            assert_readiness(&pool, "degraded").await;
+            for failed in ["failed", "stopped", "superseded"] {
+                set_deployment_status(&pool, other_child, failed).await;
+                assert_readiness(&pool, "failed").await;
+            }
+            set_deployment_status(&pool, other_child, "active").await;
+            set_deployment_status(&pool, pending_child, "active").await;
+            fresh_observations(&pool).await;
+            assert_readiness(&pool, "ready").await;
+        }
+    }
 }
 
 #[sqlx::test(migrations = "./migrations")]
