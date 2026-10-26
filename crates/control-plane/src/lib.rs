@@ -551,11 +551,15 @@ async fn create_service(
     .fetch_optional(&mut *tx)
     .await?
     {
-        let registered: DbJson<ServiceSpec> =
-            sqlx::query_scalar("SELECT registered_spec FROM services WHERE id = $1")
-                .bind(existing.id)
-                .fetch_one(&mut *tx)
-                .await?;
+        // Operation IDs are global, but retries must stay in the active organization.
+        let registered: DbJson<ServiceSpec> = sqlx::query_scalar(
+            "SELECT s.registered_spec FROM services s JOIN environments e ON e.id=s.environment_id JOIN projects p ON p.id=e.project_id WHERE s.id=$1 AND p.organization_id=$2",
+        )
+        .bind(existing.id)
+        .bind(organization)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(ApiError::NotFound)?;
         if registered.0 != request.spec {
             return Err(ApiError::Conflict(
                 "operation ID was already used with a different specification",
