@@ -19,6 +19,7 @@ export const platformPermissions = {
   audit: ['read'],
   domain: ['read', 'manage'],
   storage: ['read', 'manage'],
+  source: ['read', 'manage'],
 } as const
 
 const accessControl = createAccessControl(platformPermissions)
