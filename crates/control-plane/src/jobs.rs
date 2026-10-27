@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, State},
 };
 use chrono::{DateTime, Utc};
-use platform_domain::{Execution, Workload};
+use platform_domain::{Execution, ServiceSpec, Workload};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Row, Transaction, types::Json as DbJson};
@@ -99,6 +99,34 @@ pub(crate) async fn occupied(
     sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM deployments d WHERE service_id=$1 AND (status='releasing' OR (job_options IS NOT NULL AND (status='job' OR EXISTS(SELECT 1 FROM instances i WHERE i.deployment_id=d.id AND i.state<>'stopped')))))").bind(service).fetch_one(&mut **tx).await
 }
 
+/// Derive a one-shot worker without changing the application's HTTP configuration.
+pub(crate) fn worker_spec(mut spec: ServiceSpec) -> Result<ServiceSpec, ApiError> {
+    let Workload::OciService {
+        execution,
+        replicas,
+        port,
+        readiness,
+        liveness,
+        pre_deploy,
+        ..
+    } = &mut spec.workload
+    else {
+        return Err(ApiError::Conflict(
+            "jobs require an OCI application revision",
+        ));
+    };
+    *pre_deploy = None;
+    *execution = Execution::Worker;
+    *replicas = 1;
+    *port = None;
+    *readiness = None;
+    *liveness = None;
+    spec.domains.clear();
+    spec.distinct_nodes = false;
+    spec.validate().map_err(ApiError::Invalid)?;
+    Ok(spec)
+}
+
 async fn enqueue(
     pool: &PgPool,
     tx: &mut Transaction<'_, Postgres>,
@@ -113,26 +141,8 @@ async fn enqueue(
         .await?
         .ok_or(ApiError::NotFound)?;
     let mut spec = service.spec.0;
-    let Workload::OciService {
-        execution,
-        replicas,
-        port,
-        readiness,
-        pre_deploy,
-        ..
-    } = &mut spec.workload
-    else {
-        return Err(ApiError::Conflict(
-            "jobs require an OCI application revision",
-        ));
-    };
-    *pre_deploy = None;
-    *execution = Execution::Worker;
-    *replicas = 1;
-    *port = None;
-    *readiness = None;
-    spec.domains.clear();
-    spec.distinct_nodes = false;
+    spec.secrets = crate::secrets::references(pool, service_id).await?;
+    let spec = worker_spec(spec)?;
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM revisions WHERE id=$1 AND service_id=$2)")
             .bind(revision)
@@ -149,7 +159,6 @@ async fn enqueue(
     .fetch_one(&mut **tx)
     .await?;
     crate::volumes::validate_scope(tx, &spec, &organization_id).await?;
-    spec.secrets = crate::secrets::references(pool, service_id).await?;
     crate::discovery::validate(tx, &spec).await?;
     let secret_version = crate::secrets::snapshot(pool, service_id, &spec.secrets).await?;
     let ports:Vec<i32>=sqlx::query_scalar("SELECT n.endpoint_base+v.slot FROM database_connections c JOIN volumes v ON v.id=c.database_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 UNION SELECT n.endpoint_base+v.slot FROM storage_bindings c JOIN storage_buckets b ON b.id=c.bucket_id JOIN volumes v ON v.id=b.service_id JOIN nodes n ON n.id=v.node_id WHERE c.service_id=$1 AND c.status='ready'").bind(service_id).fetch_all(&mut **tx).await?;

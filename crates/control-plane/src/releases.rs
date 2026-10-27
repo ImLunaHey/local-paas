@@ -1,5 +1,6 @@
 //! Pre-deploy jobs are children of a persisted rollout, with the same snapshot.
-use platform_domain::{Execution, PreDeploy, ServiceSpec, Workload};
+use crate::ApiError;
+use platform_domain::{PreDeploy, ServiceSpec, Workload};
 use sqlx::{Postgres, Row, Transaction, types::Json};
 use uuid::Uuid;
 
@@ -8,25 +9,8 @@ pub async fn enqueue(
     parent: Uuid,
     spec: &ServiceSpec,
     options: &PreDeploy,
-) -> Result<(), sqlx::Error> {
-    let mut job_spec = spec.clone();
-    if let Workload::OciService {
-        execution,
-        replicas,
-        port,
-        readiness,
-        pre_deploy,
-        ..
-    } = &mut job_spec.workload
-    {
-        *execution = Execution::Worker;
-        *replicas = 1;
-        *port = None;
-        *readiness = None;
-        *pre_deploy = None;
-    }
-    job_spec.domains.clear();
-    job_spec.distinct_nodes = false;
+) -> Result<(), ApiError> {
+    let job_spec = crate::jobs::worker_spec(spec.clone())?;
     let child = Uuid::now_v7();
     sqlx::query("INSERT INTO deployments(id,operation_id,service_id,revision_id,spec,status,job_options,secret_version,secret_snapshot,database_ports,volume_size_gib,error_code,parent_deployment_id) SELECT $1,$1,service_id,revision_id,$2,'job',$3,secret_version,secret_snapshot,database_ports,volume_size_gib,'waiting_for_capacity',id FROM deployments WHERE id=$4")
         .bind(child).bind(Json(job_spec)).bind(Json(options)).bind(parent).execute(&mut **tx).await?;
