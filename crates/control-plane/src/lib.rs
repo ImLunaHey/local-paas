@@ -526,10 +526,18 @@ async fn list_events(
 async fn create_service(
     State(pool): State<PgPool>,
     axum::Extension(context): axum::Extension<auth::Context>,
+    authorization: Option<axum::Extension<auth::Authorization>>,
     Json(request): Json<CreateService>,
 ) -> Result<(StatusCode, Json<Service>), ApiError> {
     request.spec.validate().map_err(ApiError::Invalid)?;
     let organization = auth::required_organization(&context)?;
+    let enqueue_build = request.build_on_create && request.spec.kind() != "celld-service";
+    if enqueue_build && !context.is_superuser {
+        authorization
+            .ok_or(ApiError::Forbidden)?
+            .require(organization, "build", "execute")
+            .await?;
+    }
     let mut tx = pool.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(712184551)")
         .execute(&mut *tx)
@@ -575,7 +583,7 @@ async fn create_service(
     domains::assign_service(&mut tx, service.id, &request.spec.domains).await?;
     sqlx::query("INSERT INTO events (id, service_id, operation_id, kind) VALUES ($1, $2, $3, 'service.registered')")
         .bind(Uuid::now_v7()).bind(service.id).bind(request.operation_id).execute(&mut *tx).await?;
-    if request.build_on_create && service.spec.kind() != "celld-service" {
+    if enqueue_build {
         let build_id = Uuid::now_v7();
         let build_request = builds::CreateBuild {
             operation_id: request.operation_id,

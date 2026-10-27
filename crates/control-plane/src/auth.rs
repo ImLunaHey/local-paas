@@ -50,6 +50,42 @@ pub struct GuardState {
     pub service: Arc<AuthService>,
 }
 
+/// Request identity for permissions that depend on the parsed request body.
+#[derive(Clone)]
+pub(crate) struct Authorization {
+    service: Arc<AuthService>,
+    session: lucid_auth::SessionWithUser,
+    key_permissions: Option<OrganizationPermissions>,
+}
+
+impl Authorization {
+    pub(crate) async fn require(
+        &self,
+        organization_id: &str,
+        resource: &str,
+        action: &str,
+    ) -> Result<(), crate::ApiError> {
+        let permissions = BTreeMap::from([(resource.into(), vec![action.into()])]);
+        if self
+            .key_permissions
+            .as_ref()
+            .is_some_and(|scope| !crate::api_keys::permits(scope, &permissions))
+            || !self
+                .service
+                .has_organization_permission(
+                    &self.session,
+                    Some(organization_id.into()),
+                    permissions,
+                )
+                .await
+                .unwrap_or(false)
+        {
+            return Err(crate::ApiError::Forbidden);
+        }
+        Ok(())
+    }
+}
+
 impl Context {
     pub fn testing() -> Self {
         Self {
@@ -329,6 +365,11 @@ pub async fn require_operator(
             .insert(crate::api_keys::BrowserSession(session.clone()));
         request.extensions_mut().insert(service.clone());
     }
+    request.extensions_mut().insert(Authorization {
+        service,
+        session: session.clone(),
+        key_permissions: key_identity.as_ref().map(|key| key.permissions.clone()),
+    });
     request.extensions_mut().insert(Context {
         actor_id: key_identity
             .map(|key| format!("api-key:{}", key.id))
