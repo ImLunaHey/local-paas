@@ -5,9 +5,12 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use platform_domain::{RecoveryPolicy, ServiceSpec, Workload};
-use platform_protocol::{Assignment, RecoveryPhase, SyncRequest, SyncResponse, VERSION};
+use platform_protocol::{
+    Assignment, MAX_LOG_ENTRIES, MAX_LOG_LINE_BYTES, RecoveryPhase, SyncRequest, SyncResponse,
+    VERSION,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -608,6 +611,19 @@ pub async fn reconcile(pool: &PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+// PostgreSQL text/jsonb cannot store NUL, including JSON object keys and nested
+// values decoded from otherwise valid escaped log lines.
+fn log_fields_supported(value: &Value) -> bool {
+    match value {
+        Value::String(text) => !text.contains('\0'),
+        Value::Array(values) => values.iter().all(log_fields_supported),
+        Value::Object(fields) => fields
+            .iter()
+            .all(|(key, value)| !key.contains('\0') && log_fields_supported(value)),
+        _ => true,
+    }
+}
+
 type NodeError = (StatusCode, &'static str);
 fn db_error(_: sqlx::Error) -> NodeError {
     (StatusCode::SERVICE_UNAVAILABLE, "runtime state unavailable")
@@ -673,7 +689,6 @@ async fn sync_inner(
             return Err((StatusCode::BAD_REQUEST, "invalid observation time"));
         }
         if !["starting", "ready", "failed", "stopped", "unknown"].contains(&o.state.as_str())
-            || o.logs.len() > 256
             || o.diagnostic.as_ref().is_some_and(|s| s.len() > 128)
         {
             return Err((StatusCode::BAD_REQUEST, "invalid observation"));
@@ -809,22 +824,35 @@ async fn sync_inner(
         if let Some(m) = m {
             sqlx::query("INSERT INTO runtime_metrics(instance_id,cpu_millis,memory_bytes,pids,io_read_bytes_per_second,io_write_bytes_per_second,network_rx_bytes_per_second,network_tx_bytes_per_second) VALUES($1,$2,$3,$4,$5,$6,$7,$8)").bind(o.instance_id).bind(m.cpu_millis).bind(m.memory_bytes as i64).bind(m.pids as i64).bind(m.io_read_bytes_per_second).bind(m.io_write_bytes_per_second).bind(m.network_rx_bytes_per_second).bind(m.network_tx_bytes_per_second).execute(&mut *tx).await.map_err(db_error)?;
         }
-        for log in o.logs {
+        // Logs are best-effort telemetry. Invalid entries must not roll back the
+        // authenticated heartbeat or current-generation workload observations.
+        for log in o.logs.into_iter().take(MAX_LOG_ENTRIES) {
             if log.key.len() != 64
-                || log.line.len() > 16384
+                || !log.key.bytes().all(|b| b.is_ascii_hexdigit())
+                || log.line.len() > MAX_LOG_LINE_BYTES
+                || log.line.contains('\0')
                 || !["stdout", "stderr"].contains(&log.stream.as_str())
             {
-                return Err((StatusCode::BAD_REQUEST, "invalid log entry"));
+                continue;
             }
-            let timestamp = log
-                .timestamp
-                .parse::<DateTime<Utc>>()
-                .map_err(|_| (StatusCode::BAD_REQUEST, "invalid log timestamp"))?;
+            let Ok(timestamp) = log.timestamp.parse::<DateTime<Utc>>() else {
+                continue;
+            };
+            // Chrono supports dates earlier than PostgreSQL's 4713 BC minimum.
+            if timestamp.year() < -4712 {
+                continue;
+            }
+            let (level, message, fields) = crate::logging::parse(&log.line);
+            if fields
+                .as_ref()
+                .is_some_and(|value| !log_fields_supported(value))
+            {
+                continue;
+            }
             let inserted=sqlx::query("INSERT INTO runtime_log_keys(instance_id,entry_key) VALUES($1,$2) ON CONFLICT DO NOTHING").bind(o.instance_id).bind(&log.key).execute(&mut *tx).await.map_err(db_error)?;
             if inserted.rows_affected() == 0 {
                 continue;
             }
-            let (level, message, fields) = crate::logging::parse(&log.line);
             sqlx::query("INSERT INTO runtime_logs(instance_id,entry_key,timestamp,stream,line,level,message,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(instance_id,entry_key) DO NOTHING").bind(o.instance_id).bind(log.key).bind(timestamp).bind(log.stream).bind(log.line).bind(level).bind(message).bind(fields.map(DbJson)).execute(&mut *tx).await.map_err(db_error)?;
         }
     }

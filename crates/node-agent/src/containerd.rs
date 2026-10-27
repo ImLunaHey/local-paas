@@ -588,15 +588,12 @@ impl Runtime for Containerd {
                     .collect()
             })
             .unwrap_or_default();
-        let mut entries = crate::read_logs(&self.logfile(id)).await;
         let values = if self.root.join(format!("{id}.has-secrets")).exists() {
             crate::secrets::load(id).await.map_err(|_| failure())?
         } else {
             BTreeMap::new()
         };
-        for entry in &mut entries {
-            entry.line = crate::secrets::redact(&entry.line, &values);
-        }
+        let entries = crate::logs::read(&self.logfile(id), &values).await;
         let after = request
             .cursor
             .as_ref()

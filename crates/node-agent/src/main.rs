@@ -2,6 +2,7 @@ mod containerd;
 mod discovery;
 mod ipam;
 mod jobs;
+mod logs;
 mod network;
 mod recovery;
 mod secrets;
@@ -10,22 +11,18 @@ mod volumes;
 use containerd::Containerd;
 use platform_domain::{RecoveryPolicy, Workload};
 use platform_protocol::{
-    Assignment, InstanceReport, LogEntry, Metrics, ProbeObservation, ProcessObservation,
-    RecoveryObservation, RecoveryPhase, RuntimeHealth, SyncRequest, SyncResponse, VERSION,
+    Assignment, InstanceReport, Metrics, ProbeObservation, ProcessObservation, RecoveryObservation,
+    RecoveryPhase, RuntimeHealth, SyncRequest, SyncResponse, VERSION,
 };
 use platform_runtime::{Identity, Limits, NetworkPolicy, Operation, PrepareSpec, Runtime};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncSeekExt},
-    sync::{RwLock, watch},
-};
+use tokio::sync::{RwLock, watch};
 use uuid::Uuid;
 
 #[derive(Clone, Deserialize)]
@@ -112,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let discovery = discovery::Discovery::start().await?;
     println!("Node agent ready: {}", config.node_id);
     loop {
-        let request = SyncRequest {
+        let mut request = SyncRequest {
             version: VERSION,
             node_id: config.node_id,
             observations: reports.read().await.values().cloned().collect(),
@@ -128,6 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "private-network-v1".into(),
             ],
         };
+        logs::limit_payload(&mut request)?;
         match client
             .post(format!("{}/api/agent/sync", config.controller_url))
             .bearer_auth(&config.token)
@@ -700,10 +698,7 @@ async fn instance_loop(
             report.diagnostic = Some("unsupported_desired_state".into());
         }
         if a.spec.secrets.is_empty() || !values.is_empty() {
-            report.logs = read_logs(&runtime.logfile(id)).await;
-            for log in &mut report.logs {
-                log.line = secrets::redact(&log.line, &values);
-            }
+            report.logs = logs::read(&runtime.logfile(id), &values).await;
         }
         if stopped {
             secrets::clear(id).await;
@@ -870,47 +865,6 @@ fn network_counters(text: &str) -> (u64, u64) {
         }
     }
     result
-}
-async fn read_logs(path: &std::path::Path) -> Vec<LogEntry> {
-    let Ok(mut file) = tokio::fs::File::open(path).await else {
-        return vec![];
-    };
-    let size = file.metadata().await.map(|m| m.len()).unwrap_or(0);
-    let offset = size.saturating_sub(32768);
-    if file.seek(std::io::SeekFrom::Start(offset)).await.is_err() {
-        return vec![];
-    }
-    let mut bytes = Vec::new();
-    if file.take(32768).read_to_end(&mut bytes).await.is_err() {
-        return vec![];
-    }
-    let mut seen = HashSet::new();
-    bytes
-        .split(|b| *b == b'\n')
-        .filter_map(|line| {
-            let value: serde_json::Value = serde_json::from_slice(line).ok()?;
-            let line = value["log"].as_str()?;
-            let timestamp = value["time"].as_str()?;
-            let stream = value["stream"].as_str()?;
-            if line.len() > 16384 || !["stdout", "stderr"].contains(&stream) {
-                return None;
-            }
-            let key = format!(
-                "{:x}",
-                Sha256::digest(format!("{timestamp}\0{stream}\0{line}"))
-            );
-            if !seen.insert(key.clone()) {
-                return None;
-            }
-            Some(LogEntry {
-                key,
-                timestamp: timestamp.into(),
-                stream: stream.into(),
-                line: line.into(),
-            })
-        })
-        .take(256)
-        .collect()
 }
 
 #[cfg(test)]

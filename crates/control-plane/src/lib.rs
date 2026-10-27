@@ -222,7 +222,7 @@ fn platform_router(
         .route("/api/services/{id}/runtime/metrics", get(runtime::metrics))
         .route(
             "/api/agent/sync",
-            post(runtime::sync).layer(DefaultBodyLimit::max(512 * 1024)),
+            post(runtime::sync).layer(DefaultBodyLimit::max(platform_protocol::MAX_SYNC_BYTES)),
         )
         .route("/api/specs/validate", post(validate_spec))
         .route("/api/build-system", get(builds::system))
